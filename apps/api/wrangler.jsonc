@@ -30,7 +30,10 @@
 
   "env": {
     "production": {
-      "name": "hardhub-api",
+      // Every part of HardHub on Cloudflare is named offgrid-hardhub*: this
+      // Worker, its database, its file bucket and its engine container (the
+      // Durable Objects live inside the Worker). README: "Remove it all".
+      "name": "offgrid-hardhub",
       // OffGrid's address: Cloudflare adds the DNS record and certificate for
       // this one hostname on deploy and touches nothing else in the zone. The
       // zone must be on the same Cloudflare account; a fork puts its own here.
@@ -38,18 +41,18 @@
       "routes": [{ "pattern": "hardhub.offgridevices.com", "custom_domain": true }],
       "workers_dev": false,
       "preview_urls": false,
-      // Secrets (wrangler secret put --env production): KEY_ENCRYPTION_KEY (made by ./hardhub deploy)
+      // Secret (made by ./hardhub deploy): KEY_ENCRYPTION_KEY. Sign-in is email
+      // and password: no email service, and only the first account (the
+      // owner's) can be made.
       "vars": {
         "DEV": "0",
-        // empty: sign-in links use the Worker's own address
+        // empty: the Worker's own address (the custom domain above)
         "APP_URL": "",
         // the web app is served by this same Worker: no other origin needs CORS
         "WEB_ORIGINS": "",
         "ENGINE_URL": "",
         "US_ONLY": "1"
       },
-      // Secrets for sign-in email (optional until people other than you sign in):
-      // RESEND_API_KEY, MAIL_FROM. ./hardhub deploy asks for them.
       // The web app (apps/web/dist, built with VITE_API_URL=/api) is served by
       // this Worker; /api/* goes to the API, and so do /mcp and the agent
       // sign-in paths (/oauth/*, /.well-known/*); every other path to the app.
@@ -59,10 +62,9 @@
         "not_found_handling": "single-page-application",
         "run_worker_first": ["/api/*", "/mcp", "/oauth/*", "/.well-known/*"]
       },
-      // Create with: wrangler d1 create hardhub --jurisdiction=us
-      "d1_databases": [{ "binding": "DB", "database_name": "hardhub", "database_id": "REPLACE_WITH_D1_ID", "migrations_dir": "migrations" }],
-      // Create with: wrangler r2 bucket create hardhub-files --jurisdiction us
-      "r2_buckets": [{ "binding": "FILES", "bucket_name": "hardhub-files", "jurisdiction": "us" }],
+      // ./hardhub deploy creates both in the US jurisdiction and writes the id here
+      "d1_databases": [{ "binding": "DB", "database_name": "offgrid-hardhub-db", "database_id": "REPLACE_WITH_D1_ID", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "offgrid-hardhub-files", "jurisdiction": "us" }],
       "durable_objects": {
         "bindings": [
           { "name": "ROOMS", "class_name": "ProjectRoom" },
@@ -71,6 +73,7 @@
       },
       "containers": [
         {
+          "name": "offgrid-hardhub-engine",
           "class_name": "EngineContainer",
           "image": "../../engine/Dockerfile",
           "instance_type": "standard-3",

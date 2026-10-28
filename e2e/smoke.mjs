@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 const { chromium } = createRequire(import.meta.url)("playwright");
 import fs from "node:fs";
 import path from "node:path";
+import { signUp } from "./signup.mjs";
 
 const APP = process.argv[2] ?? "http://localhost:5173";
 const SHOTS = process.argv[3];
@@ -25,8 +26,7 @@ async function run(name, viewport) {
   const step = (s) => console.log(`  ${name}: ${s}`);
 
   await page.goto(APP);
-  await page.getByTestId("signin-email").fill(`smoke-${name}@example.com`);
-  await page.getByTestId("signin-submit").click();
+  await signUp(page, `smoke-${name}@example.com`);
   await page.getByTestId("prompt-input").waitFor({ timeout: 15000 });
   step("signed in");
   // the server supplies a working key here, so no "add a key" banner

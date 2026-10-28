@@ -46,24 +46,26 @@ class FakeWS {
 beforeEach(() => localStorage.clear());
 
 describe("ApiClient", () => {
-  it("signs in through dev mode and sends the token afterwards", async () => {
+  it("signs in with a password and sends the token afterwards", async () => {
     const { f, calls } = fakeFetch({
-      "POST /auth/start": { body: { sent: false, dev_link: "http://x/auth?t=1", token: "tok" } },
+      "GET /auth/status": { body: { has_account: true, signup_open: false } },
+      "POST /auth/signin": { body: { token: "tok", me } },
       "GET /me": { body: me },
     });
     const api = new ApiClient("http://localhost:8787/", f);
-    const r = await api.authStart("a@b.co");
-    expect(r.token).toBe("tok");
-    api.adoptToken(r.token!);
+    expect(await api.authStatus()).toEqual({ has_account: true, signup_open: false });
+    const s = await api.signIn("a@b.co", "correct horse");
+    expect(s.token).toBe("tok");
+    expect(JSON.parse(String(calls[1]!.init!.body))).toEqual({ email: "a@b.co", password: "correct horse" });
     const m = await api.me();
     expect(m.llm.provider).toBe("anthropic");
-    expect((calls[1]!.init!.headers as Record<string, string>).authorization).toBe("Bearer tok");
+    expect((calls[2]!.init!.headers as Record<string, string>).authorization).toBe("Bearer tok");
     expect(localStorage.getItem("hh_token")).toBe("tok");
   });
 
-  it("reads a 204 from /auth/start as 'link emailed'", async () => {
-    const { f } = fakeFetch({ "POST /auth/start": { status: 204 } });
-    expect(await new ApiClient("http://h", f).authStart("a@b.co")).toEqual({ sent: true });
+  it("explains a closed sign-up", async () => {
+    const { f } = fakeFetch({ "POST /auth/signup": { status: 403, body: { error: "This HardHub already has its owner. New accounts are not open." } } });
+    await expect(new ApiClient("http://h", f).signUp("a@b.co", "correct horse")).rejects.toMatchObject({ status: 403, message: expect.stringContaining("owner") });
   });
 
   it("turns an error body into an ApiError and forgets a rejected token", async () => {

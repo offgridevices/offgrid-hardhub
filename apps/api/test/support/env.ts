@@ -110,6 +110,8 @@ export function testEnv(engine?: FakeEngine): TestEnv {
     US_ONLY: "0",
     KEY_ENCRYPTION_KEY: KEK,
     DEV_LLM_PROVIDER: "ollama",
+    // most tests make several accounts; "only the owner" is tested on its own
+    ALLOW_SIGNUP: "1",
   } as unknown as TestEnv;
   env.ROOMS = fakeRooms(env, engine);
   return env;

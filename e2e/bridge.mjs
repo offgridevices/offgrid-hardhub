@@ -7,6 +7,7 @@
 //   node e2e/bridge.mjs [APP_URL] [SHOTS_DIR]
 import { createRequire } from "node:module";
 import path from "node:path";
+import { signUp } from "./signup.mjs";
 const { chromium } = createRequire(import.meta.url)("playwright");
 
 const APP = process.argv[2] ?? "http://localhost:5173";
@@ -27,8 +28,7 @@ page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 const shot = async (n) => SHOTS && page.screenshot({ path: path.join(SHOTS, `bridge-${n}.png`) });
 try {
   await page.goto(APP);
-  await page.getByTestId("signin-email").fill(`bridge-${Date.now()}@example.com`);
-  await page.getByTestId("signin-submit").click();
+  await signUp(page, `bridge-${Date.now()}@example.com`);
   await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
 
   await page.goto(`${APP}/settings`);

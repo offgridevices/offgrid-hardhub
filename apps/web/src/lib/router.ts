@@ -3,7 +3,6 @@ import { useSyncExternalStore } from "react";
 
 export type Route =
   | { name: "signin" }
-  | { name: "verify" }
   | { name: "projects" }
   | { name: "project"; id: string }
   | { name: "settings" }
@@ -14,8 +13,6 @@ export function parse(pathname: string): Route {
   const p = pathname.replace(/\/+$/, "") || "/";
   if (p === "/") return { name: "projects" };
   if (p === "/signin") return { name: "signin" };
-  // the link in the sign-in email
-  if (p === "/auth/verify") return { name: "verify" };
   if (p === "/settings") return { name: "settings" };
   // an AI app asking to connect (MCP sign-in)
   if (p === "/connect") return { name: "connect" };
@@ -25,7 +22,7 @@ export function parse(pathname: string): Route {
 }
 
 // Where to go after signing in: the consent page an AI app sent the person
-// to. Kept in localStorage, because the sign-in email may open a new tab.
+// to. Kept in localStorage, so it survives a reload of the sign-in page.
 const NEXT_KEY = "hh_next";
 const NEXT_MINUTES = 30;
 

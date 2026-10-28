@@ -139,8 +139,10 @@ describe("a chat turn on Claude Code", () => {
   };
 
   async function setup() {
-    const start = (await (await call("/auth/start", { method: "POST", body: JSON.stringify({ email: "maker@example.com" }) })).json()) as { token: string };
-    const s = (await (await call("/auth/verify", { method: "POST", body: JSON.stringify({ token: start.token }) })).json()) as { token: string; me: { id: string } };
+    const s = (await (await call("/auth/signup", { method: "POST", body: JSON.stringify({ email: "maker@example.com", password: "correct horse battery" }) })).json()) as {
+      token: string;
+      me: { id: string };
+    };
     await call("/me/llm", { method: "PATCH", token: s.token, body: JSON.stringify({ provider: "claude-code", model: "default" }) });
     const p = (await (await call("/projects", { method: "POST", token: s.token, body: JSON.stringify({ name: "Chat" }) })).json()) as { id: string };
     return { browser: s.token, userId: s.me.id, project: p.id };

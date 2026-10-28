@@ -5,13 +5,14 @@
 //   HH_STATE            where local data lives          .wrangler/state
 //   PORT                                                8787
 //   ENGINE_URL          the engine service              http://localhost:8080
-//   APP_URL             the web app, for sign-in links  http://localhost:5173
+//   APP_URL             the web app                     http://localhost:5173
 //   MCP_URL             the MCP address Settings shows  http://localhost:PORT/mcp
 //   WEB_ORIGINS         CORS origins                    APP_URL and 127.0.0.1:5173
 //   KEY_ENCRYPTION_KEY  encrypts stored API keys        generated once, kept in HH_STATE
 //   BRIDGE_URL, BRIDGE_TOKEN  the bridge to the person's own Claude Code (./hardhub sets them)
 //   DEV_LLM_PROVIDER, DEV_LLM_MODEL, DEV_LLM_BASE_URL, DEV_LLM_KEY
 //                       LLM defaults for new accounts and a fallback key (dev only)
+//   ALLOW_SIGNUP        "1": anyone may create an account (end-to-end tests); otherwise only the first
 import { spawnSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,7 +37,7 @@ const vars = {
   US_ONLY: "0",
   KEY_ENCRYPTION_KEY: kek,
   ...Object.fromEntries(
-    ["DEV_LLM_PROVIDER", "DEV_LLM_MODEL", "DEV_LLM_BASE_URL", "DEV_LLM_KEY", "ANTHROPIC_BASE_URL", "BRIDGE_URL", "BRIDGE_TOKEN"]
+    ["DEV_LLM_PROVIDER", "DEV_LLM_MODEL", "DEV_LLM_BASE_URL", "DEV_LLM_KEY", "ANTHROPIC_BASE_URL", "BRIDGE_URL", "BRIDGE_TOKEN", "ALLOW_SIGNUP"]
       .filter((k) => e[k])
       .map((k) => [k, e[k]]),
   ),

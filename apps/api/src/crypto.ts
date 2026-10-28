@@ -19,7 +19,7 @@ export function unb64(s: string): Uint8Array {
 
 const b64url = (bytes: Uint8Array) => b64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-/** 32 random bytes, URL-safe: session tokens and sign-in links */
+/** 32 random bytes, URL-safe: session tokens */
 export function randomToken(): string {
   return b64url(crypto.getRandomValues(new Uint8Array(32)));
 }
@@ -33,6 +33,36 @@ export function newId(prefix: string): string {
 export async function sha256(s: string): Promise<string> {
   return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s))));
 }
+
+// Passwords: PBKDF2-SHA256 with a random salt, at the most iterations
+// Workers' Web Crypto allows (100,000). Stored as
+// "pbkdf2-sha256$<iterations>$<salt>$<hash>"; scripts/reset-password.mjs
+// writes the same format with Node's crypto.
+const PBKDF2_ITERATIONS = 100_000;
+
+async function pbkdf2(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256));
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  return `pbkdf2-sha256$${PBKDF2_ITERATIONS}$${b64url(salt)}$${b64url(await pbkdf2(password, salt, PBKDF2_ITERATIONS))}`;
+}
+
+/** Constant-time check. With no stored hash it still does the work, so a
+ *  missing account takes as long as a wrong password. */
+export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
+  const [kind, iter, salt, hash] = (stored ?? "").split("$");
+  const ok = kind === "pbkdf2-sha256" && !!salt && !!hash;
+  const want = ok ? fromB64url(hash!) : new Uint8Array(32);
+  const got = await pbkdf2(password, ok ? fromB64url(salt!) : new Uint8Array(16), ok ? Number(iter) : PBKDF2_ITERATIONS);
+  let diff = got.length ^ want.length;
+  for (let i = 0; i < Math.min(got.length, want.length); i++) diff |= got[i]! ^ want[i]!;
+  return ok && diff === 0;
+}
+
+const fromB64url = (s: string) => unb64(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
 
 async function aesKey(secret: string): Promise<CryptoKey> {
   const raw = unb64(secret);

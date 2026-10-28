@@ -26,6 +26,8 @@ services:
   api:
     ports: !reset []
     environment:
+      # every test makes its own account
+      ALLOW_SIGNUP: "1"
       DEV_LLM_PROVIDER: anthropic
       DEV_LLM_MODEL: claude-opus-5-5
       DEV_LLM_KEY: sk-e2e-not-a-real-key

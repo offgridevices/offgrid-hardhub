@@ -1,11 +1,14 @@
-// D1 queries: users, sessions, sign-in links, projects, API keys.
+// D1 queries: users, passwords, sessions, projects, API keys.
 import type { LlmProvider, LlmSettings, Me, ProjectSummary, Stage } from "@hardhub/protocol";
 import { isDev, type Env } from "./env";
 import { PRESETS } from "./agent/llm/presets";
-import { decryptSecret, encryptSecret, newId, randomToken, sha256 } from "./crypto";
+import { decryptSecret, encryptSecret, hashPassword, newId, randomToken, sha256, verifyPassword } from "./crypto";
 
 const SESSION_DAYS = 30;
-const LINK_MINUTES = 15;
+// ten sign-in attempts for one email from one visitor address within 15
+// minutes, and that pair is locked for the rest of those 15 minutes
+const MAX_ATTEMPTS = 10;
+const FAILURE_WINDOW_MS = 15 * 60_000;
 
 const now = () => new Date().toISOString();
 const later = (ms: number) => new Date(Date.now() + ms).toISOString();
@@ -35,35 +38,76 @@ export async function setLlm(env: Env, userId: string, llm: LlmSettings) {
 
 // ------------------------------------------------------------- sign-in
 
-export async function createLoginToken(env: Env, email: string): Promise<string> {
-  const token = randomToken();
-  await env.DB.prepare("INSERT INTO login_tokens (token_hash, email, created_at, expires_at) VALUES (?, ?, ?, ?)")
-    .bind(await sha256(token), email, now(), later(LINK_MINUTES * 60_000))
-    .run();
-  return token;
+/** Is there an account yet, and may a new one be made? Without allowSignup
+ *  ($ALLOW_SIGNUP) only the first account can be created: the owner's. */
+export async function authStatus(env: Env, allowSignup: boolean): Promise<{ has_account: boolean; signup_open: boolean }> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE password_hash IS NOT NULL").first<{ n: number }>();
+  const has_account = (row?.n ?? 0) > 0;
+  return { has_account, signup_open: allowSignup || !has_account };
 }
 
-/** Spends a sign-in link: returns a new session, creating the user on first sign-in. */
-export async function redeemLoginToken(
+export type SignUp = { token: string; userId: string } | "closed" | "taken";
+
+/** A new account with a password, made only while sign-ups are open: the
+ *  check and the insert are one statement, so two at once cannot both get in.
+ *  With claimOld (this computer only), the first sign-up may also take over an
+ *  account from before passwords with that email, keeping its boards. */
+export async function signUp(
   env: Env,
-  token: string,
+  email: string,
+  password: string,
+  allowSignup: boolean,
+  claimOld: boolean,
   llm?: LlmSettings | null,
-): Promise<{ token: string; userId: string } | null> {
-  const hash = await sha256(token);
-  // single statement, so a link cannot be spent twice by racing requests
-  const row = await env.DB.prepare(
-    "UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING email",
+): Promise<SignUp> {
+  const hash = await hashPassword(password);
+  const userId = newId("u");
+  const made = await env.DB.prepare(
+    `INSERT INTO users (id, email, password_hash, created_at) SELECT ?1, ?2, ?3, ?4
+       WHERE ?5 = 1 OR NOT EXISTS (SELECT 1 FROM users WHERE password_hash IS NOT NULL)
+     ON CONFLICT(email) DO NOTHING RETURNING id`,
   )
-    .bind(now(), hash, now())
-    .first<{ email: string }>();
-  if (!row) return null;
-  let user = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(row.email).first<{ id: string }>();
-  if (!user) {
-    user = { id: newId("u") };
-    await env.DB.prepare("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)").bind(user.id, row.email, now()).run();
-    if (llm) await setLlm(env, user.id, llm);
+    .bind(userId, email, hash, now(), allowSignup ? 1 : 0)
+    .first();
+  if (made) {
+    if (llm) await setLlm(env, userId, llm);
+    return { token: await createSession(env, userId), userId };
   }
-  return { token: await createSession(env, user.id), userId: user.id };
+  // closed says nothing about which emails have accounts
+  if (!(await authStatus(env, allowSignup)).signup_open) return "closed";
+  if (claimOld) {
+    const old = await env.DB.prepare(
+      `UPDATE users SET password_hash = ?1 WHERE email = ?2 AND password_hash IS NULL
+         AND NOT EXISTS (SELECT 1 FROM users WHERE password_hash IS NOT NULL) RETURNING id`,
+    )
+      .bind(hash, email)
+      .first<{ id: string }>();
+    if (old) return { token: await createSession(env, old.id), userId: old.id };
+  }
+  return "taken";
+}
+
+export type SignIn = { token: string; userId: string } | "wrong" | "locked";
+
+/** visitor: the caller's address (Cloudflare's CF-Connecting-IP; empty locally).
+ *  The attempt is counted before the password is checked, in one statement,
+ *  so many requests at once cannot all slip under the limit. */
+export async function signIn(env: Env, email: string, password: string, visitor: string): Promise<SignIn> {
+  const key = `${email}|${visitor}`;
+  const tries = await env.DB.prepare(
+    `INSERT INTO login_failures (key, count, first_at) VALUES (?1, 1, ?2)
+     ON CONFLICT(key) DO UPDATE SET
+       count = CASE WHEN first_at < ?3 THEN 1 ELSE count + 1 END,
+       first_at = CASE WHEN first_at < ?3 THEN ?2 ELSE first_at END
+     RETURNING count`,
+  )
+    .bind(key, now(), new Date(Date.now() - FAILURE_WINDOW_MS).toISOString())
+    .first<{ count: number }>();
+  if ((tries?.count ?? 0) > MAX_ATTEMPTS) return "locked";
+  const u = await env.DB.prepare("SELECT id, password_hash FROM users WHERE email = ?").bind(email).first<{ id: string; password_hash: string | null }>();
+  if (!(await verifyPassword(password, u?.password_hash ?? null)) || !u) return "wrong";
+  await env.DB.prepare("DELETE FROM login_failures WHERE key = ?").bind(key).run();
+  return { token: await createSession(env, u.id), userId: u.id };
 }
 
 export async function createSession(env: Env, userId: string): Promise<string> {

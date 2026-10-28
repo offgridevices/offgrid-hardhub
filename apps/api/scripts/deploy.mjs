@@ -6,8 +6,8 @@
 //  2. creates the D1 database and the R2 bucket in the US jurisdiction, if missing,
 //     and writes the database id into wrangler.jsonc
 //  3. applies the database migrations
-//  4. makes KEY_ENCRYPTION_KEY (encrypts people's API keys) if it is not set,
-//     and offers to set the sign-in email sender (Resend); both go up with the deploy
+//  4. makes KEY_ENCRYPTION_KEY (encrypts people's API keys) if it is not set;
+//     it goes up with the deploy. Sign-in is email and password: no email service
 //  5. builds the web app and deploys the Worker, the Durable Objects and the engine
 //
 // Safe to run again: every step checks before it creates. Needs Docker running
@@ -17,12 +17,12 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 
 const CONFIG = new URL("../wrangler.jsonc", import.meta.url);
 const ENV = ["--env", "production"];
-const DB = "hardhub";
-const BUCKET = "hardhub-files";
+// the names in wrangler.jsonc's production env: every part is offgrid-hardhub*
+const DB = "offgrid-hardhub-db";
+const BUCKET = "offgrid-hardhub-files";
 
 const env = { ...process.env, WRANGLER_SEND_METRICS: "false" };
 const say = (s) => console.log(`\n▸ ${s}`);
@@ -83,24 +83,6 @@ const upload = {};
 // generated, never shown: losing it only means people re-enter their API keys
 if (!has("KEY_ENCRYPTION_KEY")) upload.KEY_ENCRYPTION_KEY = randomBytes(32).toString("base64");
 else console.log("KEY_ENCRYPTION_KEY is set");
-if (!has("RESEND_API_KEY")) {
-  // sign-in links go out by email; without a sender nobody can sign in
-  // one line per answer, whether typed or piped in (rl.question loses piped lines)
-  const rl = createInterface({ input: process.stdin });
-  const lines = rl[Symbol.asyncIterator]();
-  const ask = async (q) => {
-    process.stdout.write(q);
-    const { value, done } = await lines.next();
-    return done ? "" : value.trim();
-  };
-  console.log("Sign-in links are emailed through Resend (resend.com, free tier). Leave empty to set it later.");
-  const key = await ask("Resend API key: ");
-  const from = key ? await ask('Send from (e.g. "HardHub <signin@yourdomain.com>"): ') : "";
-  rl.close();
-  if (key && from) Object.assign(upload, { RESEND_API_KEY: key, MAIL_FROM: from });
-  else console.log('Skipped: sign-in answers "no email sender is configured" until both are set.');
-} else console.log("Sign-in email (Resend) is set");
-
 say("Building the web app");
 const web = spawnSync("pnpm", ["--filter", "@hardhub/web", "build"], { stdio: "inherit", env: { ...env, VITE_API_URL: "/api" } });
 if (web.status !== 0) process.exit(web.status ?? 1);
@@ -116,3 +98,4 @@ try {
   rmSync(dir, { recursive: true, force: true });
 }
 console.log("\nDone. HardHub is live at the address printed above (the custom domain in wrangler.jsonc).");
+console.log("The first account made there is the owner's; new accounts close after it.");

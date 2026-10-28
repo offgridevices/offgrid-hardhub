@@ -18,8 +18,10 @@ or [Colima](https://github.com/abiosoft/colima) on a Mac. Then:
 
 The first run downloads KiCad and builds everything (a few minutes); later runs
 start in seconds. Docker without the Compose add-on (a plain Colima install) is
-fine: `./hardhub` then runs Compose from Docker's own image, installing nothing. Your browser opens http://localhost:5173. Sign in
-with any email (local mode needs no email), open **Settings**, and pick the AI:
+fine: `./hardhub` then runs Compose from Docker's own image, installing nothing.
+Your browser opens http://localhost:5173. The first time, create your account
+with an email and a password: the first account is the owner's, and new
+accounts close after it. Then open **Settings** and pick the AI:
 
 | AI | What you need |
 |---|---|
@@ -63,11 +65,12 @@ Your Claude or ChatGPT login stays there: HardHub only sees the tool calls.
 | `./hardhub test` | end-to-end test: a scripted AI designs a board through the real app and engine |
 | `./hardhub reset` | stop and delete local data |
 | `./hardhub deploy` | put it on Cloudflare (below) |
+| `./hardhub reset-password` | set a new password here; `--live` for the Cloudflare site (there is no email to reset it with) |
 
 HardHub on your computer answers only to this computer. To open it from a phone
-or another computer on your network, start it with `HARDHUB_BIND=0.0.0.0 ./hardhub`:
-local mode signs anyone in without email, so do that only on a network you trust
-(HardHub's chat then won't use your Claude Code).
+or another computer on your network, start it with `HARDHUB_BIND=0.0.0.0 ./hardhub`.
+Make your account first, so nobody else on the network can take the owner's;
+HardHub's chat then won't use your Claude Code.
 
 The KiCad engine runs natively on Apple Silicon (arm64) and on Intel (amd64):
 one recipe, built from the KiCad team's own Ubuntu packages, so nothing needs
@@ -90,9 +93,30 @@ KiCad engine as a Cloudflare Container (US placement). The Worker answers on
 the custom domain in `apps/api/wrangler.jsonc` (OffGrid's is
 `hardhub.offgridevices.com`; a fork puts its own, on a domain in the same
 Cloudflare account). Cloudflare adds that hostname's DNS record and
-certificate and changes nothing else on the domain. It asks once for a
-[Resend](https://resend.com) key so sign-in links can be emailed. Run it again
-to ship an update.
+certificate and changes nothing else on the domain. Run it again to ship an
+update.
+
+Sign-in is email and password, with no email service: open the site and
+create your account; after that first account, new ones are closed. A lost
+password is set again with `./hardhub reset-password --live`.
+
+### Remove it all
+
+Everything HardHub puts on Cloudflare is named `offgrid-hardhub*`, so it can
+be found and deleted without touching anything else on the account:
+
+| On Cloudflare | Name | Remove with |
+|---|---|---|
+| Worker (the app, the API, the Durable Objects with every board's history) and its custom domain `hardhub.offgridevices.com` | `offgrid-hardhub` | `npx wrangler delete --env production` in `apps/api`; then check Dashboard → offgridevices.com → DNS that the `hardhub` record is gone |
+| Engine container and its images | `offgrid-hardhub-engine` | Dashboard → Workers & Pages → Containers, or `npx wrangler containers delete` |
+| Database (accounts, board list, encrypted keys) | `offgrid-hardhub-db` | `npx wrangler d1 delete offgrid-hardhub-db` |
+| File storage (Gerbers, renders, 3D models) | `offgrid-hardhub-files` (US jurisdiction) | empty it, then `npx wrangler r2 bucket delete offgrid-hardhub-files --jurisdiction us` |
+
+On this computer, everything is named `hardhub`: the Docker volumes
+`hardhub_*` (your local boards: `./hardhub reset` deletes them) and
+`hardhub-dockercli`, `hardhub-deploy-*` (the deploy's tools; `docker volume rm`),
+and the `.hardhub/` folder here (the Claude Code bridge's token, the
+Cloudflare sign-in for deploys).
 
 ## What is inside
 

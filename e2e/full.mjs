@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { signUp } from "./signup.mjs";
 const { chromium } = createRequire(import.meta.url)("playwright");
 
 const APP = process.argv[2] ?? "http://localhost:5173";
@@ -36,10 +37,9 @@ const shot = async (n) => SHOTS && page.screenshot({ path: path.join(SHOTS, `ful
 try {
   // ---------------------------------------------------------------- start
   await page.goto(APP);
-  await page.getByTestId("signin-email").fill(`full-${Date.now()}@example.com`);
-  await page.getByTestId("signin-submit").click();
+  await signUp(page, `full-${Date.now()}@example.com`);
   await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
-  ok("sign in (local mode)");
+  ok("sign up with email and password");
 
   await page.getByTestId("prompt-input").fill("A small Wi-Fi room sensor for temperature and humidity that shows up in Home Assistant");
   await page.getByTestId("prompt-submit").click();

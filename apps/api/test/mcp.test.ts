@@ -79,8 +79,9 @@ const call = (path: string, init: RequestInit & { token?: string } = {}) => {
 };
 
 async function browserSession(email = "maker@example.com") {
-  const start = (await (await call("/auth/start", { method: "POST", body: JSON.stringify({ email }) })).json()) as { token: string };
-  return ((await (await call("/auth/verify", { method: "POST", body: JSON.stringify({ token: start.token }) })).json()) as { token: string }).token;
+  const r = await call("/auth/signup", { method: "POST", body: JSON.stringify({ email, password: "correct horse battery" }) });
+  if (r.status === 409) return ((await (await call("/auth/signin", { method: "POST", body: JSON.stringify({ email, password: "correct horse battery" }) })).json()) as { token: string }).token;
+  return ((await r.json()) as { token: string }).token;
 }
 
 /** The whole sign-in: the client is refused, the person allows it, the client connects. */

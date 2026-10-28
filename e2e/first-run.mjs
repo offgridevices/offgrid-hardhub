@@ -6,6 +6,7 @@
 //   node e2e/first-run.mjs [APP_URL] [SHOTS_DIR]
 import { createRequire } from "node:module";
 import path from "node:path";
+import { signUp } from "./signup.mjs";
 const { chromium } = createRequire(import.meta.url)("playwright");
 
 const APP = process.argv[2] ?? "http://localhost:5173";
@@ -19,8 +20,7 @@ const page = await (await browser.newContext({ viewport: { width: 390, height: 8
 const shot = async (n) => SHOTS && page.screenshot({ path: path.join(SHOTS, `first-run-${n}.png`) });
 try {
   await page.goto(APP);
-  await page.getByTestId("signin-email").fill(`first-${Date.now()}@example.com`);
-  await page.getByTestId("signin-submit").click();
+  await signUp(page, `first-${Date.now()}@example.com`);
   await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
   (await page.getByTestId("no-key-bar").count()) ? ok("asked to add an AI key") : fail("asked to add an AI key", "no banner");
   await shot("no-key");
