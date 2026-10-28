@@ -1,0 +1,64 @@
+// HardHub API. Local dev (`pnpm dev`) uses the top level: local D1, R2 and
+// Durable Objects, and the engine container from docker compose at ENGINE_URL.
+// `env.production` is the Cloudflare deployment: every resource in the US
+// jurisdiction, and the engine as a Cloudflare Container.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "hardhub-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "minify": true,
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
+  "vars": {
+    "DEV": "1",
+    "APP_URL": "http://localhost:5173",
+    "WEB_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
+    "ENGINE_URL": "http://localhost:8080",
+    "US_ONLY": "0"
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "hardhub", "database_id": "local-hardhub", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "hardhub-files" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "ProjectRoom" },
+      { "name": "ENGINE", "class_name": "EngineContainer" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProjectRoom", "EngineContainer"] }],
+  "observability": { "enabled": true },
+
+  "env": {
+    "production": {
+      "name": "hardhub-api",
+      // Secrets (wrangler secret put --env production): KEY_ENCRYPTION_KEY
+      "vars": {
+        "DEV": "0",
+        "APP_URL": "https://hardhub.example",
+        "WEB_ORIGINS": "https://hardhub.example",
+        "ENGINE_URL": "",
+        "US_ONLY": "1"
+      },
+      // Create with: wrangler d1 create hardhub --jurisdiction=us
+      "d1_databases": [{ "binding": "DB", "database_name": "hardhub", "database_id": "REPLACE_WITH_D1_ID", "migrations_dir": "migrations" }],
+      // Create with: wrangler r2 bucket create hardhub-files --jurisdiction us
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "hardhub-files", "jurisdiction": "us" }],
+      "durable_objects": {
+        "bindings": [
+          { "name": "ROOMS", "class_name": "ProjectRoom" },
+          { "name": "ENGINE", "class_name": "EngineContainer" }
+        ]
+      },
+      "containers": [
+        {
+          "class_name": "EngineContainer",
+          "image": "../../engine/Dockerfile",
+          "instance_type": "standard-3",
+          "max_instances": 4,
+          // US-only placement (ENAM/WNAM)
+          "constraints": { "jurisdiction": "us" }
+        }
+      ]
+    }
+  }
+}

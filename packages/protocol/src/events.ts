@@ -58,6 +58,10 @@ export type Artifact = z.infer<typeof Artifact>;
 
 const base = { seq: z.number().int().nonnegative(), at: z.string() };
 
+// Streaming text: `assistant_text` with done:false is a live delta (append it
+// to the message with the same id). Deltas are not stored and carry the seq
+// of the last stored event. The closing done:true event carries the whole
+// text, is stored, and replaces whatever the deltas built.
 export const ServerEvent = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("user_message"), id: z.string(), text: z.string(), answers: z.record(z.string(), z.array(z.string())).optional() }),
   z.object({ ...base, type: z.literal("assistant_text"), id: z.string(), text: z.string(), done: z.boolean() }),
