@@ -99,18 +99,23 @@ try {
   const canvas = page.getByTestId("viewer-3d").locator("canvas");
   await canvas.waitFor({ timeout: 60000 });
   await page.waitForTimeout(4000);
-  // the canvas must actually show the board: count non-background pixels
-  const lit = await canvas.evaluate((c) => {
+  // the canvas must actually show the board: a WebGL canvas reads back blank
+  // without preserveDrawingBuffer, so look at a real screenshot of it instead
+  const png = (await canvas.screenshot()).toString("base64");
+  const lit = await page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
     const g = document.createElement("canvas");
-    g.width = 64; g.height = 64;
+    g.width = 96; g.height = 96;
     const x = g.getContext("2d");
-    x.drawImage(c, 0, 0, 64, 64);
-    const d = x.getImageData(0, 0, 64, 64).data;
+    x.drawImage(img, 0, 0, 96, 96);
+    const d = x.getImageData(0, 0, 96, 96).data;
     const bg = [d[0], d[1], d[2]];
     let n = 0;
     for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > 30) n++;
-    return n / (64 * 64);
-  });
+    return n / (96 * 96);
+  }, png);
   lit > 0.03 ? ok("3D view shows the board", `${(lit * 100).toFixed(0)}% of the view`) : fail("3D view shows the board", `only ${(lit * 100).toFixed(1)}% lit`);
   await shot("3d");
 
@@ -137,7 +142,8 @@ try {
     ? ok("Gerber zip downloads", `${(buf.length / 1024).toFixed(0)} KB, ${new Set(names).size} files`)
     : fail("Gerber zip downloads", `${buf.length} bytes, ${names.length} layer files`);
   for (const kind of ["bom", "cpl"]) {
-    const el = page.getByTestId(`download-${kind}`);
+    // the first is JLCPCB's format; a PCBWay BOM follows it
+    const el = page.getByTestId(`download-${kind}`).first();
     if (!(await el.count())) { fail(`${kind.toUpperCase()} downloads`, "no button"); continue; }
     const [d] = await Promise.all([page.waitForEvent("download"), el.click()]);
     const p = path.join(os.tmpdir(), `hh-${kind}-${Date.now()}.csv`);

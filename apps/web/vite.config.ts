@@ -33,7 +33,9 @@ const apiProxy = process.env.API_PROXY
 export default defineConfig({
   plugins: [react(), preloadFonts(["instrument-sans-latin-400-normal", "instrument-sans-latin-500-normal"])],
   server: { host: "0.0.0.0", port: 5173 },
-  preview: { host: "0.0.0.0", port: 5173, ...(apiProxy ? { proxy: apiProxy } : {}) },
+  // any host name: the container is reached as "web", and a phone on the same
+  // Wi-Fi reaches it by the computer's address
+  preview: { host: "0.0.0.0", port: 5173, allowedHosts: true, ...(apiProxy ? { proxy: apiProxy } : {}) },
   worker: { format: "es" },
   build: {
     target: "es2022",

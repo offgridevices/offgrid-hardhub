@@ -7,13 +7,15 @@ import type { Artifact, Design } from "@hardhub/protocol";
 import { LAYER_COLORS } from "../workers/geometry";
 import { demoLayerSvgs } from "../workers/client";
 
-const ORDER = ["B.Silkscreen", "B.Cu", "In4.Cu", "In3.Cu", "In2.Cu", "In1.Cu", "F.Cu", "F.Silkscreen", "Edge.Cuts"];
+const ORDER = ["B.Fab", "B.Silkscreen", "B.Cu", "In4.Cu", "In3.Cu", "In2.Cu", "In1.Cu", "F.Cu", "F.Silkscreen", "F.Fab", "Edge.Cuts"];
 const NAMES: Record<string, string> = {
   "F.Cu": "Top copper",
   "B.Cu": "Bottom copper",
   "F.Silkscreen": "Top print",
   "B.Silkscreen": "Bottom print",
   "Edge.Cuts": "Outline",
+  "F.Fab": "Top part outlines",
+  "B.Fab": "Bottom part outlines",
 };
 const layerName = (l: string) => NAMES[l] ?? l.replace(/^In(\d+)\.Cu$/, "Inner $1");
 const rank = (l: string) => {
@@ -75,7 +77,8 @@ export default function Board2D({
     [svgs, isMock, demo, fileUrl],
   );
 
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set(["B.Silkscreen"]));
+  // the top side first: the back's print and both part-outline layers on request
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(["B.Silkscreen", "F.Fab", "B.Fab"]));
   const viewer = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const view = useRef<View>({ x: 0, y: 0, s: 1 });

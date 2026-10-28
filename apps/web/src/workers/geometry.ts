@@ -54,6 +54,8 @@ export const LAYER_COLORS: Record<string, string> = {
   "F.Silkscreen": "#f1ece0",
   "B.Silkscreen": "#b9b0a0",
   "Edge.Cuts": "#d9c9a8",
+  "F.Fab": "#9a9082",
+  "B.Fab": "#6f675c",
 };
 
 interface Pad {

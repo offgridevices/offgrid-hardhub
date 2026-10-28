@@ -175,8 +175,10 @@ def glb(board, out_dir, name):
             # decodes with meshopt's small WASM decoder; dedup/instance/weld first
             centred = raw[:-4] + '-c.glb'
             run([GLTF, 'center', raw, centred, '--pivot', 'center'], timeout=300)
+            # no palette: each part keeps its own material colour, which the
+            # viewer reads (a palette moves colours into a texture)
             run([GLTF, 'optimize', centred, out, '--compress', 'meshopt', '--texture-compress', 'false',
-                 '--simplify', 'false'], timeout=600)
+                 '--simplify', 'false', '--palette', 'false'], timeout=600)
             os.remove(raw)
             os.remove(centred)
             return out, raw_size
@@ -186,14 +188,32 @@ def glb(board, out_dir, name):
     return out, raw_size
 
 
-SVG_LAYERS = ['F.Cu', 'B.Cu', 'F.Silkscreen', 'B.Silkscreen', 'F.Mask', 'B.Mask', 'Edge.Cuts', 'F.Fab', 'B.Fab']
+# Drawn colours, the same the web viewer shows in its layer list. KiCad plots
+# every layer black; each is recoloured here so any client can stack them as
+# they are. Solder mask is left out: a mask plot is the openings in a filled
+# sheet, which only hides the copper in a viewer.
+SVG_COLORS = {
+    'F.Cu': '#c9a25c', 'B.Cu': '#6d8db2',
+    'F.Silkscreen': '#f1ece0', 'B.Silkscreen': '#b9b0a0',
+    'F.Fab': '#9a9082', 'B.Fab': '#6f675c', 'Edge.Cuts': '#d9c9a8',
+}
+INNER_COLORS = ['#7f9460', '#9c7468', '#8a7fa8', '#5f9a94', '#a8925f', '#7d8a9c', '#9c8a70', '#6f9a7a',
+                '#a07890', '#7f8f5f', '#8f7f6f', '#6f8fa0', '#9f8f9f', '#7f9f8f']
+
+
+def svg_color(layer):
+    if layer in SVG_COLORS:
+        return SVG_COLORS[layer]
+    m = re.match(r'In(\d+)\.Cu$', layer)
+    return INNER_COLORS[(int(m.group(1)) - 1) % len(INNER_COLORS)] if m else '#9a9082'
 
 
 def svgs(board, out_dir, name):
-    """One SVG per layer, board area only, drawn in draw order: back first."""
+    """One SVG per layer, board area only, in its viewer colour, drawn in draw
+    order: back first."""
     n = pcbnew.LoadBoard(board).GetCopperLayerCount()
-    layers = ['B.Fab', 'B.Silkscreen', 'B.Mask', 'B.Cu'] + ['In%d.Cu' % i for i in range(n - 2, 0, -1)] + \
-             ['F.Cu', 'F.Mask', 'F.Silkscreen', 'F.Fab', 'Edge.Cuts']
+    layers = ['B.Fab', 'B.Silkscreen', 'B.Cu'] + ['In%d.Cu' % i for i in range(n - 2, 0, -1)] + \
+             ['F.Cu', 'F.Silkscreen', 'F.Fab', 'Edge.Cuts']
     tmp = os.path.join(out_dir, 'svg-tmp')
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
@@ -204,7 +224,10 @@ def svgs(board, out_dir, name):
         src = [f for f in os.listdir(tmp) if f.endswith('-%s.svg' % l.replace('.', '_'))]
         if src:
             dst = os.path.join(out_dir, '%s-%s.svg' % (name, l.replace('.', '_')))
-            os.replace(os.path.join(tmp, src[0]), dst)
+            with open(os.path.join(tmp, src[0])) as f:
+                txt = f.read()
+            with open(dst, 'w') as f:
+                f.write(re.sub(r'#000000', svg_color(l), txt, flags=re.I))
             out.append((l, dst))
     shutil.rmtree(tmp)
     return out

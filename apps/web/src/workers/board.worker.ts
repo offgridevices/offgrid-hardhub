@@ -57,29 +57,62 @@ async function parseGlb(url: string): Promise<SceneData> {
   // the board body is the mesh with the largest footprint; its faces split parts into top and bottom
   type Item = { geo: InstanceType<typeof THREE.BufferGeometry>; color: [number, number, number]; c: number; area: number };
   const items: Item[] = [];
+  // Plain float copies, in world space. Compressed GLBs store positions and
+  // normals as normalised integers (KHR_mesh_quantization) with the scale on
+  // the node, and repeated parts as one mesh with many placements
+  // (EXT_mesh_gpu_instancing): read values through getX/Y/Z, which undo the
+  // normalisation, and expand every instance.
+  const world = (src: InstanceType<typeof THREE.BufferGeometry>, m: InstanceType<typeof THREE.Matrix4>) => {
+    // loaded from a file: always CPU-side attributes, never GL-only ones
+    type Attr = InstanceType<typeof THREE.BufferAttribute>;
+    const p = src.getAttribute("position") as Attr;
+    const n = src.getAttribute("normal") as Attr | undefined;
+    const pos = new Float32Array(p.count * 3);
+    const nor = n ? new Float32Array(n.count * 3) : null;
+    const v = new THREE.Vector3();
+    const nm = new THREE.Matrix3().getNormalMatrix(m);
+    for (let i = 0; i < p.count; i++) {
+      v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(m);
+      pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
+      if (n && nor) {
+        v.set(n.getX(i), n.getY(i), n.getZ(i)).applyMatrix3(nm).normalize();
+        nor[i * 3] = v.x; nor[i * 3 + 1] = v.y; nor[i * 3 + 2] = v.z;
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    if (nor) g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+    else g.computeVertexNormals();
+    const idx = new Uint32Array(src.index ? src.index.count : p.count);
+    for (let i = 0; i < idx.length; i++) idx[i] = src.index ? src.index.getX(i) : i;
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    return g;
+  };
   root.traverse((o) => {
     const mesh = o as InstanceType<typeof THREE.Mesh>;
     if (!mesh.isMesh) return;
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const mat = mats[0] as InstanceType<typeof THREE.MeshStandardMaterial> | undefined;
     const col = mat?.color ? ([mat.color.r, mat.color.g, mat.color.b] as [number, number, number]) : ([0.5, 0.5, 0.5] as [number, number, number]);
-    let g = mesh.geometry.clone() as InstanceType<typeof THREE.BufferGeometry>;
-    g.applyMatrix4(mesh.matrixWorld);
-    for (const name of Object.keys(g.attributes)) if (name !== "position" && name !== "normal") g.deleteAttribute(name);
-    if (!g.getAttribute("normal")) g.computeVertexNormals();
-    if (!g.index) {
-      const n = g.getAttribute("position").count;
-      const idx = new Uint32Array(n);
-      for (let i = 0; i < n; i++) idx[i] = i;
-      g.setIndex(new THREE.BufferAttribute(idx, 1));
+    const inst = mesh as unknown as InstanceType<typeof THREE.InstancedMesh>;
+    const placements: InstanceType<typeof THREE.Matrix4>[] = [];
+    if (inst.isInstancedMesh) {
+      const im = new THREE.Matrix4();
+      for (let i = 0; i < inst.count; i++) {
+        inst.getMatrixAt(i, im);
+        placements.push(new THREE.Matrix4().multiplyMatrices(mesh.matrixWorld, im));
+      }
+    } else placements.push(mesh.matrixWorld);
+    for (const m of placements) {
+      const g = world(mesh.geometry, m);
+      g.computeBoundingBox();
+      const bb = g.boundingBox!;
+      const s = bb.getSize(new THREE.Vector3());
+      const c = bb.getCenter(new THREE.Vector3());
+      const ext = [s.x, s.y, s.z];
+      ext.splice(up, 1);
+      items.push({ geo: g, color: col, c: [c.x, c.y, c.z][up]!, area: ext[0]! * ext[1]! });
     }
-    g.computeBoundingBox();
-    const bb = g.boundingBox!;
-    const s = bb.getSize(new THREE.Vector3());
-    const c = bb.getCenter(new THREE.Vector3());
-    const ext = [s.x, s.y, s.z];
-    ext.splice(up, 1);
-    items.push({ geo: g, color: col, c: [c.x, c.y, c.z][up]!, area: ext[0]! * ext[1]! });
   });
   if (!items.length) throw new Error("The 3D model has no meshes");
   const body = items.reduce((a, b) => (b.area > a.area ? b : a));

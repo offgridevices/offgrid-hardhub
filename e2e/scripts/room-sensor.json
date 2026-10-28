@@ -326,7 +326,9 @@
     "input": {
      "stage": "order"
     }
-   },
+   }
+  ],
+  [
    {
     "text": "The board is routed and checked. The Checks tab lists every test and its result, the 3D tab shows the board, and Order has the Gerber, BOM and placement files for JLCPCB."
    }

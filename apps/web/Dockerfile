@@ -20,7 +20,8 @@ RUN pnpm --filter @hardhub/web build
 
 FROM node:22.22.0-bookworm-slim
 WORKDIR /src
-COPY --from=build /src /src
+# owned by the user that serves it: vite writes a temp file next to its config
+COPY --from=build --chown=node:node /src /src
 WORKDIR /src/apps/web
 USER node
 ENV API_PROXY=http://api:8787

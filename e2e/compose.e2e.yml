@@ -33,6 +33,7 @@ services:
     environment:
       FAKE_URL: http://fake-anthropic:8788
       API_URL: http://api:8787
-    command: ["bash", "-c", "npm install -g --silent playwright@1.63.0 && NODE_PATH=$$(npm root -g) node e2e/full.mjs http://web:5173 /shots"]
+    # the image has the browsers; the matching playwright package is fetched once
+    command: ["bash", "-c", "set -e; [ -d \"$$(npm root -g)/playwright\" ] || npm install -g --no-audit --no-fund playwright@1.63.0; NODE_PATH=$$(npm root -g) node e2e/full.mjs http://web:5173 /shots"]
     depends_on:
       web: { condition: service_healthy }

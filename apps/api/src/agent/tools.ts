@@ -287,7 +287,8 @@ export async function runTool(call: ToolCall, ctx: ToolContext, signal: AbortSig
   ctx.emit({ type: "tool", id: call.id, name: call.name, label, status: "running" });
   try {
     const r = await t.run(parsed.data, ctx, call, signal);
-    ctx.emit({ type: "tool", id: call.id, name: call.name, label, status: r.isError ? "error" : "done" });
+    // a failed tool shows its reason to the person too, not only to the model
+    ctx.emit({ type: "tool", id: call.id, name: call.name, label, status: r.isError ? "error" : "done", ...(r.isError ? { detail: r.content.slice(0, 300) } : {}) });
     const outcome: ToolOutcome = { id: call.id, name: call.name, content: r.content, ...(r.images ? { images: r.images } : {}), ...(r.isError ? { isError: true } : {}) };
     return { outcome, ...(r.waitForUser ? { waitForUser: true } : {}) };
   } catch (e) {

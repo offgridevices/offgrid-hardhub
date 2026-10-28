@@ -268,11 +268,26 @@ export class RoomCore {
     };
   }
 
+  /** The engine keeps each job's files under the job's name, shared by every
+   * project: give this project's jobs names no other project can have. */
+  private scopedEngine(): Engine {
+    const e = this.d.engine;
+    const scoped = (job: string) => `${this.projectId}-${job}`;
+    return {
+      searchParts: (q, n) => e.searchParts(q, n),
+      getParts: (l) => e.getParts(l),
+      check: (d) => e.check(d),
+      quote: (d, q) => e.quote(d, q),
+      build: (d, job, signal, stopAfter) => e.build(d, scoped(job), signal, stopAfter),
+      file: (job, name) => e.file(scoped(job), name),
+    };
+  }
+
   private toolContext(llm: Llm): ToolContext {
     const key = (name: string) => `projects/${this.projectId}/${name}`;
     return {
       projectId: this.projectId,
-      engine: this.d.engine,
+      engine: this.scopedEngine(),
       design: () => this.design(),
       saveDesign: (design, summary) => this.saveDesign(design, summary),
       emit: (e) => {
