@@ -86,7 +86,8 @@ export class HttpEngine implements Engine {
     const r = await this.fetch("/build", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ design, job, ...(stopAfter ? { stop_after: stopAfter } : {}) }),
+      // png renders too: the agent looks at its own layout through render
+      body: JSON.stringify({ design, job, outputs: ["svg", "glb", "png"], ...(stopAfter ? { stop_after: stopAfter } : {}) }),
       ...(signal ? { signal } : {}),
     });
     if (!r.ok || !r.body) throw new EngineError(`engine /build: ${r.status} ${(await r.text()).slice(0, 500)}`);

@@ -1,25 +1,28 @@
-// One command to put the API on Cloudflare:  pnpm --filter @hardhub/api run deploy
+// One command puts all of HardHub on Cloudflare:  ./hardhub deploy
+// (or pnpm --filter @hardhub/api run deploy). One Worker serves the web app
+// and the API (/api); the engine runs as a Cloudflare Container.
 //
 //  1. signs in to Cloudflare if needed (opens the browser once)
 //  2. creates the D1 database and the R2 bucket in the US jurisdiction, if missing,
 //     and writes the database id into wrangler.jsonc
-//  3. asks once for the web app's address (sign-in links, CORS)
-//  4. applies the database migrations
-//  5. creates KEY_ENCRYPTION_KEY (encrypts people's API keys) if it is not set
-//  6. deploys the Worker, the Durable Objects and the engine container
+//  3. applies the database migrations
+//  4. makes KEY_ENCRYPTION_KEY (encrypts people's API keys) if it is not set,
+//     and offers to set the sign-in email sender (Resend); both go up with the deploy
+//  5. builds the web app and deploys the Worker, the Durable Objects and the engine
 //
 // Safe to run again: every step checks before it creates. Needs Docker running
 // (the engine image is built and pushed by wrangler).
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 const CONFIG = new URL("../wrangler.jsonc", import.meta.url);
 const ENV = ["--env", "production"];
 const DB = "hardhub";
 const BUCKET = "hardhub-files";
-const PLACEHOLDER_URL = "https://hardhub.example";
 
 const env = { ...process.env, WRANGLER_SEND_METRICS: "false" };
 const say = (s) => console.log(`\n▸ ${s}`);
@@ -57,26 +60,45 @@ const buckets = wrangler(["r2", "bucket", "list", "--jurisdiction", "us"]);
 if (!buckets.includes(BUCKET)) wrangler(["r2", "bucket", "create", BUCKET, "--jurisdiction", "us"], { stdio: "inherit" });
 else console.log("exists");
 
-if (config.includes(PLACEHOLDER_URL)) {
-  say("Web app address");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const url = (await rl.question("Where will the web app live? (e.g. https://hardhub.pages.dev) ")).trim().replace(/\/$/, "");
-  rl.close();
-  if (!/^https:\/\/[\w.-]+(:\d+)?$/.test(url)) throw new Error("an https:// address is needed");
-  config = config.replaceAll(PLACEHOLDER_URL, url);
-}
 writeFileSync(CONFIG, config);
 
 say("Database migrations");
 run(["d1", "migrations", "apply", DB, "--remote", ...ENV]);
 
 say("Secrets");
-const secrets = JSON.parse(wrangler(["secret", "list", ...ENV, "--format", "json"]) || "[]");
-if (!secrets.some((s) => s.name === "KEY_ENCRYPTION_KEY")) {
-  // generated, never shown: losing it only means people re-enter their API keys
-  run(["secret", "put", "KEY_ENCRYPTION_KEY", ...ENV], randomBytes(32).toString("base64"));
-} else console.log("KEY_ENCRYPTION_KEY is set");
+// a first deploy has no Worker yet, so no secrets to list
+let secrets = [];
+try {
+  secrets = JSON.parse(wrangler(["secret", "list", ...ENV, "--format", "json"], { stdio: ["pipe", "pipe", "ignore"] }) || "[]");
+} catch {}
+const has = (name) => secrets.some((s) => s.name === name);
+const upload = {};
+// generated, never shown: losing it only means people re-enter their API keys
+if (!has("KEY_ENCRYPTION_KEY")) upload.KEY_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+else console.log("KEY_ENCRYPTION_KEY is set");
+if (!has("RESEND_API_KEY")) {
+  // sign-in links go out by email; without a sender nobody can sign in
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  console.log("Sign-in links are emailed through Resend (resend.com, free tier). Leave empty to set it later.");
+  const key = (await rl.question("Resend API key: ")).trim();
+  const from = key ? (await rl.question('Send from (e.g. "HardHub <signin@yourdomain.com>"): ')).trim() : "";
+  rl.close();
+  if (key && from) Object.assign(upload, { RESEND_API_KEY: key, MAIL_FROM: from });
+  else console.log('Skipped: sign-in answers "no email sender is configured" until both are set.');
+} else console.log("Sign-in email (Resend) is set");
+
+say("Building the web app");
+const web = spawnSync("pnpm", ["--filter", "@hardhub/web", "build"], { stdio: "inherit", env: { ...env, VITE_API_URL: "/api" } });
+if (web.status !== 0) process.exit(web.status ?? 1);
 
 say("Deploying");
-run(["deploy", ...ENV]);
-console.log("\nDone. Point the web app's API address at the Worker URL printed above.");
+// secrets travel with the deploy in a file only this user can read, deleted after
+const dir = mkdtempSync(join(tmpdir(), "hardhub-"));
+const secretsFile = join(dir, "secrets.json");
+writeFileSync(secretsFile, JSON.stringify(upload), { mode: 0o600 });
+try {
+  run(["deploy", ...ENV, ...(Object.keys(upload).length ? ["--secrets-file", secretsFile] : [])]);
+} finally {
+  rmSync(dir, { recursive: true, force: true });
+}
+console.log("\nDone. HardHub is live at the workers.dev address printed above.");

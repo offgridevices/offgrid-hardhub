@@ -31,13 +31,25 @@
   "env": {
     "production": {
       "name": "hardhub-api",
-      // Secrets (wrangler secret put --env production): KEY_ENCRYPTION_KEY
+      // Secrets (wrangler secret put --env production): KEY_ENCRYPTION_KEY (made by ./hardhub deploy)
       "vars": {
         "DEV": "0",
-        "APP_URL": "https://hardhub.example",
-        "WEB_ORIGINS": "https://hardhub.example",
+        // empty: sign-in links use the Worker's own address
+        "APP_URL": "",
+        // the web app is served by this same Worker: no other origin needs CORS
+        "WEB_ORIGINS": "",
         "ENGINE_URL": "",
         "US_ONLY": "1"
+      },
+      // Secrets for sign-in email (optional until people other than you sign in):
+      // RESEND_API_KEY, MAIL_FROM. ./hardhub deploy asks for them.
+      // The web app (apps/web/dist, built with VITE_API_URL=/api) is served by
+      // this Worker; /api/* goes to the API, every other path to the app.
+      "assets": {
+        "directory": "../web/dist",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*"]
       },
       // Create with: wrangler d1 create hardhub --jurisdiction=us
       "d1_databases": [{ "binding": "DB", "database_name": "hardhub", "database_id": "REPLACE_WITH_D1_ID", "migrations_dir": "migrations" }],

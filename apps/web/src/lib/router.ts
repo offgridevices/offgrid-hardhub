@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 
 export type Route =
   | { name: "signin" }
+  | { name: "verify" }
   | { name: "projects" }
   | { name: "project"; id: string }
   | { name: "settings" }
@@ -12,6 +13,8 @@ export function parse(pathname: string): Route {
   const p = pathname.replace(/\/+$/, "") || "/";
   if (p === "/") return { name: "projects" };
   if (p === "/signin") return { name: "signin" };
+  // the link in the sign-in email
+  if (p === "/auth/verify") return { name: "verify" };
   if (p === "/settings") return { name: "settings" };
   const m = /^\/p\/([\w-]+)$/.exec(p);
   if (m) return { name: "project", id: m[1]! };

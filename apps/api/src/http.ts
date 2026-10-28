@@ -53,13 +53,18 @@ const Email = z.object({ email: z.string().trim().toLowerCase().email().max(254)
 app.post("/auth/start", async (c) => {
   const { email } = Email.parse(await c.req.json());
   const token = await db.createLoginToken(c.env, email);
-  const link = `${c.env.APP_URL}/auth/verify?token=${encodeURIComponent(token)}`;
+  const link = `${c.env.APP_URL || new URL(c.req.url).origin}/auth/verify?token=${encodeURIComponent(token)}`;
   if (isDev(c.env)) {
     // local development: no email; the app signs straight in with this
     console.log(`sign-in link for ${email}: ${link}`);
     return c.json({ dev_link: link, token });
   }
-  await mailer(c.env).sendSignInLink(email, link);
+  try {
+    await mailer(c.env).sendSignInLink(email, link);
+  } catch (e) {
+    console.error(e);
+    return c.json({ error: e instanceof Error ? e.message : "the sign-in email could not be sent" }, 503);
+  }
   return c.body(null, 204);
 });
 
@@ -70,7 +75,8 @@ app.post("/auth/verify", async (c) => {
   setCookie(c, COOKIE, s.token, {
     httpOnly: true,
     secure: !isDev(c.env),
-    sameSite: isDev(c.env) ? "Lax" : "None",
+    // the web app and the API share one origin on Cloudflare
+    sameSite: "Lax",
     path: "/",
     maxAge: 30 * 86400,
   });

@@ -4,7 +4,9 @@ import type { Me } from "@hardhub/protocol";
 import type { Backend } from "./backend";
 import { ApiClient } from "./api";
 
-export const API_URL: string = import.meta.env.VITE_API_URL || "http://localhost:8787";
+// "/api" when the web app and the API are served from one Worker (Cloudflare);
+// a full URL for local development
+export const API_URL: string = new URL(import.meta.env.VITE_API_URL || "http://localhost:8787", window.location.href).href.replace(/\/$/, "");
 export const MOCK = import.meta.env.VITE_MOCK === "1";
 
 export type Reach = "checking" | "offline" | "online";

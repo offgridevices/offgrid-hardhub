@@ -6,10 +6,12 @@ export interface Env {
   FILES: R2Bucket;
   ROOMS: DurableObjectNamespace<ProjectRoom>;
   ENGINE: DurableObjectNamespace<EngineContainer>;
+  /** the web app's built files; bound on Cloudflare, absent locally */
+  ASSETS?: Fetcher;
 
   /** "1" in local development: sign-in links are returned, dev overrides apply */
   DEV: string;
-  /** the web app's origin, for sign-in links */
+  /** the web app's origin, for sign-in links; empty: the request's own origin */
   APP_URL: string;
   /** comma-separated origins allowed by CORS */
   WEB_ORIGINS: string;
@@ -20,6 +22,11 @@ export interface Env {
 
   /** base64 of 32 random bytes; encrypts stored API keys (secret) */
   KEY_ENCRYPTION_KEY: string;
+
+  /** sign-in emails through Resend (secrets); without them production sign-in is refused */
+  RESEND_API_KEY?: string;
+  /** the sender, e.g. "HardHub <signin@yourdomain.com>" on a domain verified in Resend */
+  MAIL_FROM?: string;
 
   // development and test only, ignored unless DEV is "1":
   // new accounts start with these LLM settings, and DEV_LLM_KEY stands in

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Lockup } from "../components/brand";
 import { useApp } from "../lib/app";
 import { navigate } from "../lib/router";
@@ -87,6 +87,49 @@ export default function SignIn() {
           </p>
         </div>
       </main>
+    </div>
+  );
+}
+
+/** The page the sign-in email links to: redeems the one-time token. */
+export function Verify() {
+  const { backend, setMe } = useApp();
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const token = new URLSearchParams(location.search).get("token") ?? "";
+    let live = true;
+    backend.authVerify(token).then(
+      (s) => {
+        if (!live) return;
+        setMe(s.me);
+        navigate("/", true);
+      },
+      (e: Error) => live && setError(e.message || "This sign-in link is invalid or already used."),
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend, setMe]);
+  return (
+    <div className="screen">
+      <header className="topbar">
+        <Lockup />
+      </header>
+      <div className="center-state" data-testid="verify">
+        <div>
+          {error ? (
+            <>
+              <h1 className="d3">That link didn't work</h1>
+              <p className="secondary">{error} Sign-in links work once, for 15 minutes.</p>
+              <a className="btn btn-solid" href="/signin" style={{ alignSelf: "flex-start" }}>
+                Get a new link
+              </a>
+            </>
+          ) : (
+            <div className="spinner-line" />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

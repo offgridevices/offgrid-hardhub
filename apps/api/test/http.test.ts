@@ -5,6 +5,7 @@ import { CONVERTERS } from "../src/agent/llm";
 import { b64, decryptSecret, encryptSecret, sha256 } from "../src/crypto";
 import type { Env } from "../src/env";
 import { app } from "../src/http";
+import worker from "../src/index";
 import { RoomCore } from "../src/room/core";
 import { FakeEngine } from "./support/room";
 import { d1, doSql } from "./support/sqlite";
@@ -144,7 +145,19 @@ describe("auth", () => {
   it("does not hand out links outside development without a mail sender", async () => {
     env.DEV = "0";
     const r = await call("/auth/start", { method: "POST", body: JSON.stringify({ email: "x@example.com" }) });
-    expect(r.status).toBe(500);
+    expect(r.status).toBe(503);
+    const body = (await r.json()) as { error: string; dev_link?: string };
+    expect(body.error).toMatch(/RESEND_API_KEY/);
+    expect(body.dev_link).toBeUndefined();
+  });
+
+  it("serves the API under /api too (one Worker on Cloudflare)", async () => {
+    const ctx = { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
+    expect((await worker.fetch(new Request("http://x/api/health"), env, ctx)).status).toBe(200);
+    // with the web app bound, everything outside /api is the web app
+    const assets = { fetch: async () => new Response("<!doctype html>app") } as unknown as Fetcher;
+    const page = await worker.fetch(new Request("http://x/p/abc"), { ...env, ASSETS: assets }, ctx);
+    expect(await page.text()).toContain("app");
   });
 
   it("rejects bad input with a reason", async () => {

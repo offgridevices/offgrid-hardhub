@@ -5,6 +5,7 @@ import { Lockup } from "./components/brand";
 
 // each screen is its own chunk: sign-in never downloads the workspace
 const SignIn = lazy(() => import("./screens/signin"));
+const Verify = lazy(() => import("./screens/signin").then((m) => ({ default: m.Verify })));
 const Projects = lazy(() => import("./screens/projects"));
 const Workspace = lazy(() => import("./screens/workspace"));
 const Settings = lazy(() => import("./screens/settings"));
@@ -37,7 +38,7 @@ function Offline() {
           <h1 className="d3">Can't reach the HardHub server</h1>
           <p className="secondary">
             The app tried <span className="num">{API_URL}</span> and got no answer. If you are running HardHub on this computer, start it
-            with <span className="num">docker compose up</span> and try again.
+            with <span className="num">./hardhub</span> and try again.
           </p>
           <div>
             <button className="btn btn-solid" onClick={recheck} data-testid="retry">
@@ -58,17 +59,18 @@ export default function App() {
   // signed-out people go to sign-in; signed-in people never see it
   useEffect(() => {
     if (!ready || reach !== "online") return;
-    if (!me && route.name !== "signin") navigate("/signin", true);
+    if (!me && route.name !== "signin" && route.name !== "verify") navigate("/signin", true);
     if (me && route.name === "signin") navigate("/", true);
   }, [ready, reach, me, route.name]);
 
   if (reach === "offline") return <Offline />;
   if (!ready || reach === "checking") return <Loading />;
-  if (!me && route.name !== "signin") return <Loading />;
+  if (!me && route.name !== "signin" && route.name !== "verify") return <Loading />;
 
   return (
     <Suspense fallback={<Loading />}>
       {route.name === "signin" && <SignIn />}
+      {route.name === "verify" && <Verify />}
       {route.name === "projects" && <Projects />}
       {route.name === "project" && <Workspace key={route.id} id={route.id} />}
       {route.name === "settings" && <Settings />}
