@@ -1,0 +1,65 @@
+# The end-to-end test: the whole stack plus a scripted stand-in for Claude and
+# a browser. ./hardhub test runs it as its own project ("hardhub-e2e"), with no
+# published ports and throwaway data, so it never touches your real projects.
+services:
+  fake-anthropic:
+    image: node:22.22.0-bookworm-slim
+    volumes: [".:/repo:ro"]
+    command: ["node", "/repo/e2e/fake-anthropic/server.mjs", "/repo/e2e/scripts/room-sensor.json", "8788"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/__fake/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      retries: 30
+
+  # the Claude Code bridge, running a stand-in claude (e2e/fake-claude/claude.mjs)
+  bridge:
+    image: node:22.22.0-bookworm-slim
+    volumes: [".:/repo:ro"]
+    environment:
+      BRIDGE_TOKEN: e2e-bridge-token-0123456789abcdef0123456789
+      BRIDGE_HOST: 0.0.0.0
+      CLAUDE_BIN: /repo/e2e/fake-claude/claude.mjs
+    command: ["node", "/repo/bridge/bridge.mjs"]
+
+  engine:
+    ports: !reset []
+  api:
+    ports: !reset []
+    environment:
+      DEV_LLM_PROVIDER: anthropic
+      DEV_LLM_MODEL: claude-opus-5-5
+      DEV_LLM_KEY: sk-e2e-not-a-real-key
+      ANTHROPIC_BASE_URL: http://fake-anthropic:8788
+      # the test browser reaches the app as "web": the MCP consent page lives there
+      APP_URL: http://web:5173
+      MCP_URL: http://api:8787/mcp
+      BRIDGE_URL: http://bridge:8789
+      BRIDGE_TOKEN: e2e-bridge-token-0123456789abcdef0123456789
+    depends_on:
+      fake-anthropic: { condition: service_healthy }
+  web:
+    ports: !reset []
+
+  tests:
+    image: mcr.microsoft.com/playwright:v1.63.0-noble
+    profiles: [test]
+    volumes: [".:/repo:ro", "./e2e/out:/shots"]
+    working_dir: /repo
+    environment:
+      FAKE_URL: http://fake-anthropic:8788
+      API_URL: http://api:8787
+    # the image has the browsers; the matching playwright package and the MCP
+    # client (for e2e/mcp.mjs) are fetched once
+    command:
+      - bash
+      - -c
+      - >-
+        set -e; G=$$(npm root -g);
+        [ -d "$$G/playwright" ] || npm install -g --no-audit --no-fund playwright@1.63.0;
+        [ -d "$$G/@modelcontextprotocol/sdk" ] || npm install -g --no-audit --no-fund @modelcontextprotocol/sdk@1.32.1;
+        export NODE_PATH=$$G;
+        node e2e/full.mjs http://web:5173 /shots;
+        node e2e/mcp.mjs http://web:5173 /shots;
+        node e2e/bridge.mjs http://web:5173 /shots
+    depends_on:
+      web: { condition: service_healthy }

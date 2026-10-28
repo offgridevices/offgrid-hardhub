@@ -1,0 +1,7 @@
+**/node_modules
+**/dist
+**/dist-mock
+**/.wrangler
+**/*.glb
+.git
+.claude

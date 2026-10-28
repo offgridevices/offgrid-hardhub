@@ -1,0 +1,18 @@
+# The API for local development: wrangler dev (workerd) with local D1, R2 and
+# Durable Objects persisted in /data. Build from the repository root:
+#   docker build -f apps/api/Dockerfile.dev -t hardhub-api-dev .
+# docker compose mounts a volume at /data and sets ENGINE_URL=http://engine:8080.
+FROM node:22.22.0-bookworm-slim
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/protocol/package.json packages/protocol/
+COPY apps/api/package.json apps/api/
+RUN pnpm install --frozen-lockfile --filter @hardhub/api...
+COPY packages/protocol packages/protocol
+COPY apps/api apps/api
+WORKDIR /app/apps/api
+ENV HH_STATE=/data PORT=8787 ENGINE_URL=http://engine:8080 WRANGLER_SEND_METRICS=false
+VOLUME /data
+EXPOSE 8787
+CMD ["node", "scripts/dev.mjs"]

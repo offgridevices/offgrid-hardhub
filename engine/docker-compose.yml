@@ -1,0 +1,19 @@
+# The engine alone, for working on it: docker compose -f engine/docker-compose.yml up --build
+# (the repository's root compose file runs it together with the rest of HardHub)
+services:
+  engine:
+    build:
+      context: .
+      args:
+        WITH_TESTS: "1"
+    image: hardhub-engine:dev
+    ports:
+      - "8080:8080"
+    environment:
+      HARDHUB_MAX_BUILDS: "1"
+    volumes:
+      - engine-jobs:/var/lib/hardhub/jobs
+      - engine-cache:/var/cache/hardhub
+volumes:
+  engine-jobs:
+  engine-cache:

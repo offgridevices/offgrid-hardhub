@@ -1,0 +1,31 @@
+{
+  "name": "@hardhub/api",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "build:check": "wrangler deploy --dry-run --env production --outdir dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
+    "@hardhub/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "fast-json-patch": "3.1.1",
+    "hono": "4.13.13",
+    "openai": "7.32.0",
+    "zod": "4.3.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261013.1",
+    "@types/sql.js": "1.4.11",
+    "sql.js": "1.14.2",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.150.0"
+  }
+}

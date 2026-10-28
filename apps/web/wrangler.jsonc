@@ -1,0 +1,11 @@
+// The web app on Cloudflare: static files only (Workers static assets).
+// pnpm --filter @hardhub/web build && npx wrangler deploy --config apps/web/wrangler.jsonc
+{
+  "name": "hardhub-web",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    // every app route (/p/…, /settings) serves index.html; the router takes it from there
+    "not_found_handling": "single-page-application"
+  }
+}

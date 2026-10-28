@@ -1,0 +1,7 @@
+# Cloudflare serves these with the app. No site may frame HardHub: the page
+# where people allow an AI app to connect must not be clickable from inside
+# another site.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  Referrer-Policy: same-origin

@@ -1,0 +1,102 @@
+/* HardHub tokens, built from the OffGrid design language (v3.2.2).
+   Dark is the default expression; a device that prefers light gets light;
+   <html data-theme="light|dark"> (set by the theme switch) always wins.
+   Components use the semantic tokens only. */
+
+:root {
+  /* the palette */
+  --pitch: #1b1813;
+  --bark: #3a2e22;
+  --coal: #100d09;
+  --bone: #f1ece0;
+  --sand: #d9c9a8;
+  --ember: #ff6a00;
+  --dim: #9a9082;
+  --ground: #f7f4ec;
+  --surface: #efeae0;
+  --raised: #fbf9f3;
+  --ink: #1b1813;
+  --ink-2: #5c554a;
+  --ink-3: #6b6456;
+  --destructive-hex: #a84a00;
+
+  /* type */
+  --font-sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Newsreader", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --t-d2: clamp(36px, 6vw, 64px);
+  --t-d3: clamp(28px, 4vw, 44px);
+  --t-d4: clamp(22px, 2.6vw, 30px);
+  --t-b1: 19px;
+  --t-b2: 16px;
+  --t-b3: 14px;
+  --t-m1: 13px;
+  --t-m2: 11px;
+
+  /* geometry: square corners, hairlines, a 4 px grid */
+  --radius: 0;
+  --hair: 1px;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 40px;
+  --s8: 56px;
+  --gutter: clamp(16px, 4vw, 40px);
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* dark (default) */
+  --bg: var(--pitch);
+  --bg-raised: var(--bark);
+  --bg-sunken: var(--coal);
+  --fg: var(--bone);
+  --fg-2: var(--sand);
+  --fg-3: var(--dim);
+  --accent: var(--ember);
+  --accent-text: var(--ember);
+  --on-accent: var(--pitch);
+  --hairline: rgba(241, 236, 224, 0.1);
+  --hairline-strong: rgba(241, 236, 224, 0.22);
+  --wash: rgba(241, 236, 224, 0.05);
+  --destructive: #ff8a4c;
+  --ok: var(--bone);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: var(--ground);
+    --bg-raised: var(--raised);
+    --bg-sunken: var(--surface);
+    --fg: var(--ink);
+    --fg-2: var(--ink-2);
+    --fg-3: var(--ink-3);
+    --accent-text: var(--ink);
+    --on-accent: var(--ink);
+    --hairline: rgba(27, 24, 19, 0.14);
+    --hairline-strong: rgba(27, 24, 19, 0.26);
+    --wash: rgba(27, 24, 19, 0.04);
+    --destructive: var(--destructive-hex);
+    --ok: var(--ink);
+    color-scheme: light;
+  }
+}
+
+:root[data-theme="light"] {
+  --bg: var(--ground);
+  --bg-raised: var(--raised);
+  --bg-sunken: var(--surface);
+  --fg: var(--ink);
+  --fg-2: var(--ink-2);
+  --fg-3: var(--ink-3);
+  --accent-text: var(--ink);
+  --on-accent: var(--ink);
+  --hairline: rgba(27, 24, 19, 0.14);
+  --hairline-strong: rgba(27, 24, 19, 0.26);
+  --wash: rgba(27, 24, 19, 0.04);
+  --destructive: var(--destructive-hex);
+  --ok: var(--ink);
+  color-scheme: light;
+}

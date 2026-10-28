@@ -1,0 +1,9 @@
+{
+  "name": "hardhub-engine-gltf",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "description": "gltf-transform CLI for meshopt-compressing the board GLB, installed into the engine image with npm ci",
+  "dependencies": {
+    "@gltf-transform/cli": "4.5.1"
+  }
+}
