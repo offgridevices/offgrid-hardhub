@@ -84,6 +84,13 @@ and a build past its time is killed together with Freerouting. Freerouting
 runs with one thread fewer than the machine has. Footprints fetched from
 EasyEDA and catalogue answers are cached on disk.
 
+### Measured (28 Oct 2026, 4-core x86 cloud VM, sandbox image)
+
+| Board | Result | Time |
+|---|---|---|
+| ESP32-C3 sensor fixture, 2 layers, 21 parts, auto-placed but for the module | DRC 0 / 0 / 0, every connection routed, nets match; GLB 3.7 MB raw, 0.40 MB meshopt | 19 s through `/build` |
+| Print Hub (converted from offgrid-hardware), 4 layers, 137 parts, placement from its layout | DRC 0 errors / 0 warnings, nets match; **1 connection unrouted** (U2's inner ground pad, which Print Hub joins with hand-drawn copper); power nets necked to 0.13 mm in places (reported); GLB 17.6 MB raw, 1.56 MB meshopt (without its part models, which the sandbox could not install) | 8 min through `/build` (routing 5 min, repair route 2 min) |
+
 ## Footprints
 
 | Id | Comes from |
@@ -130,7 +137,7 @@ pinned; downloads are checked against their published sha256.
 | Freerouting | 2.5.0 (primary), 1.9.0 (fallback) | 2.5: headless and multi-threaded; 1.9: what offgrid-hardware's boards were routed with |
 | OpenJDK | 21 (Debian) | runs Freerouting 1.9 |
 | Node.js | 22.23.3 LTS | runs gltf-transform |
-| @gltf-transform/cli | 4.5.1, lockfile `tools/gltf/package-lock.json` | meshopt-compresses the GLB (Print Hub's 3D file shrinks about 10x) |
+| @gltf-transform/cli | 4.5.1, lockfile `tools/gltf/package-lock.json` | centres and meshopt-compresses the GLB (the C3 fixture's: 3.7 MB to 0.40 MB) |
 | shapely | 2.2.0 | geometry |
 | numpy | 2.5.4 | shapely's arrays |
 | easyeda2kicad | 1.0.1 (AGPL-3.0) | the fab's footprints for LCSC parts |
@@ -149,5 +156,14 @@ No web framework: the service is the standard library's
 * Planes are whole layers. Print Hub's split plane (5 V under the ports,
   ground under the input stage) and its hand-drawn power copper do not
   carry over; power nets get width from their current instead.
+* Freerouting may neck a power net down to the fab minimum where space is
+  tight. The `current-width` check fails a net with a stated current that
+  ends up too narrow for it, and `net-width` warns of a net narrower than
+  its stated width; the fix is placement room or hand-drawn power copper.
+* A ground or plane pad with no room for a via beside it gets one in the
+  pad if it fits (reported: order filled, capped vias), else it is left to
+  the repair route, which may not reach it.
 * No simulations yet (ngspice, thermal): offgrid-hardware runs them per
   board; the engine reports them as not run rather than passed.
+* KiCad 10 warns that its SWIG Python API (pcbnew) is deprecated in favour
+  of the IPC API; the engine will need moving when KiCad drops it.
