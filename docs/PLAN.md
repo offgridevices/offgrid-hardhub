@@ -80,7 +80,7 @@ apps/web            React + Vite + TypeScript, brand tokens, three.js viewer
 apps/api            Cloudflare Worker: Hono routes, ProjectRoom DO, agent loop
 packages/protocol   shared types and schemas (design.json, events, REST)
 engine/             Dockerfile, hardhub Python library, HTTP server, tests
-engine/skills/      what the AI knows: workflow, rules, lessons (from offgrid-hardware/docs)
+apps/api/src/agent/skills/  what the AI knows: workflow, rules, lessons (from offgrid-hardware/docs)
 docs/               this plan, decisions, how to run
 ```
 
