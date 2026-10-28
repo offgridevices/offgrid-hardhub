@@ -19,6 +19,8 @@ export class ProjectRoom extends DurableObject<Env> {
       sql: ctx.storage.sql,
       broadcast: (frame) => {
         for (const ws of ctx.getWebSockets()) {
+          // a socket gets live frames only after its replay, so it sees every event once, in order
+          if (!(ws.deserializeAttachment() as { ready?: boolean } | null)?.ready) continue;
           try {
             ws.send(frame);
           } catch {
@@ -86,7 +88,9 @@ export class ProjectRoom extends DurableObject<Env> {
       return;
     }
     if (msg.type === "hello") {
+      // synchronous: no live frame can slip in between the replay and "ready"
       for (const frame of this.core.replay(msg.after)) ws.send(frame);
+      ws.serializeAttachment({ ready: true });
     } else if (msg.type === "stop") {
       this.core.stop();
     } else {

@@ -83,7 +83,8 @@ export type ServerEventType = ServerEvent["type"];
 
 // Client -> server over the same WebSocket.
 export const ClientMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("hello"), after: z.number().int().default(-1) }), // replay events with seq > after
+  // send first: the server replays events with seq > after, then streams live ones (nothing before hello)
+  z.object({ type: z.literal("hello"), after: z.number().int().default(-1) }),
   z.object({ type: z.literal("message"), text: z.string().max(20000), answers: z.record(z.string(), z.array(z.string())).optional() }),
   z.object({ type: z.literal("stop") }),
 ]);
