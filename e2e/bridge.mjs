@@ -60,7 +60,9 @@ try {
   await page.getByTestId("submit-answers").click();
   await page.getByText("Noted: powered by USB-C.").first().waitFor({ timeout: 60000 });
   check(true, "the answer goes back to the same Claude Code conversation");
-  // a KiCad build started inside a chat turn runs then, not after the turn
+  // a KiCad build started inside a chat turn runs then, not after the turn;
+  // Enter while the last turn is still closing is ignored, so wait for idle
+  await page.waitForFunction(() => !document.querySelector('[data-testid="chat-input"]')?.getAttribute("placeholder")?.includes("working"), null, { timeout: 60000 });
   await page.getByTestId("chat-input").fill("Load the sensor circuit and build it");
   await page.getByTestId("chat-input").press("Enter");
   const built = page.getByText(/^Built it: Checks: \d+ pass, 0 fail/).first();
