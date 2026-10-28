@@ -16,6 +16,8 @@ declare global {
 
 export default function Viewer3D({ design, artifacts, fileUrl }: { design: Design; artifacts: Artifact[]; fileUrl(u: string): string }) {
   const host = useRef<HTMLDivElement>(null);
+  const hintRef = useRef<HTMLDivElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [showTop, setShowTop] = useState(true);
@@ -80,17 +82,29 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
       }
     });
     let fitTo: (() => void) | null = null;
+    // the free area between the caption and the tools: the view is shifted so
+    // the board is centred there, and fitted to its height, so no overlay
+    // covers it
+    let freeK = 1;
     const resize = () => {
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
       renderer.setSize(r.width, r.height, false);
       camera.aspect = r.width / r.height;
+      const h = hintRef.current;
+      const t = toolsRef.current;
+      const top = h ? h.offsetTop + h.offsetHeight + 8 : 0;
+      const bottom = r.height - (t ? r.bottom - t.getBoundingClientRect().top : 0) - 8;
+      const free = Math.max(40, bottom - top);
+      freeK = free / r.height;
+      camera.setViewOffset(r.width, r.height, 0, r.height / 2 - (top + bottom) / 2, r.width, r.height);
       camera.updateProjectionMatrix();
       if (!touched) fitTo?.();
       request();
     };
     const ro = new ResizeObserver(resize);
     ro.observe(el);
+    if (toolsRef.current) ro.observe(toolsRef.current);
 
     const groups: Record<string, THREE.Mesh[]> = { board: [], top: [], bottom: [] };
     let upVec = new THREE.Vector3(0, 0, 1);
@@ -138,8 +152,8 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
       if (data.up === 1) dir.set(0, 0.9, 1.1);
       dir.normalize();
       fitTo = () => {
-        const v = THREE.MathUtils.degToRad(camera.fov / 2);
-        const h = Math.atan(Math.tan(v) * camera.aspect);
+        const v = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * freeK);
+        const h = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect);
         const dist = (radius / Math.sin(Math.min(v, h))) * 1.02;
         camera.position.copy(center).addScaledVector(dir, dist);
         controls.target.copy(center);
@@ -232,17 +246,19 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
           </div>
         </div>
       )}
-      <div className="viewer-hint" style={{ color: "var(--dim)" }}>
+      <div className="viewer-hint" ref={hintRef} style={{ color: "var(--dim)" }}>
         {"glb" in src ? "From the routed board" : "Demo model: parts as blocks"} · drag to turn, pinch to zoom
       </div>
-      <div className="viewer-tools">
+      <div className="viewer-tools" ref={toolsRef}>
         <div className="layer-panel" role="group" aria-label="Show">
           <label className="chk">
             <input type="checkbox" checked={showTop} onChange={(e) => setShowTop(e.target.checked)} data-testid="toggle-top" />
+            <span className="box" aria-hidden="true" />
             Top parts
           </label>
           <label className="chk">
             <input type="checkbox" checked={showBottom} onChange={(e) => setShowBottom(e.target.checked)} data-testid="toggle-bottom" />
+            <span className="box" aria-hidden="true" />
             Bottom parts
           </label>
           <label className="range">
@@ -251,7 +267,7 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
           </label>
         </div>
         <div className="zoom">
-          <button onClick={() => api.current?.reset()} style={{ width: 64, fontSize: 12 }}>
+          <button onClick={() => api.current?.reset()} className="zoom-fit">
             Reset
           </button>
         </div>

@@ -81,6 +81,8 @@ export default function Board2D({
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(["B.Silkscreen", "F.Fab", "B.Fab"]));
   const viewer = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
+  const hint = useRef<HTMLDivElement>(null);
+  const tools = useRef<HTMLDivElement>(null);
   const view = useRef<View>({ x: 0, y: 0, s: 1 });
   const W = design.board?.width ?? 100;
   const H = design.board?.height ?? 60;
@@ -94,8 +96,14 @@ export default function Board2D({
     const el = viewer.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const s = Math.min((r.width - 32) / (W * BASE), (r.height - 96) / (H * BASE));
-    view.current = { s, x: (r.width - W * BASE * s) / 2, y: Math.max(16, (r.height - 64 - H * BASE * s) / 2) };
+    // fit into the free area between the caption and the tools, so neither
+    // covers the board, and centre it there
+    const top = (hint.current ? hint.current.offsetTop + hint.current.offsetHeight : 0) + 12;
+    const bottom = r.height - (tools.current ? r.bottom - tools.current.getBoundingClientRect().top : 0) - 12;
+    const w = r.width - 32;
+    const h = Math.max(40, bottom - top);
+    const s = Math.min(w / (W * BASE), h / (H * BASE));
+    view.current = { s, x: (r.width - W * BASE * s) / 2, y: top + (h - H * BASE * s) / 2 };
     apply();
   };
   useLayoutEffect(fit, [W, H]);
@@ -104,6 +112,8 @@ export default function Board2D({
     if (!el) return;
     const ro = new ResizeObserver(() => fit());
     ro.observe(el);
+    // the layer list wraps differently at each width: refit when it does
+    if (tools.current) ro.observe(tools.current);
     return () => ro.disconnect();
   }, [W, H]);
 
@@ -194,7 +204,7 @@ export default function Board2D({
 
   return (
     <div className="viewer" ref={viewer} data-testid="board-2d" style={{ background: "var(--coal)" }}>
-      <div className="viewer-hint">
+      <div className="viewer-hint" ref={hint}>
         {W} × {H} mm · drag to move, pinch or scroll to zoom
       </div>
       <div className="viewer-stage" ref={stage} style={{ width: W * BASE, height: H * BASE }}>
@@ -209,7 +219,7 @@ export default function Board2D({
           />
         ))}
       </div>
-      <div className="viewer-tools">
+      <div className="viewer-tools" ref={tools}>
         <div className="layer-panel" role="group" aria-label="Layers">
           {[...layers].reverse().map((l) => (
             <label key={l.layer} className="chk">
@@ -226,6 +236,7 @@ export default function Board2D({
                 }
                 data-testid={`layer-${l.layer}`}
               />
+              <span className="box" aria-hidden="true" />
               <span className="swatch" style={{ background: LAYER_COLORS[l.layer] ?? "var(--fg-3)" }} />
               {layerName(l.layer)}
             </label>
@@ -235,7 +246,7 @@ export default function Board2D({
           <button onClick={() => zoomButton(1 / 1.4)} aria-label="Zoom out">
             −
           </button>
-          <button onClick={fit} aria-label="Fit board" style={{ width: 48, fontSize: 12 }}>
+          <button onClick={fit} aria-label="Fit board" className="zoom-fit">
             Fit
           </button>
           <button onClick={() => zoomButton(1.4)} aria-label="Zoom in">

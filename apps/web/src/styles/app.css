@@ -175,7 +175,6 @@ svg {
   border-color: var(--fg);
 }
 .btn:disabled {
-  opacity: 0.45;
   cursor: not-allowed;
 }
 .btn-primary {
@@ -195,10 +194,27 @@ svg {
 .btn-solid:hover {
   opacity: 0.9;
 }
+/* disabled: an outline with readable text (4.5:1 or better), never a faded
+   fill, which left Ember and ink buttons unreadable */
+.btn:disabled,
+.btn-primary:disabled,
+.btn-solid:disabled {
+  background: transparent;
+  border-color: var(--hairline-strong);
+  color: var(--fg-3);
+  filter: none;
+  opacity: 1;
+}
 .btn-quiet {
   border-color: transparent;
   color: var(--fg-2);
   padding: 0 10px;
+}
+.btn-quiet.is-current {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 6px;
+  text-decoration-thickness: 1px;
 }
 .btn-quiet:hover {
   border-color: transparent;
@@ -279,6 +295,9 @@ svg {
   line-height: 1;
   color: var(--fg-2);
   white-space: nowrap;
+  /* a word, even inside a figure's (mono) cell */
+  font-family: var(--font-sans);
+  letter-spacing: 0;
 }
 .tag-warn {
   color: var(--destructive);
@@ -536,6 +555,18 @@ svg {
   background: var(--hairline-strong);
   margin-right: 10px;
   margin-left: -10px;
+}
+
+/* a row that scrolls sideways fades out on the side that has more, so it
+   reads as scrollable (data-fade is set by useEdgeFade) */
+[data-fade="l"] {
+  mask-image: linear-gradient(to right, transparent 0, #000 32px);
+}
+[data-fade="r"] {
+  mask-image: linear-gradient(to left, transparent 0, #000 32px);
+}
+[data-fade="lr"] {
+  mask-image: linear-gradient(to right, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%);
 }
 
 /* ---------- workspace ---------- */
@@ -971,7 +1002,7 @@ svg {
   /* hairline grid: each cell's outline draws the rules, so a short last row
      leaves no filled gap */
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(96px, 100%), 1fr));
   gap: 1px;
   padding: 1px;
 }
@@ -983,11 +1014,18 @@ svg {
   gap: 6px;
 }
 .stat .n {
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 26px;
   line-height: 1;
   letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
+}
+/* words inside a figure ("19 of 22") stay in the sans: mono is for numbers */
+.stat .n .of {
+  font-family: var(--font-sans);
+  font-size: 0.6em;
+  color: var(--fg-3);
 }
 .stat .m {
   font-size: 13px;
@@ -1011,11 +1049,9 @@ svg {
   border-bottom: 1px solid var(--hairline);
 }
 .check .st {
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.04em;
-  padding-top: 3px;
+  padding-top: 2px;
 }
 .check.fail .st,
 .check.fail .name {
@@ -1171,14 +1207,44 @@ svg {
   min-height: 28px;
   cursor: pointer;
 }
+.chk {
+  position: relative;
+}
 .chk input {
-  accent-color: var(--fg);
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
   margin: 0;
+}
+.chk .box {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1px solid var(--hairline-strong);
+  display: grid;
+  place-items: center;
+}
+.chk input:checked + .box {
+  border-color: var(--fg);
+}
+.chk input:checked + .box::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--fg);
+}
+.chk input:focus-visible + .box {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
 }
 .swatch {
   width: 10px;
   height: 10px;
   flex: none;
+  /* a hairline edge: a near-white layer colour still shows on a light panel */
+  outline: 1px solid var(--hairline-strong);
+  outline-offset: -1px;
 }
 .zoom {
   margin-left: auto;
@@ -1187,12 +1253,17 @@ svg {
   border: 1px solid var(--hairline);
 }
 .zoom button {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border: 0;
   background: none;
-  font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.zoom .zoom-fit {
+  width: auto;
+  padding: 0 14px;
+  font-size: 14px;
 }
 .zoom button + button {
   border-left: 1px solid var(--hairline);
@@ -1213,8 +1284,39 @@ svg {
   color: var(--fg-2);
 }
 .range input {
-  accent-color: var(--fg);
+  -webkit-appearance: none;
+  appearance: none;
   width: 120px;
+  height: 28px;
+  background: transparent;
+}
+.range input::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--hairline-strong);
+}
+.range input::-moz-range-track {
+  height: 1px;
+  background: var(--hairline-strong);
+}
+.range input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  border: 0;
+  border-radius: 0;
+  background: var(--fg);
+}
+.range input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--fg);
+}
+.range input:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
 }
 
 /* settings */
@@ -1366,6 +1468,18 @@ svg {
   .pane-inner {
     padding-top: 20px;
   }
+  /* every control a finger can reach is at least 44 px tall */
+  .btn-sm {
+    min-height: 44px;
+  }
+  .chk {
+    min-height: 44px;
+  }
+  /* 44 px rows already space the list: no gap between them */
+  .layer-panel {
+    gap: 0 14px;
+    padding: 0 12px;
+  }
 }
 @media (min-width: 900px) {
   .show-sm {
@@ -1373,14 +1487,20 @@ svg {
   }
 }
 @media (max-width: 520px) {
+  /* the lockup keeps "by OffGrid" on a phone: it fits beside Settings */
   .lockup .by {
-    display: none;
+    margin-left: 6px;
+    font-size: 12px;
   }
   .topbar {
     gap: 10px;
   }
   .stat .n {
     font-size: 22px;
+  }
+  /* four figures read as two rows of two, not three and an orphan */
+  .stats:has(> .stat:nth-child(4)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (prefers-reduced-motion: reduce) {
