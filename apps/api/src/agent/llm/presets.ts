@@ -44,4 +44,7 @@ export const PRESETS: Record<LlmProvider, Preset> = {
   ollama: { format: "openai", baseURL: "http://host.docker.internal:11434/v1", defaultModel: OLLAMA_DEFAULT_MODEL, needsKey: false, vision: false },
   // any OpenAI-compatible endpoint the person vouches for; base_url is required
   custom: { format: "openai", needsKey: false, vision: false },
+  // the person's own Claude Code, through the bridge (src/bridge.ts): it runs
+  // the whole turn itself, so it never goes through makeLlm
+  "claude-code": { format: "anthropic", needsKey: false, vision: true },
 };

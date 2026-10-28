@@ -22,6 +22,10 @@ export interface Env {
   /** "1": Durable Objects are created in the US jurisdiction */
   US_ONLY: string;
 
+  /** the bridge to the person's own Claude Code (local only; ./hardhub sets both) */
+  BRIDGE_URL?: string;
+  BRIDGE_TOKEN?: string;
+
   /** base64 of 32 random bytes; encrypts stored API keys (secret) */
   KEY_ENCRYPTION_KEY: string;
 

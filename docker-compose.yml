@@ -39,6 +39,9 @@ services:
       DEV_LLM_BASE_URL: ${DEV_LLM_BASE_URL:-}
       DEV_LLM_KEY: ${DEV_LLM_KEY:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # your own Claude Code on this computer (./hardhub starts the bridge when it finds it)
+      BRIDGE_URL: ${HARDHUB_BRIDGE_URL:-}
+      BRIDGE_TOKEN: ${HARDHUB_BRIDGE_TOKEN:-}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: [api-state:/data]
     depends_on:

@@ -75,6 +75,8 @@ export interface McpDeps {
   /** the web app's address, for links to a project */
   appUrl: string;
   room(projectId: string): Room;
+  /** the caller is HardHub's own chat, run by the person's Claude Code (bridge.ts) */
+  fromChat?: boolean;
   sleep?(ms: number): Promise<void>;
   waitMs?: number;
 }
@@ -160,7 +162,7 @@ export function buildServer(deps: McpDeps): McpServer {
       async (input: Record<string, unknown>) => {
         const { project, ...args } = input as { project: string } & Record<string, unknown>;
         if (!(await owned(project))) return noProject(project);
-        const r = await deps.room(project).agentTool(name, args);
+        const r = await deps.room(project).agentTool(name, args, !!deps.fromChat);
         if (name !== "build_board" || r.isError) return toResult(r);
         return waitForBuild(project);
       },
@@ -182,6 +184,22 @@ export function buildServer(deps: McpDeps): McpServer {
       await sleep(POLL_MS);
     }
   };
+
+  if (deps.fromChat)
+    server.registerTool(
+      "ask_user",
+      {
+        title: "Ask the person",
+        description: TOOLS.ask_user.description,
+        inputSchema: (TOOLS.ask_user.schema as z.ZodObject).extend({ project: ProjectId }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      async (input: Record<string, unknown>) => {
+        const { project, questions } = input as { project: string; questions: unknown };
+        if (!(await owned(project))) return noProject(project);
+        return toResult(await deps.room(project).agentAsk(questions));
+      },
+    );
 
   server.registerTool(
     "wait_for_build",

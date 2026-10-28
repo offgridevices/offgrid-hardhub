@@ -1,6 +1,7 @@
 // What the interface needs from a server. The real client (api.ts) and the
 // demo data (mock.ts) both implement it, so every screen runs on either.
 import type {
+  BridgeStatus,
   ClientMessage,
   Connections,
   OAuthApprove,
@@ -46,6 +47,8 @@ export interface Backend {
   getProject(id: string): Promise<ProjectDetail>;
   renameProject(id: string, name: string): Promise<ProjectSummary>;
   deleteProject(id: string): Promise<void>;
+  /** can HardHub's chat run on Claude Code on this computer? */
+  bridgeStatus(): Promise<BridgeStatus>;
   /** AI apps connected over MCP, and the address to connect more */
   connections(): Promise<Connections>;
   disconnect(clientId: string): Promise<void>;

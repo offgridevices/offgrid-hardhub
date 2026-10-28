@@ -9,6 +9,7 @@
 //   MCP_URL             the MCP address Settings shows  http://localhost:PORT/mcp
 //   WEB_ORIGINS         CORS origins                    APP_URL and 127.0.0.1:5173
 //   KEY_ENCRYPTION_KEY  encrypts stored API keys        generated once, kept in HH_STATE
+//   BRIDGE_URL, BRIDGE_TOKEN  the bridge to the person's own Claude Code (./hardhub sets them)
 //   DEV_LLM_PROVIDER, DEV_LLM_MODEL, DEV_LLM_BASE_URL, DEV_LLM_KEY
 //                       LLM defaults for new accounts and a fallback key (dev only)
 import { spawnSync, spawn } from "node:child_process";
@@ -35,7 +36,9 @@ const vars = {
   US_ONLY: "0",
   KEY_ENCRYPTION_KEY: kek,
   ...Object.fromEntries(
-    ["DEV_LLM_PROVIDER", "DEV_LLM_MODEL", "DEV_LLM_BASE_URL", "DEV_LLM_KEY", "ANTHROPIC_BASE_URL"].filter((k) => e[k]).map((k) => [k, e[k]]),
+    ["DEV_LLM_PROVIDER", "DEV_LLM_MODEL", "DEV_LLM_BASE_URL", "DEV_LLM_KEY", "ANTHROPIC_BASE_URL", "BRIDGE_URL", "BRIDGE_TOKEN"]
+      .filter((k) => e[k])
+      .map((k) => [k, e[k]]),
   ),
 };
 // secrets go through a file wrangler reads, not the command line

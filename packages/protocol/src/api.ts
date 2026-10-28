@@ -26,8 +26,10 @@ import { ServerEvent } from "./events";
 // Who runs the AI. Every option is kept on US servers: Anthropic with
 // inference_geo "us", OpenAI through its US data-residency endpoint,
 // OpenRouter restricted to US-hosted providers, Ollama on your own machine,
-// "custom" any OpenAI-compatible endpoint you vouch for.
-export const LlmProvider = z.enum(["anthropic", "openrouter", "openai", "ollama", "custom"]);
+// "custom" any OpenAI-compatible endpoint you vouch for. "claude-code": the
+// person's own Claude Code on their computer, on their Claude subscription
+// (local only, through ./hardhub's bridge; no US pinning is possible there).
+export const LlmProvider = z.enum(["anthropic", "openrouter", "openai", "ollama", "custom", "claude-code"]);
 export type LlmProvider = z.infer<typeof LlmProvider>;
 /** @deprecated use LlmProvider */
 export const Provider = LlmProvider;
@@ -80,6 +82,16 @@ export const ProjectDetail = ProjectSummary.extend({
   busy: z.boolean(),
 });
 export type ProjectDetail = z.infer<typeof ProjectDetail>;
+
+// GET /bridge: can HardHub's chat run on Claude Code on this computer?
+export const BridgeStatus = z.object({
+  available: z.boolean(),
+  claude: z.string().optional(), // its version
+  signed_in: z.boolean().optional(),
+  auth: z.string().optional(), // "claude.ai" is a subscription; "api_key" bills an API key
+  error: z.string().optional(),
+});
+export type BridgeStatus = z.infer<typeof BridgeStatus>;
 
 export const ApiError = z.object({ error: z.string(), detail: z.string().optional() });
 export type ApiError = z.infer<typeof ApiError>;

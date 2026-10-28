@@ -2,6 +2,7 @@
 // The session token goes in the Authorization header, so the API can live on
 // another origin (localhost:8787 in dev, its own hostname on Cloudflare).
 import {
+  BridgeStatus,
   Connections,
   DevSignIn,
   OAuthClientInfo,
@@ -155,6 +156,9 @@ export class ApiClient implements Backend {
   }
   deleteProject(id: string) {
     return this.req<void>("DELETE", `/projects/${encodeURIComponent(id)}`);
+  }
+  bridgeStatus() {
+    return this.req("GET", "/bridge", undefined, BridgeStatus);
   }
   connections() {
     return this.req("GET", "/connections", undefined, Connections);

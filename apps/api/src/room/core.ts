@@ -5,8 +5,9 @@
 import { Design, type EventPage, type ServerEvent, emptyDesign } from "@hardhub/protocol";
 import type { Engine } from "../engine";
 import { type Llm, LlmError, type StreamSink, type ToolImage } from "../agent/llm/types";
+import type { BridgeEvent } from "../bridge";
 import { type Pending, type TurnEnd, type TurnInput, runTurn } from "../agent/loop";
-import { SYSTEM_PROMPT } from "../agent/prompt";
+import { SYSTEM_PROMPT, chatSystemPrompt } from "../agent/prompt";
 import { type EventInput, type ToolContext, TOOLS, runTool, toolSpecs } from "../agent/tools";
 
 export interface SqlCursor {
@@ -29,6 +30,12 @@ export interface RoomDeps {
   getFile(key: string): Promise<ArrayBuffer | null>;
   /** update the project list row (stage, time) */
   touch(projectId: string, fields: { stage?: Design["stage"] }): Promise<void>;
+  /** the person's own Claude Code, when their AI is set to it: runs a whole chat turn */
+  chat?(ownerId: string): Promise<ChatRunner | null>;
+}
+
+export interface ChatRunner {
+  run(req: { prompt: string; system: string; session?: string }, signal: AbortSignal): AsyncIterable<BridgeEvent>;
 }
 
 const SCHEMA = [
@@ -230,6 +237,8 @@ export class RoomCore {
     let end: TurnEnd = "error";
     try {
       this.emit({ type: "user_message", id: shortId("m"), text: input.text, ...(input.answers ? { answers: input.answers } : {}) });
+      const chat = await this.d.chat?.(this.ownerId);
+      if (chat) return (end = await this.chatTurn(chat, input, abort.signal));
       let llm: Llm;
       try {
         llm = await this.d.llm(this.ownerId);
@@ -368,8 +377,8 @@ export class RoomCore {
   /** A tool call from an agent connected over MCP: the same tools the built-in
    * AI has, run here so every open client sees it happen. build_board starts a
    * background build instead (agentBuild tells how it is going). */
-  async agentTool(name: string, input: unknown): Promise<AgentResult> {
-    const refused = this.agentRefusal();
+  async agentTool(name: string, input: unknown, fromChat = false): Promise<AgentResult> {
+    const refused = this.agentRefusal(fromChat);
     if (refused) return refused;
     if (name === "build_board") return this.startAgentBuild(input);
     // the build works from the design as it was when it started
@@ -386,7 +395,9 @@ export class RoomCore {
   }
 
   /** Agents wait while HardHub's own AI is answering in this project. */
-  private agentRefusal(): AgentResult | null {
+  private agentRefusal(fromChat = false): AgentResult | null {
+    // the chat's own Claude Code works inside the turn that is running
+    if (fromChat) return this.meta("chat_turn") ? null : { content: "This chat turn has ended.", isError: true };
     return this.busy || this.meta("queued")
       ? { content: "HardHub's own AI is answering a message in this project. Try again when it has finished.", isError: true }
       : null;
@@ -396,7 +407,7 @@ export class RoomCore {
    * while it runs and are idle again after, as with a reply. A question the
    * built-in AI asked stays open (its turn ended waiting for the person). */
   private agentDone(reason: "done" | "error" | "stopped" = "done") {
-    if (this.agentCalls > 0 || this.buildingForAgent()) return; // still working
+    if (this.agentCalls > 0 || this.buildingForAgent() || this.meta("chat_turn")) return; // still working
     this.emit({ type: "turn_end", reason: this.meta("pending") ? "waiting_for_user" : reason });
   }
 
@@ -448,6 +459,71 @@ export class RoomCore {
       this.buildAbort = null;
       this.agentDone(end);
     }
+  }
+
+  /** The chat's Claude Code asks the person: question cards, answered as the next message. */
+  agentAsk(questions: unknown): AgentResult {
+    if (!this.meta("chat_turn")) return { content: "This chat turn has ended.", isError: true };
+    const parsed = TOOLS.ask_user.schema.safeParse({ questions });
+    if (!parsed.success) return { content: `Invalid questions: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, isError: true };
+    this.emit({ type: "questions", id: shortId("q"), questions: parsed.data.questions });
+    this.setMeta("chat_asked", "1");
+    return { content: "Shown to the person as multiple-choice cards. End your turn now: their answers arrive as the next message." };
+  }
+
+  /** One chat turn run by the person's own Claude Code: its text streams into
+   * the chat; its board work arrives through /mcp as tool calls. */
+  private async chatTurn(chat: ChatRunner, input: TurnInput, signal: AbortSignal): Promise<TurnEnd> {
+    this.setMeta("chat_turn", "1");
+    this.setMeta("chat_asked", null);
+    let textId = "";
+    try {
+      const prompt = input.answers ? `${input.text}\n\nMy answers:\n${this.describeAnswers(input.answers)}` : input.text;
+      const session = this.meta("claude_session") ?? undefined;
+      for await (const e of chat.run({ prompt, system: chatSystemPrompt(this.projectId), ...(session ? { session } : {}) }, signal)) {
+        if (e.type === "session") this.setMeta("claude_session", e.id);
+        else if (e.type === "text_delta") {
+          textId ||= shortId("t");
+          this.sendDelta(textId, e.text);
+        } else if (e.type === "text") {
+          this.emit({ type: "assistant_text", id: textId || shortId("t"), text: e.text, done: true });
+          textId = "";
+        } else if (e.type === "done") {
+          if (e.session) this.setMeta("claude_session", e.session);
+          if (e.stopped) return "stopped";
+          if (!e.ok) {
+            this.emit({ type: "error", message: `Claude Code: ${e.error ?? "the turn failed"}`, retryable: true });
+            return "error";
+          }
+          return this.meta("chat_asked") ? "waiting_for_user" : "done";
+        }
+      }
+      return "done";
+    } catch (e) {
+      this.emit({ type: "error", message: e instanceof Error ? e.message : String(e), retryable: true });
+      return "error";
+    } finally {
+      this.flushDelta();
+      this.setMeta("chat_turn", null);
+    }
+  }
+
+  /** answers as words, from the questions that were asked */
+  private describeAnswers(answers: Record<string, string[]>): string {
+    const rows = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"questions"%' ORDER BY seq DESC LIMIT 3`).toArray();
+    const qs = rows.flatMap((r) => {
+      const ev = JSON.parse(r.json as string) as ServerEvent;
+      return ev.type === "questions" ? ev.questions : [];
+    });
+    // the web app keys answers by each question's header, with the options' labels
+    // (ids are accepted too)
+    return Object.entries(answers)
+      .map(([key, picks]) => {
+        const q = qs.find((x) => x.header === key || x.id === key);
+        const labels = picks.map((p) => q?.options.find((o) => o.id === p)?.label ?? p);
+        return `- ${q?.text ?? key}: ${labels.join(", ")}`;
+      })
+      .join("\n");
   }
 
   /** What the person asked their agent for, shown as their message. */

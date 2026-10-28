@@ -17,6 +17,7 @@ const LABEL: Record<LlmProvider, string> = {
   openrouter: "OpenRouter",
   ollama: "Ollama",
   custom: "The custom endpoint",
+  "claude-code": "Claude Code",
 };
 
 /** Development defaults for new accounts (DEV=1 only), so local and e2e runs need no setup. */
@@ -31,6 +32,8 @@ export function devLlmDefaults(env: Env): LlmSettings | null {
 }
 
 export function makeLlm(settings: LlmSettings, key: string | null, env: Env): Llm {
+  if (settings.provider === "claude-code")
+    throw new LlmError("Claude Code on this computer is only available when HardHub runs locally with ./hardhub.", false);
   const preset = PRESETS[settings.provider];
   if (preset.needsKey && !key)
     throw new LlmError(`Add your ${LABEL[settings.provider]} API key in Settings to start designing.`, false);

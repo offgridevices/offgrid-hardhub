@@ -94,7 +94,7 @@ export class MockBackend implements Backend {
   async me() {
     const m = this.meState;
     // the demo needs no key for Ollama or custom endpoints, like the server
-    m.llm_ready = !!m.keys[m.llm.provider] || m.llm.provider === "ollama" || m.llm.provider === "custom";
+    m.llm_ready = !!m.keys[m.llm.provider] || m.llm.provider === "ollama" || m.llm.provider === "custom" || m.llm.provider === "claude-code";
     return structuredClone(m);
   }
   async setLlm(llm: LlmSettings) {
@@ -116,6 +116,9 @@ export class MockBackend implements Backend {
     mcp_url: "https://hardhub.example.com/mcp",
     connections: [{ client_id: "demo-claude", name: "Claude", connected_at: "2026-10-26T10:00:00Z", renewed_at: "2026-10-28T08:00:00Z" }],
   };
+  async bridgeStatus() {
+    return { available: true, claude: "2.1.300", signed_in: true, auth: "claude.ai" };
+  }
   async connections() {
     return structuredClone(this.conns);
   }

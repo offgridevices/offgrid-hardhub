@@ -14,3 +14,5 @@ coverage/
 playwright-report/
 test-results/
 .claude/worktrees/
+# ./hardhub's local state: the Claude Code bridge's token, pid and log
+.hardhub/

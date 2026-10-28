@@ -8,6 +8,8 @@ import type { TurnInput } from "../agent/loop";
 import { touchProject } from "../db";
 import { engineFor } from "../engine";
 import type { Env } from "../env";
+import { CHAT_CLIENT, bridgeFor } from "../bridge";
+import { createChatToken, deleteSession, getMe } from "../db";
 import { RoomCore } from "./core";
 
 export class ProjectRoom extends DurableObject<Env> {
@@ -36,6 +38,26 @@ export class ProjectRoom extends DurableObject<Env> {
       },
       getFile: async (key) => (await env.FILES.get(key))?.arrayBuffer() ?? null,
       touch: (projectId, fields) => touchProject(env, projectId, fields),
+      chat: async (ownerId) => {
+        const bridge = bridgeFor(env);
+        const me = bridge ? await getMe(env, ownerId) : null;
+        if (!bridge || me?.llm.provider !== "claude-code") return null;
+        const mcpUrl = env.MCP_URL;
+        const model = me.llm.model && me.llm.model !== "default" ? me.llm.model : undefined;
+        const project = () => this.core.projectId;
+        return {
+          async *run(req, signal) {
+            if (!mcpUrl) throw new Error("MCP_URL is not set, so Claude Code cannot reach HardHub's tools.");
+            // a token for this turn only: Claude Code reaches the board through /mcp with it
+            const token = await createChatToken(env, ownerId, CHAT_CLIENT);
+            try {
+              yield* bridge.turn({ ...req, project: project(), mcp: { url: mcpUrl, token }, ...(model ? { model } : {}) }, signal);
+            } finally {
+              await deleteSession(env, token);
+            }
+          },
+        };
+      },
     });
   }
 
@@ -63,14 +85,18 @@ export class ProjectRoom extends DurableObject<Env> {
   // ------------------------------------------------------------- agents over MCP
 
   /** One tool call from a connected agent. A build starts in the background. */
-  async agentTool(name: string, input: unknown) {
-    const r = await this.core.agentTool(name, input);
+  async agentTool(name: string, input: unknown, fromChat = false) {
+    const r = await this.core.agentTool(name, input, fromChat);
     if (name === "build_board" && !r.isError) await this.ctx.storage.setAlarm(Date.now());
     return r;
   }
 
   agentBuild() {
     return this.core.agentBuild();
+  }
+
+  agentAsk(questions: unknown) {
+    return this.core.agentAsk(questions);
   }
 
   agentRequest(text: string) {

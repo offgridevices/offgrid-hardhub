@@ -22,7 +22,8 @@ export async function getMe(env: Env, userId: string): Promise<Me | null> {
   const keys: Me["keys"] = {};
   for (const k of results) keys[k.provider] = { last4: k.last4, added_at: k.added_at };
   const llm: LlmSettings = { provider: u.llm_provider, model: u.llm_model, ...(u.llm_base_url ? { base_url: u.llm_base_url } : {}) };
-  const llm_ready = !!keys[llm.provider] || !PRESETS[llm.provider].needsKey || (isDev(env) && !!env.DEV_LLM_KEY);
+  const llm_ready =
+    llm.provider === "claude-code" ? !!env.BRIDGE_URL : !!keys[llm.provider] || !PRESETS[llm.provider].needsKey || (isDev(env) && !!env.DEV_LLM_KEY);
   return { id: u.id, email: u.email, keys, llm, llm_ready };
 }
 
@@ -79,6 +80,15 @@ export async function sessionUser(env: Env, token: string): Promise<string | nul
     .bind(await sha256(token), now())
     .first<{ user_id: string }>();
   return row?.user_id ?? null;
+}
+
+/** A short-lived MCP token for one chat turn run by the person's own Claude Code (bridge.ts). */
+export async function createChatToken(env: Env, userId: string, clientId: string): Promise<string> {
+  const token = randomToken();
+  await env.DB.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at, client_id) VALUES (?, ?, ?, ?, ?)")
+    .bind(await sha256(token), userId, now(), later(2 * 3_600_000), clientId)
+    .run();
+  return token;
 }
 
 /** An agent's access token, issued by HardHub's sign-in for MCP (never a browser session). */

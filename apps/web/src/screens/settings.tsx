@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import type { LlmProvider } from "@hardhub/protocol";
+import { useEffect, useState, type FormEvent } from "react";
+import type { BridgeStatus, LlmProvider } from "@hardhub/protocol";
 import { TopBar } from "../components/topbar";
 import { useApp, MOCK, API_URL } from "../lib/app";
 import { navigate } from "../lib/router";
@@ -110,6 +110,8 @@ export default function Settings() {
                 </button>
               ))}
             </div>
+
+            {provider === "claude-code" && <ClaudeCodeStatus />}
 
             <div className="field">
               <label className="label" htmlFor="model">
@@ -280,5 +282,51 @@ export default function Settings() {
         </div>
       </main>
     </div>
+  );
+}
+
+/** Is Claude Code on this computer, and signed in to a subscription? (through ./hardhub's bridge) */
+function ClaudeCodeStatus() {
+  const { backend } = useApp();
+  const [s, setS] = useState<BridgeStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    backend.bridgeStatus().then(
+      (r) => live && setS(r),
+      (e: Error) => live && setS({ available: false, error: e.message }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend]);
+  if (!s) return <p className="small muted">Looking for Claude Code on this computer…</p>;
+  if (!s.available)
+    return (
+      <div className="panel" style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }} data-testid="bridge-status">
+        <span className="small">Not available here. {s.error}</span>
+        <ol className="steps-list">
+          <li>
+            Install Claude Code (<a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noreferrer">code.claude.com</a>) and Node.js 20 or newer.
+          </li>
+          <li>
+            Run <span className="num">claude</span> once in a terminal and sign in with your Claude account.
+          </li>
+          <li>
+            Run <span className="num">./hardhub</span> again: it starts the helper that lets HardHub use it.
+          </li>
+        </ol>
+      </div>
+    );
+  const how = !s.signed_in
+    ? ", but not signed in: run claude once in a terminal and sign in."
+    : s.auth === "claude.ai"
+      ? ", signed in with your Claude subscription."
+      : s.auth === "api_key" || s.auth === "api_key_helper"
+        ? ", signed in with an API key: that is billed to the key, not your plan."
+        : ", signed in.";
+  return (
+    <p className="small" data-testid="bridge-status">
+      Claude Code {s.claude} found on this computer{how}
+    </p>
   );
 }

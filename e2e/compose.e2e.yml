@@ -11,6 +11,16 @@ services:
       interval: 2s
       retries: 30
 
+  # the Claude Code bridge, running a stand-in claude (e2e/fake-claude/claude.mjs)
+  bridge:
+    image: node:22.22.0-bookworm-slim
+    volumes: [".:/repo:ro"]
+    environment:
+      BRIDGE_TOKEN: e2e-bridge-token-0123456789abcdef0123456789
+      BRIDGE_HOST: 0.0.0.0
+      CLAUDE_BIN: /repo/e2e/fake-claude/claude.mjs
+    command: ["node", "/repo/bridge/bridge.mjs"]
+
   engine:
     ports: !reset []
   api:
@@ -23,6 +33,8 @@ services:
       # the test browser reaches the app as "web": the MCP consent page lives there
       APP_URL: http://web:5173
       MCP_URL: http://api:8787/mcp
+      BRIDGE_URL: http://bridge:8789
+      BRIDGE_TOKEN: e2e-bridge-token-0123456789abcdef0123456789
     depends_on:
       fake-anthropic: { condition: service_healthy }
   web:
@@ -47,6 +59,7 @@ services:
         [ -d "$$G/@modelcontextprotocol/sdk" ] || npm install -g --no-audit --no-fund @modelcontextprotocol/sdk@1.32.1;
         export NODE_PATH=$$G;
         node e2e/full.mjs http://web:5173 /shots;
-        node e2e/mcp.mjs http://web:5173 /shots
+        node e2e/mcp.mjs http://web:5173 /shots;
+        node e2e/bridge.mjs http://web:5173 /shots
     depends_on:
       web: { condition: service_healthy }

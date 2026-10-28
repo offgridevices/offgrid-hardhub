@@ -4,7 +4,7 @@
 import { CONVERTERS } from "../../src/agent/llm";
 import { b64 } from "../../src/crypto";
 import type { Env } from "../../src/env";
-import { RoomCore } from "../../src/room/core";
+import { type ChatRunner, RoomCore } from "../../src/room/core";
 import { FakeEngine } from "./room";
 import { d1, doSql } from "./sqlite";
 
@@ -33,6 +33,8 @@ export function fakeR2() {
 
 export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: FakeEngine = new FakeEngine()) {
   const rooms = new Map<string, RoomCore>();
+  // the person's own Claude Code, for chat-turn tests (null: the built-in AI)
+  let chat: (owner: string) => Promise<ChatRunner | null> = async () => null;
   const core = (id: string) => {
     let r = rooms.get(id);
     if (!r)
@@ -54,6 +56,7 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
             return o ? (o.bytes.slice().buffer as ArrayBuffer) : null;
           },
           touch: async () => {},
+          chat: (owner) => chat(owner),
         })),
       );
     return r;
@@ -62,6 +65,9 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
     rooms,
     core,
     engine,
+    setChat: (fn: typeof chat) => {
+      chat = fn;
+    },
     idFromName: (n: string) => n,
     get: (id: string) => ({
       init: async (p: string, o: string, n: string) => core(id).init(p, o, n),
@@ -73,13 +79,14 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
       start: async (input: { text: string }) => core(id).queue(input),
       destroy: async () => void rooms.delete(id),
       // the alarm a build sets runs right after the call, as it would on Cloudflare
-      agentTool: async (name: string, input: unknown) => {
-        const r = await core(id).agentTool(name, input);
+      agentTool: async (name: string, input: unknown, fromChat = false) => {
+        const r = await core(id).agentTool(name, input, fromChat);
         if (name === "build_board" && !r.isError) await core(id).runAgentBuild();
         return r;
       },
       agentBuild: async () => core(id).agentBuild(),
       agentRequest: async (t: string) => core(id).agentRequest(t),
+      agentAsk: async (q: unknown) => core(id).agentAsk(q),
       agentNote: async (t: string) => core(id).agentNote(t),
       agentResults: async () => ({ artifacts: core(id).latestArtifacts(), checks: core(id).latestChecks() }),
       agentFile: async (name: string) => core(id).file(name),

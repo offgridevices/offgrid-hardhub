@@ -9,6 +9,7 @@ import { contentType } from "./agent/tools";
 import * as db from "./db";
 import { type Env, isDev } from "./env";
 import { mailer } from "./mail";
+import { CHAT_CLIENT, bridgeFor } from "./bridge";
 import { appUrlFor, handleMcp } from "./mcp";
 import { checkRequest, createCode, listConnections, oauth, redirectLabel, resourceMetadataUrl, revokeConnection, SCOPE } from "./oauth";
 
@@ -61,7 +62,13 @@ app.all("/mcp", async (c) => {
     const challenge = `Bearer resource_metadata="${resourceMetadataUrl(c.req.raw)}", scope="${SCOPE}"${token ? ', error="invalid_token"' : ""}`;
     return c.json({ error: "invalid_token", error_description: "Sign in to HardHub first." }, 401, { "WWW-Authenticate": challenge });
   }
-  return handleMcp(c.req.raw, { env: c.env, userId: owner.userId, appUrl: appUrlFor(c.env, c.req.raw), room: (id) => room(c.env, id) });
+  return handleMcp(c.req.raw, {
+    env: c.env,
+    userId: owner.userId,
+    appUrl: appUrlFor(c.env, c.req.raw),
+    room: (id) => room(c.env, id),
+    fromChat: owner.clientId === CHAT_CLIENT,
+  });
 });
 
 // ------------------------------------------------------------------ auth
@@ -122,6 +129,12 @@ app.post("/auth/logout", auth, async (c) => {
 // ------------------------------------------------------------------ me
 
 app.get("/me", auth, async (c) => c.json(await db.getMe(c.env, c.get("userId"))));
+
+// can HardHub's chat run on the person's own Claude Code? (local only)
+app.get("/bridge", auth, async (c) => {
+  const b = bridgeFor(c.env);
+  return c.json(b ? await b.health() : { available: false, error: "Only when HardHub runs on your computer with ./hardhub and Claude Code is installed." });
+});
 
 // ------------------------------------------------------------------ connected agents
 

@@ -22,6 +22,19 @@ export interface ProviderInfo {
 
 export const PROVIDERS: ProviderInfo[] = [
   {
+    id: "claude-code",
+    name: "Claude Code on this computer",
+    where: "Your own Claude Code does the thinking, on your Claude subscription: no API key. Only when HardHub runs on your computer, and not pinned to US servers.",
+    needsKey: false,
+    needsBaseUrl: false,
+    models: [
+      { id: "default", label: "Claude Code's own choice", note: "The model your Claude Code uses by default." },
+      { id: "opus", label: "Opus", note: "Best results for real boards." },
+      { id: "sonnet", label: "Sonnet", note: "Faster; uses less of your plan." },
+    ],
+    freeModel: false,
+  },
+  {
     id: "anthropic",
     name: "Claude",
     recommended: true,

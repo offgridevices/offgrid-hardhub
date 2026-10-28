@@ -25,6 +25,16 @@ with any email (local mode needs no email), open **Settings**, and pick the AI:
 | Ollama on your computer | [Ollama](https://ollama.com/download), then `./hardhub ollama` to fetch the small model. Nothing leaves your computer; fine for trying HardHub, too small for real boards. |
 | OpenRouter, OpenAI, any OpenAI-compatible API | that provider's key |
 
+### Use your Claude subscription in HardHub's own chat
+
+If [Claude Code](https://code.claude.com/docs/en/setup) is installed and signed
+in on your Mac (and Node.js 20+), `./hardhub` finds it and starts a small helper
+(`bridge/`). Pick **Settings → Claude Code on this computer**: HardHub's chat then
+runs on your own Claude Code and your Claude plan, with no API key. Each turn
+runs the official, unmodified `claude` program with only HardHub's board tools
+(no shell, no files, none of your other MCP servers), as Anthropic's terms ask.
+Subscriptions can't be pinned to US servers the way the API can.
+
 ### Or use the Claude or ChatGPT you already pay for
 
 HardHub is also an MCP server: connect your own AI app and it designs boards
@@ -79,6 +89,7 @@ to ship an update.
 | `apps/api` | Cloudflare Worker, a Durable Object per project, D1, R2, the AI agent loop, and the MCP server with its OAuth sign-in |
 | `packages/protocol` | the shared contract: the design document, events, REST, engine |
 | `engine` | KiCad 10 + Freerouting in Docker: design → placed, routed, checked board → fab files |
+| `bridge` | the helper that runs your own Claude Code for HardHub's chat (local only) |
 | `e2e` | end-to-end tests and the scripted stand-in for Claude |
 | `docs/PLAN.md` | the plan of record and the decisions behind it |
 | `docs/STATUS.md` | what is verified, how, and what is not yet |
