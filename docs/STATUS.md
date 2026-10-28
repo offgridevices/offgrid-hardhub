@@ -14,7 +14,11 @@ file, in a Linux cloud container (Docker, no GPU).
 | One-command start | `./hardhub` from nothing | up and healthy in about 17 s with images built; opens the app |
 | The engine | `engine/tests` inside the engine image | 20 of 20 pass, including Print Hub (13 min) |
 | Print Hub, the benchmark | offgrid-hardware's Print Hub v1 (137 parts, 4 layers) converted to a HardHub design and built by the generic pipeline | **DRC 0 errors, 0 warnings, 0 unconnected; nets match pad for pad**, in 5 min alone (12 min with other builds running alongside). Warnings left: some power tracks narrower than their current asks (Print Hub draws that copper by hand); the ESP32's GPIO0 strapping pin |
-| API and web units | `pnpm -r test` | API 36, web 18, all pass |
+| An unscripted design by a live model | `e2e/fake-anthropic` relay mode: each real request (HardHub's own system prompt, tools and history) answered live by a Claude model in another session, from a new prompt: a 12 V LED strip dimmer for Home Assistant | Through every stage: questions, a supply comparison, a 27-part circuit (the checks caught the model's own wrong jack pin; it fixed it), a 2 vs 4 layer quote, a **4-layer KiCad build: DRC 0/0/0, 20 of 23 checks pass, 0 fail**, a look at its own render, ESPHome firmware whose pin map the checks verify, and the order files. Found and fixed 5 bugs on the way |
+| `./hardhub deploy` | run against a recording stand-in for wrangler: a fresh account, a repeat deploy, and one with no answers typed | creates D1/R2 in the US, migrates, uploads secrets from a 0600 file that is then deleted, builds the app for `/api`, deploys; repeat deploys create nothing. Found and fixed: piped answers were lost |
+| Apple Silicon readiness | the lockfile and images | every native package (workerd, esbuild, rolldown, lightningcss, sharp) has its linux-arm64 build pinned; Node images are multi-arch; the KiCad engine is amd64 by design (Rosetta) |
+| Launcher scripts | shellcheck | clean; no bash 4 features (macOS ships bash 3.2) |
+| API and web units | `pnpm -r test` | API 39, web 18, all pass |
 | Cloudflare config | `wrangler deploy --dry-run --env production` | one Worker (app + API), D1, R2 (us), Durable Objects; 1020 KiB, 244 KiB gzipped |
 | The engine image | `engine/Dockerfile` built here (only its first line swapped for a copy of the KiCad image carrying this container's network certificate) | every download checksum-verified; 1.5 min |
 
@@ -22,9 +26,9 @@ file, in a Linux cloud container (Docker, no GPU).
 
 | What | Why | How to check |
 |---|---|---|
-| A real AI designing a board | no API key in the build container; the stand-in replays a scripted design | add your key in Settings and describe a board |
+| Claude's real API answering a whole design | no API key in the build container. A live model answered through the real wire format (above), and a wrong key reached Anthropic's real API and was handled | add your key in Settings and describe a board |
 | Ollama with `qwen3.5:0.8b` | the model sites were blocked from the build container | `./hardhub ollama`, then Settings → Ollama |
-| `./hardhub deploy` against Cloudflare | Cloudflare's API was blocked from the build container | run it once you have a Workers Paid account |
+| `./hardhub deploy` against real Cloudflare | Cloudflare's API was blocked from the build container; the script's whole flow ran against a stand-in, and the Worker config passed wrangler's dry run | run it once you have a Workers Paid account |
 | The engine's optional fallback router (Freerouting 1.9) | it needs a display package from Debian, whose servers were blocked; the image builds without it and routes with 2.5 | on your Mac the build installs it; `curl localhost:8080/health` shows `"freerouting_fallback": true` |
 | Live part prices and stock (JLCPCB / LCSC) | those sites were blocked; tests use recorded part data | ask the AI to look up a part |
 | Docker on Apple Silicon | built and run on Linux (amd64); on a Mac the engine runs under Rosetta | `./hardhub` |
