@@ -1,34 +1,61 @@
 import { useEffect, useState, type FormEvent } from "react";
+import type { AuthStatus } from "@hardhub/protocol";
 import { Lockup } from "../components/brand";
 import { useApp } from "../lib/app";
+import { ApiError } from "../lib/backend";
 import { navigate, takeNext } from "../lib/router";
 
+// Email and password. The first account made is the owner's; after that new
+// accounts are closed unless the server allows them (ALLOW_SIGNUP).
 export default function SignIn() {
   const { backend, setMe } = useApp();
+  const [status, setStatus] = useState<AuthStatus | null>(null);
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
-  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [password, setPassword] = useState("");
+  const [again, setAgain] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [local, setLocal] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    backend.authStatus().then(
+      (s) => {
+        if (!live) return;
+        setStatus(s);
+        if (!s.has_account) setMode("signup");
+      },
+      // the form still works; it just cannot tell which one to show first
+      () => live && setStatus({ has_account: true, signup_open: false }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend]);
+
+  const signup = mode === "signup";
+  const first = !!status && !status.has_account;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setState("sending");
+    setError("");
+    if (signup && password.length < 8) return setError("Use at least 8 characters for the password.");
+    if (signup && password !== again) return setError("The two passwords are not the same.");
+    setBusy(true);
     try {
-      const r = await backend.authStart(email.trim());
-      if (r.token) {
-        // local mode: no email to send; the server hands back the one-time
-        // sign-in token the email would have carried, redeemed here
-        setLocal(true);
-        const session = await backend.authVerify(r.token);
-        setMe(session.me);
-        navigate(takeNext(), true);
-        return;
-      }
-      setState("sent");
+      const s = signup ? await backend.signUp(email.trim(), password) : await backend.signIn(email.trim(), password);
+      setMe(s.me);
+      navigate(takeNext(), true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send the link");
-      setState("error");
+      setError(err instanceof ApiError && err.detail ? err.detail : err instanceof Error ? err.message : "Could not sign in");
+      setBusy(false);
     }
+  };
+
+  const switchTo = (m: "signin" | "signup") => {
+    setMode(m);
+    setError("");
+    setAgain("");
   };
 
   return (
@@ -42,94 +69,83 @@ export default function SignIn() {
             <h1 className="d3">Describe it. Check it. Build it.</h1>
             <p className="lead">HardHub designs the circuit board with you, checks every connection, and hands you files a fab can build.</p>
           </div>
-          {state === "sent" ? (
-            <div className="panel" style={{ padding: 24, display: "flex", flexDirection: "column", gap: 8 }} role="status">
-              <strong>Check your email</strong>
-              <span className="secondary small">
-                A sign-in link is on its way to {email}. It works once, for 15 minutes.
-              </span>
-              <button className="btn btn-sm btn-quiet" style={{ alignSelf: "flex-start", paddingLeft: 0 }} onClick={() => setState("idle")}>
-                Use a different email
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="field" data-testid="signin-form">
-              <label className="label" htmlFor="email">
-                Email
-              </label>
-              <input
-                id="email"
-                className="input"
-                type="email"
-                autoComplete="email"
-                inputMode="email"
-                required
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                data-testid="signin-email"
-              />
-              <button className="btn btn-primary btn-lg" type="submit" disabled={state === "sending"} data-testid="signin-submit" style={{ marginTop: 8 }}>
-                {state === "sending" ? "Signing in…" : "Continue with email"}
-              </button>
-              {state === "error" && (
-                <p className="small" style={{ color: "var(--destructive)" }} role="alert">
-                  {error}
-                </p>
-              )}
-              <p className="small muted" style={{ marginTop: 4 }}>
-                {local ? "Local mode: signed in without email." : "No password. We email you a link to sign in."}
+          <form onSubmit={submit} className="field" data-testid="signin-form" aria-busy={!status}>
+            {first && (
+              <p className="small secondary" style={{ marginBottom: 4 }} data-testid="signin-first">
+                Nobody has an account here yet. Create yours: it becomes this HardHub's owner, and new accounts close after it.
               </p>
-            </form>
-          )}
+            )}
+            <label className="label" htmlFor="email">
+              Email
+            </label>
+            <input
+              id="email"
+              className="input"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              required
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              data-testid="signin-email"
+            />
+            <label className="label" htmlFor="password" style={{ marginTop: 8 }}>
+              Password
+            </label>
+            <input
+              id="password"
+              className="input"
+              type="password"
+              autoComplete={signup ? "new-password" : "current-password"}
+              required
+              minLength={signup ? 8 : undefined}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              data-testid="signin-password"
+            />
+            {signup && (
+              <>
+                <label className="label" htmlFor="password-again" style={{ marginTop: 8 }}>
+                  Password again
+                </label>
+                <input
+                  id="password-again"
+                  className="input"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  value={again}
+                  onChange={(e) => setAgain(e.target.value)}
+                  data-testid="signin-password-again"
+                />
+              </>
+            )}
+            <button className="btn btn-primary btn-lg" type="submit" disabled={busy || !status} data-testid="signin-submit" style={{ marginTop: 8 }}>
+              {busy ? (signup ? "Creating your account…" : "Signing in…") : signup ? "Create account" : "Sign in"}
+            </button>
+            {error && (
+              <p className="small" style={{ color: "var(--destructive)" }} role="alert">
+                {error}
+              </p>
+            )}
+            {status?.has_account && status.signup_open && (
+              <button
+                type="button"
+                className="btn btn-sm btn-quiet"
+                style={{ alignSelf: "flex-start", paddingLeft: 0 }}
+                onClick={() => switchTo(signup ? "signin" : "signup")}
+                data-testid="signin-switch"
+              >
+                {signup ? "I have an account: sign in" : "Create an account"}
+              </button>
+            )}
+          </form>
           <p className="ed secondary" style={{ fontSize: 19 }}>
             The model proposes. You decide.
           </p>
         </div>
       </main>
-    </div>
-  );
-}
-
-/** The page the sign-in email links to: redeems the one-time token. */
-export function Verify() {
-  const { backend, setMe } = useApp();
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const token = new URLSearchParams(location.search).get("token") ?? "";
-    let live = true;
-    backend.authVerify(token).then(
-      (s) => {
-        if (!live) return;
-        setMe(s.me);
-        navigate(takeNext(), true);
-      },
-      (e: Error) => live && setError(e.message || "This sign-in link is invalid or already used."),
-    );
-    return () => {
-      live = false;
-    };
-  }, [backend, setMe]);
-  return (
-    <div className="screen">
-      <header className="topbar">
-        <Lockup />
-      </header>
-      <div className="center-state" data-testid="verify">
-        <div>
-          {error ? (
-            <>
-              <h1 className="d3">That link didn't work</h1>
-              <p className="secondary">{error} Sign-in links work once, for 15 minutes.</p>
-              <a className="btn btn-solid" href="/signin" style={{ alignSelf: "flex-start" }}>
-                Get a new link
-              </a>
-            </>
-          ) : (
-            <div className="spinner-line" />
-          )}
-        </div>
-      </div>
     </div>
   );
 }

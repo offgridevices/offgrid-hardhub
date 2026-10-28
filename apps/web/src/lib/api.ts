@@ -4,7 +4,7 @@
 import {
   BridgeStatus,
   Connections,
-  DevSignIn,
+  AuthStatus,
   OAuthClientInfo,
   OAuthRedirect,
   type OAuthApprove,
@@ -18,7 +18,7 @@ import {
   type LlmSettings,
 } from "@hardhub/protocol";
 import type { z } from "zod";
-import { ApiError, type AuthStart, type Backend, type LinkStatus, type ProjectLink } from "./backend";
+import { ApiError, type Backend, type LinkStatus, type ProjectLink } from "./backend";
 
 const TOKEN_KEY = "hh_token";
 
@@ -112,13 +112,16 @@ export class ApiClient implements Backend {
     }
   }
 
-  async authStart(email: string): Promise<AuthStart> {
-    // 204: a link was emailed. 200: local dev, here is the session.
-    const dev = await this.req("POST", "/auth/start", { email }, DevSignIn);
-    return dev ? { sent: false, ...dev } : { sent: true };
+  async authStatus() {
+    return this.req("GET", "/auth/status", undefined, AuthStatus);
   }
-  async authVerify(token: string) {
-    const s = await this.req("POST", "/auth/verify", { token }, Session);
+  async signUp(email: string, password: string) {
+    const s = await this.req("POST", "/auth/signup", { email, password }, Session);
+    this.adoptToken(s.token);
+    return s;
+  }
+  async signIn(email: string, password: string) {
+    const s = await this.req("POST", "/auth/signin", { email, password }, Session);
     this.adoptToken(s.token);
     return s;
   }

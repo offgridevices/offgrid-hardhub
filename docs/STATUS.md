@@ -66,4 +66,4 @@ the model left a chat stuck for good.
 - The engine routes 2- and 4-layer boards well. 6+ layers, impedance-controlled
   and length-matched nets are not handled yet.
 - Simulations (supply transients, heat) are listed as "not run".
-- Sign-in email in production needs a Resend key (`./hardhub deploy` asks).
+- Sign-in is email and password, with no email service; only the first account (the owner's) can be made unless `ALLOW_SIGNUP=1`. A lost password is set with `./hardhub reset-password`.

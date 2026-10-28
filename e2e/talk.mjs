@@ -1,5 +1,5 @@
 // Talk to a HardHub project from the command line, through the same REST and
-// WebSocket API the apps use (local dev sign-in).
+// WebSocket API the apps use (email and password; TALK_PASSWORD).
 //
 //   node e2e/talk.mjs start EMAIL "PROMPT"              -> prints the project id
 //   node e2e/talk.mjs say EMAIL PROJECT "TEXT" [ANSWERS] -> ANSWERS as JSON {questionId: [optionId]}
@@ -11,9 +11,10 @@ const [cmd, email, a, b, c] = process.argv.slice(2);
 
 async function session() {
   const post = (path, body) => fetch(API + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
-  const start = await post("/auth/start", { email });
-  const s = await post("/auth/verify", { token: start.token });
-  return s.token;
+  // TALK_PASSWORD: the account's password; a new account is made if sign-ups are open
+  const password = process.env.TALK_PASSWORD ?? "hardhub end-to-end password";
+  const s = await post("/auth/signin", { email, password });
+  return s.token ?? (await post("/auth/signup", { email, password })).token;
 }
 
 const token = await session();

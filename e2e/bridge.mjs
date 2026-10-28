@@ -7,6 +7,7 @@
 //   node e2e/bridge.mjs [APP_URL] [SHOTS_DIR]
 import { createRequire } from "node:module";
 import path from "node:path";
+import { openOwnChat, signUp } from "./signup.mjs";
 const { chromium } = createRequire(import.meta.url)("playwright");
 
 const APP = process.argv[2] ?? "http://localhost:5173";
@@ -27,11 +28,11 @@ page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 const shot = async (n) => SHOTS && page.screenshot({ path: path.join(SHOTS, `bridge-${n}.png`) });
 try {
   await page.goto(APP);
-  await page.getByTestId("signin-email").fill(`bridge-${Date.now()}@example.com`);
-  await page.getByTestId("signin-submit").click();
+  await signUp(page, `bridge-${Date.now()}@example.com`);
   await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
 
   await page.goto(`${APP}/settings`);
+  await openOwnChat(page);
   await page.getByTestId("provider-claude-code").click();
   const status = page.getByTestId("bridge-status");
   await status.waitFor({ timeout: 30000 });
@@ -73,6 +74,34 @@ try {
   const input = page.getByTestId("chat-input").or(page.locator("textarea")).first();
   check(!(await input.getAttribute("placeholder"))?.includes("working"), "the chat is idle again after the turn");
   await shot("answered");
+
+  // the chat column is the person's to size: dragged, and with the arrow keys
+  const chatWidth = () => page.locator(".ws-chat").evaluate((e) => e.getBoundingClientRect().width);
+  const before = await chatWidth();
+  const handle = await page.getByTestId("chat-resize").boundingBox();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 160, handle.y + 200, { steps: 8 });
+  await page.mouse.up();
+  const dragged = await chatWidth();
+  await page.getByTestId("chat-resize").focus();
+  await page.keyboard.press("ArrowLeft");
+  const nudged = await chatWidth();
+  await page.reload();
+  await page.getByTestId("chat-log").waitFor({ timeout: 20000 });
+  const kept = await chatWidth();
+  check(dragged > before + 100 && nudged < dragged && Math.abs(kept - nudged) < 2, "the chat resizes by dragging and by keyboard, and keeps its width", `${before} -> ${dragged} -> ${nudged}, after reload ${kept}`);
+
+  // a board is deleted from the list, after a second click to confirm
+  await page.goto(APP);
+  const rows = page.getByTestId("project-row");
+  await rows.first().waitFor({ timeout: 20000 });
+  const n = await rows.count();
+  await rows.first().getByTestId("delete-board").click();
+  await rows.first().getByTestId("delete-confirm").click();
+  await page.waitForFunction((k) => document.querySelectorAll('[data-testid="project-row"]').length === k, n - 1, { timeout: 15000 });
+  check(true, "a board is deleted from the list after confirming", `${n} -> ${n - 1}`);
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);
   check(!(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), "nothing scrolls sideways on a phone");

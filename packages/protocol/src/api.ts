@@ -1,8 +1,8 @@
 // REST shapes shared by the API and every client (web now, iOS/Android later).
 //
-//   POST   /auth/start            { email }                 -> 204 (sign-in link sent)
-//                                                              dev only: 200 DevSignIn
-//   POST   /auth/verify           { token }                 -> Session
+//   GET    /auth/status                                     -> AuthStatus
+//   POST   /auth/signup           Credentials               -> Session (403 closed, 409 email taken)
+//   POST   /auth/signin           Credentials               -> Session (401 wrong, 429 locked)
 //   POST   /auth/logout                                     -> 204
 //   GET    /me                                              -> Me
 //   PUT    /me/keys/:provider     { key }                   -> Me (key stored encrypted, never returned)
@@ -53,11 +53,16 @@ export const Me = z.object({
 });
 export type Me = z.infer<typeof Me>;
 
-// Local dev only: the sign-in link instead of an email. `token` is the
-// one-time login token from that link (redeem it with POST /auth/verify),
-// not a session token.
-export const DevSignIn = z.object({ dev_link: z.string(), token: z.string() });
-export type DevSignIn = z.infer<typeof DevSignIn>;
+// Is there an account yet, and may a new one be made? Only the first (the
+// owner's) unless the server allows sign-ups.
+export const AuthStatus = z.object({ has_account: z.boolean(), signup_open: z.boolean() });
+export type AuthStatus = z.infer<typeof AuthStatus>;
+
+export interface Credentials {
+  email: string;
+  /** 8 to 200 characters for a new account */
+  password: string;
+}
 
 export const EventPage = z.object({ events: z.array(ServerEvent), more: z.boolean() });
 export type EventPage = z.infer<typeof EventPage>;

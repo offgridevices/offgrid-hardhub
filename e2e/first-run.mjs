@@ -6,6 +6,7 @@
 //   node e2e/first-run.mjs [APP_URL] [SHOTS_DIR]
 import { createRequire } from "node:module";
 import path from "node:path";
+import { openOwnChat, signUp } from "./signup.mjs";
 const { chromium } = createRequire(import.meta.url)("playwright");
 
 const APP = process.argv[2] ?? "http://localhost:5173";
@@ -19,14 +20,14 @@ const page = await (await browser.newContext({ viewport: { width: 390, height: 8
 const shot = async (n) => SHOTS && page.screenshot({ path: path.join(SHOTS, `first-run-${n}.png`) });
 try {
   await page.goto(APP);
-  await page.getByTestId("signin-email").fill(`first-${Date.now()}@example.com`);
-  await page.getByTestId("signin-submit").click();
+  await signUp(page, `first-${Date.now()}@example.com`);
   await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
   (await page.getByTestId("no-key-bar").count()) ? ok("asked to add an AI key") : fail("asked to add an AI key", "no banner");
   await shot("no-key");
 
   // Claude with a key that is not real
   await page.getByTestId("nav-settings").click();
+  await openOwnChat(page);
   await page.getByTestId("provider-anthropic").click();
   await page.getByTestId("key-input").fill("sk-ant-api03-not-a-real-key-000000000000");
   await page.getByTestId("save-key").click();
@@ -46,6 +47,7 @@ try {
 
   // Ollama, not running on this computer
   await page.getByTestId("nav-settings").click();
+  await openOwnChat(page);
   await page.getByTestId("provider-ollama").click();
   await page.getByTestId("save-llm").click();
   await page.getByTestId("settings-msg").waitFor({ timeout: 10000 });

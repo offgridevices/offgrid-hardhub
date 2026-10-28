@@ -9,11 +9,11 @@ export interface Env {
   /** the web app's built files; bound on Cloudflare, absent locally */
   ASSETS?: Fetcher;
 
-  /** "1" in local development: sign-in links are returned, dev overrides apply */
+  /** "1" in local development: dev overrides apply, cookies work over http */
   DEV: string;
   /** local development: extra host names the API answers to (comma-separated) */
   DEV_HOSTS?: string;
-  /** the web app's origin, for sign-in links; empty: the request's own origin */
+  /** the web app's origin, for the MCP consent page; empty: the request's own origin */
   APP_URL: string;
   /** the MCP address shown in Settings; empty: <the app's address>/mcp */
   MCP_URL?: string;
@@ -31,10 +31,9 @@ export interface Env {
   /** base64 of 32 random bytes; encrypts stored API keys (secret) */
   KEY_ENCRYPTION_KEY: string;
 
-  /** sign-in emails through Resend (secrets); without them production sign-in is refused */
-  RESEND_API_KEY?: string;
-  /** the sender, e.g. "HardHub <signin@yourdomain.com>" on a domain verified in Resend */
-  MAIL_FROM?: string;
+  /** "1": anyone may create an account. Otherwise only the first account,
+   *  the owner's, can be created (end-to-end tests set it) */
+  ALLOW_SIGNUP?: string;
 
   // development and test only, ignored unless DEV is "1":
   // new accounts start with these LLM settings, and DEV_LLM_KEY stands in

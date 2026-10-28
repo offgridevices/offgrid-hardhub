@@ -13,16 +13,10 @@ import type {
   ProjectSummary,
   ServerEvent,
   Session,
+  AuthStatus,
 } from "@hardhub/protocol";
 
 export type LinkStatus = "connecting" | "open" | "closed";
-
-/** POST /auth/start: production emails a link (204); local dev answers with a session. */
-export interface AuthStart {
-  sent: boolean;
-  dev_link?: string;
-  token?: string;
-}
 
 export interface ProjectLink {
   send(msg: ClientMessage): void;
@@ -34,8 +28,10 @@ export interface Backend {
   token(): string | null;
   /** Can the server be reached at all? Any HTTP answer counts. */
   ping(): Promise<boolean>;
-  authStart(email: string): Promise<AuthStart>;
-  authVerify(token: string): Promise<Session>;
+  /** is there an account yet, and may a new one be made? */
+  authStatus(): Promise<AuthStatus>;
+  signUp(email: string, password: string): Promise<Session>;
+  signIn(email: string, password: string): Promise<Session>;
   adoptToken(token: string): void;
   logout(): Promise<void>;
   me(): Promise<Me>;

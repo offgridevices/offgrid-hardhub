@@ -14,15 +14,18 @@ import type { Env } from "./env";
 
 const ENGINE_PORT = 8080;
 
-/** Owns the engine container on Cloudflare (GA `ctx.container` API): starts
- * it on first use and forwards requests to its port. */
+/** Owns the engine container on Cloudflare (GA `ctx.container` API, the
+ * "durable_object" scheduling policy): starts it on first use, from the
+ * "engine" image in wrangler.jsonc at the standard-3 size, and forwards
+ * requests to its port. */
 export class EngineContainer extends DurableObject<Env> {
   override async fetch(req: Request): Promise<Response> {
     const c = this.ctx.container;
     if (!c) return new Response("no container bound to this Durable Object", { status: 500 });
     if (!c.running) {
-      // the engine reads the JLCPCB/LCSC catalogue, so it needs the internet
-      c.start({ enableInternet: true });
+      // the engine reads the JLCPCB/LCSC catalogue, so it needs the internet;
+      // standard-3 (2 vCPU, 8 GiB): KiCad and the router on a 4-layer board
+      c.start({ image: c.images.engine!, instance: "standard-3", enableInternet: true });
       // a board job can take minutes; keep the instance warm between turns
       await c.setInactivityTimeout(15 * 60_000);
     }
@@ -183,7 +186,10 @@ export function engineFor(env: Env): Engine {
     const base = env.ENGINE_URL.replace(/\/$/, "");
     return new HttpEngine((path, init) => fetch(base + path, init));
   }
-  // one shared engine instance; jobs are stateless apart from their outputs
-  const stub = env.ENGINE.get(env.ENGINE.idFromName("engine"));
+  // one shared engine instance; jobs are stateless apart from their outputs.
+  // Its Durable Object is US-only like the rooms (Cloudflare places the
+  // container itself; see wrangler.jsonc)
+  const ns = env.US_ONLY === "1" ? env.ENGINE.jurisdiction("us") : env.ENGINE;
+  const stub = ns.get(ns.idFromName("engine"));
   return new HttpEngine((path, init) => stub.fetch(new Request("http://engine" + path, init)));
 }

@@ -13,7 +13,7 @@ import {
   type Session,
   type Stage,
 } from "@hardhub/protocol";
-import type { AuthStart, Backend, LinkStatus, ProjectLink } from "./backend";
+import type { Backend, LinkStatus, ProjectLink } from "./backend";
 import { usbHubDesign } from "../fixtures/usb-hub";
 import { gardenHistory, hubHistory, replyScript, type ScriptStep } from "../fixtures/script";
 
@@ -81,12 +81,16 @@ export class MockBackend implements Backend {
   async ping() {
     return true;
   }
-  async authStart(_email: string): Promise<AuthStart> {
-    return { sent: false, token: "demo", dev_link: "#demo" };
+  async authStatus() {
+    // the demo has no accounts: any email and password sign in
+    return { has_account: true, signup_open: true };
   }
-  async authVerify(token: string): Promise<Session> {
-    this.tok = token;
-    return { token, me: this.meState };
+  async signUp(email: string, password: string): Promise<Session> {
+    return this.signIn(email, password);
+  }
+  async signIn(_email: string, _password: string): Promise<Session> {
+    this.tok = "demo";
+    return { token: "demo", me: this.meState };
   }
   async logout() {
     this.tok = null;

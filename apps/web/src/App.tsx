@@ -5,7 +5,6 @@ import { Lockup } from "./components/brand";
 
 // each screen is its own chunk: sign-in never downloads the workspace
 const SignIn = lazy(() => import("./screens/signin"));
-const Verify = lazy(() => import("./screens/signin").then((m) => ({ default: m.Verify })));
 const Projects = lazy(() => import("./screens/projects"));
 const Workspace = lazy(() => import("./screens/workspace"));
 const Settings = lazy(() => import("./screens/settings"));
@@ -60,7 +59,7 @@ export default function App() {
   // signed-out people go to sign-in; signed-in people never see it
   useEffect(() => {
     if (!ready || reach !== "online") return;
-    if (!me && route.name !== "signin" && route.name !== "verify") {
+    if (!me && route.name !== "signin") {
       // an AI app's consent page comes back after sign-in
       if (route.name === "connect") rememberNext(location.pathname + location.search);
       navigate("/signin", true);
@@ -70,12 +69,11 @@ export default function App() {
 
   if (reach === "offline") return <Offline />;
   if (!ready || reach === "checking") return <Loading />;
-  if (!me && route.name !== "signin" && route.name !== "verify") return <Loading />;
+  if (!me && route.name !== "signin") return <Loading />;
 
   return (
     <Suspense fallback={<Loading />}>
       {route.name === "signin" && <SignIn />}
-      {route.name === "verify" && <Verify />}
       {route.name === "projects" && <Projects />}
       {route.name === "project" && <Workspace key={route.id} id={route.id} />}
       {route.name === "settings" && <Settings />}

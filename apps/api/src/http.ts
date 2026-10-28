@@ -8,7 +8,6 @@ import { devLlmDefaults } from "./agent/llm";
 import { contentType } from "./agent/tools";
 import * as db from "./db";
 import { type Env, isDev } from "./env";
-import { mailer } from "./mail";
 import { CHAT_CLIENT, bridgeFor } from "./bridge";
 import { appUrlFor, handleMcp } from "./mcp";
 import { checkRequest, createCode, listConnections, oauth, redirectLabel, resourceMetadataUrl, revokeConnection, SCOPE } from "./oauth";
@@ -20,9 +19,9 @@ const COOKIE = "hh_session";
 
 export const app = new Hono<Ctx>();
 
-// Local HardHub signs anyone in without email, so it answers only to this
-// computer's names and IP addresses: a web page that rebinds its own domain
-// to 127.0.0.1 gets nothing (DNS rebinding). Cloudflare has real sign-in.
+// Local HardHub answers only to this computer's names and IP addresses: a web
+// page that rebinds its own domain to 127.0.0.1 gets nothing (DNS rebinding),
+// not even the owner's first sign-up. Cloudflare answers on its own domain.
 const LOCAL_NAMES = new Set(["localhost", "api", "web", "host.docker.internal"]);
 app.use("*", async (c, next) => {
   if (isDev(c.env)) {
@@ -103,30 +102,14 @@ const auth = async (c: C, next: () => Promise<void>) => {
   await next();
 };
 
-const Email = z.object({ email: z.string().trim().toLowerCase().email().max(254) });
-
-app.post("/auth/start", async (c) => {
-  const { email } = Email.parse(await c.req.json());
-  const token = await db.createLoginToken(c.env, email);
-  const link = `${c.env.APP_URL || new URL(c.req.url).origin}/auth/verify?token=${encodeURIComponent(token)}`;
-  if (isDev(c.env)) {
-    // local development: no email; the app signs straight in with this
-    console.log(`sign-in link for ${email}: ${link}`);
-    return c.json({ dev_link: link, token });
-  }
-  try {
-    await mailer(c.env).sendSignInLink(email, link);
-  } catch (e) {
-    console.error(e);
-    return c.json({ error: e instanceof Error ? e.message : "the sign-in email could not be sent" }, 503);
-  }
-  return c.body(null, 204);
+const Credentials = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  password: z.string().min(8, "Use at least 8 characters.").max(200),
 });
 
-app.post("/auth/verify", async (c) => {
-  const { token } = z.object({ token: z.string().min(10).max(200) }).parse(await c.req.json());
-  const s = await db.redeemLoginToken(c.env, token, devLlmDefaults(c.env));
-  if (!s) return c.json({ error: "this sign-in link is invalid or used" }, 401);
+const allowSignup = (env: Env) => env.ALLOW_SIGNUP === "1";
+
+function startSession(c: C, s: { token: string; userId: string }) {
   setCookie(c, COOKIE, s.token, {
     httpOnly: true,
     secure: !isDev(c.env),
@@ -135,6 +118,26 @@ app.post("/auth/verify", async (c) => {
     path: "/",
     maxAge: 30 * 86400,
   });
+}
+
+app.get("/auth/status", async (c) => c.json(await db.authStatus(c.env, allowSignup(c.env))));
+
+app.post("/auth/signup", async (c) => {
+  const { email, password } = Credentials.parse(await c.req.json());
+  // an account from before passwords is taken over only on this computer, by the owner's first sign-up
+  const s = await db.signUp(c.env, email, password, allowSignup(c.env), isDev(c.env) && !allowSignup(c.env), devLlmDefaults(c.env));
+  if (s === "closed") return c.json({ error: "This HardHub already has its owner. New accounts are not open." }, 403);
+  if (s === "taken") return c.json({ error: "That email already has an account. Sign in instead." }, 409);
+  startSession(c, s);
+  return c.json({ token: s.token, me: await db.getMe(c.env, s.userId) });
+});
+
+app.post("/auth/signin", async (c) => {
+  const { email, password } = z.object({ email: z.string().trim().toLowerCase().max(254), password: z.string().max(200) }).parse(await c.req.json());
+  const s = await db.signIn(c.env, email, password, c.req.header("cf-connecting-ip") ?? "");
+  if (s === "locked") return c.json({ error: "Too many tries. Wait 15 minutes and try again." }, 429);
+  if (s === "wrong") return c.json({ error: "Wrong email or password." }, 401);
+  startSession(c, s);
   return c.json({ token: s.token, me: await db.getMe(c.env, s.userId) });
 });
 

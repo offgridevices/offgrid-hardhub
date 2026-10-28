@@ -79,8 +79,9 @@ const call = (path: string, init: RequestInit & { token?: string } = {}) => {
 };
 
 async function browserSession(email = "maker@example.com") {
-  const start = (await (await call("/auth/start", { method: "POST", body: JSON.stringify({ email }) })).json()) as { token: string };
-  return ((await (await call("/auth/verify", { method: "POST", body: JSON.stringify({ token: start.token }) })).json()) as { token: string }).token;
+  const r = await call("/auth/signup", { method: "POST", body: JSON.stringify({ email, password: "correct horse battery" }) });
+  if (r.status === 409) return ((await (await call("/auth/signin", { method: "POST", body: JSON.stringify({ email, password: "correct horse battery" }) })).json()) as { token: string }).token;
+  return ((await r.json()) as { token: string }).token;
 }
 
 /** The whole sign-in: the client is refused, the person allows it, the client connects. */
@@ -318,8 +319,10 @@ describe("apps named by a metadata URL", () => {
   const doc = { client_id: URL_ID, client_name: "Claude", redirect_uris: ["https://agent.example.com/cb"] };
   const serve = (body: string, headers: Record<string, string> = {}) => {
     let calls = 0;
-    const f = (async () => {
+    const f = (async (_url: string, init?: RequestInit) => {
       calls++;
+      // as on Cloudflare Workers, where redirect: "error" throws
+      if (init?.redirect === "error") throw new TypeError('Invalid redirect value, must be one of "follow" or "manual"');
       return new Response(body, { headers: { "content-type": "application/json", ...headers } });
     }) as unknown as typeof fetch;
     return { f, calls: () => calls };
@@ -333,6 +336,20 @@ describe("apps named by a metadata URL", () => {
     expect(s.calls()).toBe(1);
   });
 
+  it("accepts Claude's own description, as claude.ai serves it", async () => {
+    const id = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+    const claude = {
+      client_id: id,
+      client_name: "Claude",
+      client_uri: "https://claude.ai",
+      redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    };
+    expect(await getClient(asEnv(env), id, serve(JSON.stringify(claude)).f)).toMatchObject({ name: "Claude", host: "claude.ai" });
+  });
+
   it("never fetches this server's own network, and refuses oversized or mismatched descriptions", async () => {
     for (const id of ["https://localhost/x.json", "https://localhost./x.json", "https://a.localhost/x.json", "https://10.0.0.1/x.json", "https://intranet/x.json", "https://box.internal/x.json", "https://agent.example.com:8443/x.json"]) {
       const s = serve(JSON.stringify({ ...doc, client_id: id }));
@@ -341,6 +358,9 @@ describe("apps named by a metadata URL", () => {
     }
     expect(await getClient(asEnv(env), URL_ID, serve(JSON.stringify({ ...doc, junk: "x".repeat(70_000) })).f)).toBeNull();
     expect(await getClient(asEnv(env), URL_ID, serve(JSON.stringify({ ...doc, client_id: "https://other.example.com/c.json" })).f)).toBeNull();
+    // a description that redirects elsewhere is refused
+    const moved = (async () => new Response(null, { status: 302, headers: { location: "https://evil.example.com/c.json" } })) as unknown as typeof fetch;
+    expect(await getClient(asEnv(env), "https://agent.example.com/moved.json", moved)).toBeNull();
   });
 });
 

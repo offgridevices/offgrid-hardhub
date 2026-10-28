@@ -10,6 +10,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { signUp } from "./signup.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -93,8 +94,7 @@ try {
   check(!!agent.info?.client_id, "the agent registered itself", agent.info?.client_id);
 
   await page.goto(agent.authUrl.toString());
-  await page.getByTestId("signin-email").fill(`mcp-${Date.now()}@example.com`);
-  await page.getByTestId("signin-submit").click();
+  await signUp(page, `mcp-${Date.now()}@example.com`);
   await page.getByTestId("connect-title").waitFor({ timeout: 20000 });
   const title = await page.getByTestId("connect-title").textContent();
   check(title?.includes("HardHub e2e agent"), "after sign-in, the consent page names the app", title);

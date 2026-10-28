@@ -27,13 +27,15 @@ pnpm --filter @hardhub/api dev        # http://localhost:8787
 | Variable | Default | |
 |---|---|---|
 | `ENGINE_URL` | `http://localhost:8080` | the engine service |
-| `APP_URL` | `http://localhost:5173` | the web app, for sign-in links |
+| `APP_URL` | `http://localhost:5173` | the web app, for the MCP consent page |
+| `ALLOW_SIGNUP` | none | `1`: anyone may make an account (the end-to-end tests); otherwise only the first, the owner's |
 | `KEY_ENCRYPTION_KEY` | generated once into the state folder | base64 of 32 bytes |
 | `DEV_LLM_PROVIDER` / `DEV_LLM_MODEL` / `DEV_LLM_BASE_URL` | none | LLM settings new accounts start with |
 | `DEV_LLM_KEY` | none | used when the person stored no key |
 
-In development `/auth/start` returns `{ dev_link, token }` instead of sending
-an email, so the app signs straight in. All `DEV_*` settings are ignored
+Sign-in is email and password everywhere (`/auth/signup`, `/auth/signin`),
+with no email service; `scripts/reset-password.mjs` sets a lost one. All
+`DEV_*` settings are ignored
 unless `DEV=1` (the dev script sets it; production does not).
 
 To try it with no API key, run the scripted fake Claude from the repository
@@ -94,10 +96,10 @@ pnpm --filter @hardhub/api run deploy
 ```
 
 `scripts/deploy.mjs` signs in, creates the D1 database and R2 bucket in the
-US jurisdiction if they are missing, asks once for the web app's address,
+US jurisdiction if they are missing (all named `offgrid-hardhub*`),
 applies migrations, creates `KEY_ENCRYPTION_KEY`, and deploys the Worker,
 both Durable Objects (created in the US jurisdiction by the code) and the
-engine container (`constraints.jurisdiction = "us"`). It is safe to run again.
+engine container (its Durable Object in the US; Cloudflare places the container
+itself), on the custom domain in
+`wrangler.jsonc`. It is safe to run again.
 
-Not done yet: production sign-in emails need a sender (`src/mail.ts`); until
-one is chosen, sign-in works only in development.

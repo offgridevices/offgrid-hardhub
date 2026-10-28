@@ -4,6 +4,7 @@ import { TopBar } from "../components/topbar";
 import { useApp } from "../lib/app";
 import { navigate, onLink } from "../lib/router";
 import { STAGE_LABEL, ago } from "../lib/format";
+import { IconTrash } from "../components/icons";
 
 const EXAMPLES = [
   "A box with five USB ports I can switch from Home Assistant",
@@ -18,6 +19,9 @@ export default function Projects() {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // the board being asked about ("delete it?") and the one being deleted
+  const [asking, setAsking] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     backend.listProjects().then(setList, (e: Error) => setError(e.message));
@@ -40,6 +44,19 @@ export default function Projects() {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start();
   };
   const noKey = me && !me.llm_ready;
+
+  const remove = async (p: ProjectSummary) => {
+    setDeleting(p.id);
+    try {
+      await backend.deleteProject(p.id);
+      setList((l) => l?.filter((x) => x.id !== p.id) ?? null);
+      setAsking(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete the board");
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   return (
     <div className="screen">
@@ -98,24 +115,51 @@ export default function Projects() {
               Nothing yet. Your first board will show up here.
             </p>
           ) : (
-            <div className="project-list" data-testid="project-list">
+            <ul className="project-list" data-testid="project-list">
               {list.map((p) => {
                 const at = STAGES.indexOf(p.stage);
                 return (
-                  <a key={p.id} className="project-row" href={`/p/${p.id}`} onClick={onLink} data-testid="project-row">
-                    <span className="project-name">{p.name}</span>
-                    <span className="progress-ticks" aria-hidden="true">
-                      {STAGES.map((s, i) => (
-                        <span key={s} className={i <= at ? "on" : undefined} />
-                      ))}
-                    </span>
-                    <span className="small muted">
-                      {STAGE_LABEL[p.stage]} · step {at + 1} of {STAGES.length} · {ago(p.updated_at)}
-                    </span>
-                  </a>
+                  <li key={p.id} className="project-row" data-testid="project-row">
+                    <a className="project-link" href={`/p/${p.id}`} onClick={onLink}>
+                      <span className="project-name">{p.name}</span>
+                      <span className="project-stage">
+                        <span className="progress-ticks" aria-hidden="true">
+                          {STAGES.map((s, i) => (
+                            <span key={s} className={i <= at ? "on" : undefined} />
+                          ))}
+                        </span>
+                        <span className="small muted">
+                          {STAGE_LABEL[p.stage]} · step {at + 1} of {STAGES.length}
+                        </span>
+                      </span>
+                      <span className="small muted project-when">{ago(p.updated_at)}</span>
+                    </a>
+                    {asking === p.id ? (
+                      <span className="project-confirm" role="group" aria-label={`Delete ${p.name}?`}>
+                        <span className="small">Delete it and its files?</span>
+                        <button type="button" className="btn btn-sm btn-danger" onClick={() => remove(p)} disabled={deleting === p.id} data-testid="delete-confirm">
+                          {deleting === p.id ? "Deleting…" : "Delete"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setAsking(null)} disabled={deleting === p.id}>
+                          Keep
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-quiet btn-icon"
+                        onClick={() => setAsking(p.id)}
+                        aria-label={`Delete ${p.name}`}
+                        title="Delete"
+                        data-testid="delete-board"
+                      >
+                        <IconTrash />
+                      </button>
+                    )}
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </section>
       </main>
