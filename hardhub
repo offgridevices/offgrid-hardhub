@@ -6,6 +6,7 @@
 #   ./hardhub logs       follow the logs
 #   ./hardhub test       run the end-to-end test (scripted AI, real engine)
 #   ./hardhub reset      stop and delete local data (projects, keys)
+#   ./hardhub ollama     download the small local AI model (needs Ollama installed)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -50,6 +51,12 @@ case "${1:-start}" in
   stop|down) docker compose down ;;
   logs) docker compose logs --follow --tail 200 ;;
   test) need_docker; exec ./e2e/run.sh ;;
+  ollama)
+    # optional: a small local model, so HardHub runs with no API key at all
+    command -v ollama >/dev/null || { say "Install Ollama first: https://ollama.com/download"; exit 1; }
+    ollama pull "${OLLAMA_MODEL:-qwen3.5:0.8b}"
+    say "Done. In HardHub: Settings → AI provider → Ollama on this computer."
+    ;;
   reset) docker compose down --volumes ;;
-  *) sed -n '2,9p' "$0"; exit 2 ;;
+  *) sed -n '2,10p' "$0"; exit 2 ;;
 esac
