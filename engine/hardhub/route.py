@@ -40,8 +40,21 @@ def export_dsn(pcb_path, dsn_path, plane_layers=(), drop=()):
         b.SetLayerType(K.layer_id(name), pcbnew.LT_POWER)
     if not pcbnew.ExportSpecctraDSN(b, dsn_path):
         raise RouteError('DSN export failed')
+    margin(dsn_path)
     if drop:
         drop_nets(dsn_path, drop)
+
+
+MARGIN_UM = 10      # extra clearance the router keeps, in the DSN's um
+
+
+def margin(dsn_path):
+    """Freerouting's geometry rounds: on Print Hub a via landed 0.1444 mm
+    from a track under a 0.15 mm rule.  It routes to the rules plus a small
+    margin, and KiCad's DRC still checks against the rules themselves."""
+    txt = open(dsn_path).read()
+    txt = re.sub(r'\(clearance ([\d.]+)\)', lambda m: '(clearance %g)' % (float(m.group(1)) + MARGIN_UM), txt)
+    open(dsn_path, 'w').write(txt)
 
 
 def drop_nets(dsn_path, nets):
