@@ -78,10 +78,17 @@ if (!has("KEY_ENCRYPTION_KEY")) upload.KEY_ENCRYPTION_KEY = randomBytes(32).toSt
 else console.log("KEY_ENCRYPTION_KEY is set");
 if (!has("RESEND_API_KEY")) {
   // sign-in links go out by email; without a sender nobody can sign in
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // one line per answer, whether typed or piped in (rl.question loses piped lines)
+  const rl = createInterface({ input: process.stdin });
+  const lines = rl[Symbol.asyncIterator]();
+  const ask = async (q) => {
+    process.stdout.write(q);
+    const { value, done } = await lines.next();
+    return done ? "" : value.trim();
+  };
   console.log("Sign-in links are emailed through Resend (resend.com, free tier). Leave empty to set it later.");
-  const key = (await rl.question("Resend API key: ")).trim();
-  const from = key ? (await rl.question('Send from (e.g. "HardHub <signin@yourdomain.com>"): ')).trim() : "";
+  const key = await ask("Resend API key: ");
+  const from = key ? await ask('Send from (e.g. "HardHub <signin@yourdomain.com>"): ') : "";
   rl.close();
   if (key && from) Object.assign(upload, { RESEND_API_KEY: key, MAIL_FROM: from });
   else console.log('Skipped: sign-in answers "no email sender is configured" until both are set.');
