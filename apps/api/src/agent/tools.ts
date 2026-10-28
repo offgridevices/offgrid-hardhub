@@ -107,7 +107,13 @@ export const TOOLS = {
       try {
         next = jsonpatch.applyPatch(structuredClone(design), i.patch as Operation[], true, false).newDocument;
       } catch (e) {
-        return { content: `Patch not applied: ${e instanceof Error ? e.message : String(e)}`, isError: true };
+        // fast-json-patch's message carries the whole document ("tree: ..."):
+        // keep the reason and the failing operation, not the design again
+        const err = e as { name?: string; index?: number; operation?: unknown; message?: string };
+        const why = String(err.message ?? e).split("\n")[0];
+        const op = err.operation ? ` at operation ${err.index ?? "?"}: ${JSON.stringify(err.operation).slice(0, 300)}` : "";
+        const hint = err.name === "OPERATION_PATH_UNRESOLVABLE" ? " (use \"add\" for a field that is not there yet)" : "";
+        return { content: `Patch not applied: ${why}${op}${hint}`, isError: true };
       }
       const parsed = Design.safeParse(next);
       if (!parsed.success) {

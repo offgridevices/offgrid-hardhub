@@ -288,10 +288,51 @@ describe("room", () => {
   it("clears a busy flag left by an interrupted turn", async () => {
     const { RoomCore } = await import("../src/room/core");
     const room = makeRoom(scriptedAnthropic([]).llm);
-    room.sql.exec("UPDATE meta SET v = '1' WHERE k = 'busy'");
     room.sql.exec("INSERT OR REPLACE INTO meta (k, v) VALUES ('busy', '1')");
     const again = new RoomCore(room.deps);
     expect(again.busy).toBe(false);
     expect(again.events(-1, 100).events.at(-1)).toMatchObject({ type: "turn_end", reason: "error" });
+  });
+});
+
+describe("messages from a client", () => {
+  it("are queued for the alarm, not run inside the socket event, and a second one waits its turn", async () => {
+    const room = makeRoom(async () => {
+      throw new Error("the model must not be called while only queuing");
+    });
+    expect(room.core.accept({ text: "first" })).toBe(true);
+    expect(room.stored().some((e) => e.type === "user_message")).toBe(false);
+    expect(room.core.accept({ text: "second" })).toBe(false);
+    const busy = room.events().find((e) => e.type === "error");
+    expect(busy && "message" in busy ? busy.message : "").toMatch(/still working/);
+  });
+});
+
+describe("a room that restarts mid-turn", () => {
+  it("tells the person the reply was interrupted", async () => {
+    const room = makeRoom(async () => {
+      throw new Error("not called");
+    });
+    room.sql.exec("INSERT OR REPLACE INTO meta (k, v) VALUES ('busy', '1')");
+    const { RoomCore } = await import("../src/room/core");
+    new RoomCore(room.deps);
+    const kinds = room.stored().slice(-2).map((e) => e.type);
+    expect(kinds).toEqual(["error", "turn_end"]);
+  });
+});
+
+describe("update_design errors", () => {
+  it("name the failing operation without echoing the whole design", async () => {
+    const { TOOLS } = await import("../src/agent/tools");
+    const room = makeRoom(async () => {
+      throw new Error("not called");
+    });
+    const design = room.core.design().design;
+    const ctx = { design: () => ({ design, version: 1 }), saveDesign: () => 2 } as never;
+    const r = await TOOLS.update_design.run({ summary: "set the MCU", patch: [{ op: "replace", path: "/firmware/mcu", value: "U1" }] }, ctx, { id: "t", name: "update_design", input: {} } as never, new AbortController().signal);
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/firmware\/mcu/);
+    expect(r.content).toMatch(/use "add"/);
+    expect(r.content.length).toBeLessThan(600);
   });
 });

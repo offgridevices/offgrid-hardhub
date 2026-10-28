@@ -54,7 +54,11 @@ export class RoomCore {
     // a turn cut off by an eviction or a crash leaves the busy flag behind
     if (this.meta("busy") === "1") {
       this.setMeta("busy", "0");
-      if (this.meta("project")) this.emit({ type: "turn_end", reason: "error" });
+      if (this.meta("project")) {
+        // say why, or the reply just stops with no word to the person
+        this.emit({ type: "error", message: "The last reply was interrupted (the server restarted). Send your message again to carry on.", retryable: true });
+        this.emit({ type: "turn_end", reason: "error" });
+      }
     }
   }
 
@@ -242,6 +246,19 @@ export class RoomCore {
   /** queue a message to run later (the first prompt, run from an alarm) */
   queue(input: TurnInput) {
     this.setMeta("queued", JSON.stringify(input));
+  }
+
+  /** A message from a client: queued for the room's alarm, never run inside
+   * the WebSocket event that brought it, so a closed tab or a dropped phone
+   * connection cannot cancel the turn half way. False when one is already
+   * running or waiting. */
+  accept(input: TurnInput): boolean {
+    if (this.busy || this.meta("queued")) {
+      this.d.broadcast(JSON.stringify({ type: "error", message: "HardHub is still working on the last message.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
+      return false;
+    }
+    this.queue(input);
+    return true;
   }
 
   async runQueued(): Promise<void> {

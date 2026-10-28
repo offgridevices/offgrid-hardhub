@@ -93,8 +93,9 @@ export class ProjectRoom extends DurableObject<Env> {
       ws.serializeAttachment({ ready: true });
     } else if (msg.type === "stop") {
       this.core.stop();
-    } else {
-      await this.core.message({ text: msg.text, ...(msg.answers ? { answers: msg.answers } : {}) });
+    } else if (this.core.accept({ text: msg.text, ...(msg.answers ? { answers: msg.answers } : {}) })) {
+      // the turn runs from the alarm, outside this socket's event
+      await this.ctx.storage.setAlarm(Date.now());
     }
   }
 

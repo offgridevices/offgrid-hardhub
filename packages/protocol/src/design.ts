@@ -59,7 +59,9 @@ export const Part = z.object({
   description: z.string(),
   // KiCad footprint id: "Library:Footprint". "hh:*" footprints come from the
   // fab's own library for that LCSC part, fetched and cleaned by the engine.
-  footprint: z.string().regex(/^[\w.+-]+:[\w.+\-]+$/),
+  // KiCad names carry commas, parentheses and more ("TerminalBlock_Phoenix_MKDS-1,5-2-5.08_..."):
+  // anything but a colon, a slash or whitespace on either side
+  footprint: z.string().regex(/^[^:/\s]+:[^:/\s]+$/, 'a KiCad footprint id, "Library:Name"'),
   datasheet: z.string().url().optional(),
   lifecycle: z.enum(["active", "nrnd", "eol", "unknown"]).default("unknown"),
   // false: fitted by hand or not fitted (test points, mounting holes)

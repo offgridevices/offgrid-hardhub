@@ -24,6 +24,12 @@ if (!scriptPath) {
   process.exit(2);
 }
 const port = Number(portArg ?? process.env.PORT ?? 8788);
+// Relay mode: instead of a script, each request is written to RELAY_DIR as
+// req-N.json and the reply (a list of blocks, as in a script turn) is read
+// from resp-N.json when someone writes it: a person, or a model in another
+// session, answers live. Unscripted, through the real wire format.
+const RELAY = process.env.RELAY_DIR;
+let relayN = 0;
 const LOG = process.env.FAKE_ANTHROPIC_LOG; // optional: one JSON line per request
 
 function load(p) {
@@ -44,7 +50,7 @@ function load(p) {
   return resolve(JSON.parse(fs.readFileSync(p, "utf8")));
 }
 
-let script = load(scriptPath);
+let script = scriptPath === "-" ? { turns: [] } : load(scriptPath);
 const problems = [];
 
 function sse(res, event, data) {
@@ -59,8 +65,8 @@ function chunks(s, n = 40) {
 
 let toolCounter = 0;
 
-async function reply(res, body, turn) {
-  const blocks = script.turns[turn];
+async function reply(res, body, turn, given) {
+  const blocks = given ?? script.turns[turn];
   const id = `msg_fake_${turn}_${Date.now()}`;
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "request-id": id });
   const inputTokens = JSON.stringify(body.messages).length >> 2;
@@ -130,6 +136,20 @@ const server = http.createServer(async (req, res) => {
   const body = JSON.parse(raw);
   const turn = body.messages.filter((m) => m.role === "assistant").length;
   const p = check(req, body);
+  if (RELAY) {
+    problems.push(...p.map((m) => `relay ${relayN}: ${m}`));
+    const n = relayN++;
+    fs.writeFileSync(path.join(RELAY, `req-${n}.json`), JSON.stringify(body, null, 1));
+    const f = path.join(RELAY, `resp-${n}.json`);
+    while (!fs.existsSync(f)) await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 200));     // let the writer finish
+    try {
+      return await reply(res, body, turn, load(f));
+    } catch (e) {
+      console.error(e);
+      return res.end();
+    }
+  }
   problems.push(...p.map((m) => `turn ${turn}: ${m}`));
   if (LOG) fs.appendFileSync(LOG, JSON.stringify({ turn, model: body.model, inference_geo: body.inference_geo, problems: p, last: body.messages.at(-1) }) + "\n");
   if (turn >= script.turns.length) {

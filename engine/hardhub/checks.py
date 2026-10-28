@@ -46,6 +46,10 @@ def circuit(d, with_footprints=True):
     d = D.normalize(d)
     out = []
     comps = d['components']
+    # a check that cannot fail is no check: with nothing drawn, say so
+    out.append(result('has-circuit', 'circuit', 'The circuit has parts',
+                      'every other circuit check passes trivially on an empty design', bool(comps),
+                      None if comps else 'no components yet: draw the circuit first'))
     missing = [c['ref'] for c in comps if c['part'] not in d['parts']]
     out.append(result('parts-exist', 'circuit', 'Every component names a known part',
                       'a component without a part has no footprint and cannot be bought', not missing,

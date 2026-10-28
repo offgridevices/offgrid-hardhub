@@ -53,7 +53,7 @@ RUN git clone -q --depth 1 --branch 10.0.6 --filter=blob:none --sparse https://g
  && cd /tmp/p3d && test "$(git rev-parse HEAD)" = "$KICAD_3D_COMMIT" \
  && git sparse-checkout set --no-cone $(for d in Resistor_SMD Capacitor_SMD Inductor_SMD LED_SMD Diode_SMD Package_TO_SOT_SMD \
         Package_SO Package_DFN_QFN Connector_USB Connector_PinHeader_2.54mm Connector_JST Button_Switch_SMD \
-        RF_Module Crystal Fuse Sensor_Humidity; do echo "/$d.3dshapes/*.step"; done) \
+        RF_Module Crystal Fuse Sensor_Humidity Connector_BarrelJack TerminalBlock_Phoenix; do echo "/$d.3dshapes/*.step"; done) \
  && mkdir -p /usr/share/kicad/3dmodels && cp -r /tmp/p3d/*.3dshapes /usr/share/kicad/3dmodels/ \
  && rm -rf /tmp/p3d
 ENV KICAD10_3DMODEL_DIR=/usr/share/kicad/3dmodels
