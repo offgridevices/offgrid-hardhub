@@ -77,8 +77,13 @@ def freeroute(dsn_path, ses_path, passes=20, log=None, use_fr2=True):
         # its escape-via stage (fanout) is off: it drops a via on most SMD
         # pins whether the route needs one or not; HardHub's own fanout has
         # already given plane and ground pads theirs
+        # no neck-down: 2.x narrows tracks to 75 % at pads, under the fab's
+        # minimum.  The optimiser (shorter tracks, fewer vias) runs only on a
+        # fully routed board and is capped: one pass on Print Hub takes ~2 min
         cmd = [FR2, '-de', dsn_path, '-do', ses_path, '--router.autorouter.max_passes=%d' % passes,
                '-mt', str(THREADS), '--router.fanout.enabled=%s' % os.environ.get('HARDHUB_FR_FANOUT', 'false'),
+               '--router.automatic_neckdown=false',
+               '--router.optimizer.max_passes=%s' % os.environ.get('HARDHUB_FR_OPT_PASSES', '2'),
                '--gui.enabled=false', '--usage_and_diagnostic_data.disable_analytics=true']
     else:
         cmd = ['xvfb-run', '-a', 'java', '-jar', JAR, '-de', dsn_path, '-do', ses_path, '-mp', str(passes)]

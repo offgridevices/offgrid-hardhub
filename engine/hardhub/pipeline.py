@@ -112,11 +112,12 @@ class Job:
             done, failed = fanout.fanout(b, planes, self.d['board']['corner_radius'])
             b.Save(self.placed)
             self.stats['fanout_vias'] = done
-            self.check(dict(id='fanout', group='layout', name='Every plane pad has a via to its plane',
-                            why='a pad with no way down to its plane is not connected', status='fail' if failed else 'pass',
+            # a pad with no room for its via is left to the repair route after
+            # the pours, which may reach the plane from further away
+            self.check(dict(id='fanout', group='layout', name='Every plane pad has its own via to its plane',
+                            why='a short via straight down is the best return path; the rest are routed',
+                            status='warn' if failed else 'pass',
                             **({'detail': 'no room beside ' + ', '.join(failed[:10])} if failed else {})))
-            if failed:
-                raise Stop('no room for plane vias beside %s' % ', '.join(failed[:10]))
 
     def fanout_nets(self):
         from . import design as D
@@ -161,7 +162,7 @@ class Job:
             # in place, which Freerouting reads as copper areas of their net
             self.emit('pour', '%d connections left after the pours: routing them' % left, 0.5)
             repaired = self.routed + '.repair.kicad_pcb'
-            n = route.route(self.routed, repaired, plane_layers=self.plane_layers(), drop=D.plane_nets(self.d),
+            n = route.route(self.routed, repaired, plane_layers=self.plane_layers(), drop=(),
                             passes=int(os.environ.get('HARDHUB_PASSES', 20)), rounds=2,
                             progress=lambda m: self.emit('pour', 'repair ' + m, 0.7))
             import shutil
@@ -203,6 +204,13 @@ class Job:
                         why='house rule; no acid traps in the etch, and tidy copper',
                         status='pass' if not sharp else 'warn',
                         **({'detail': '%d left, first at %s' % (len(sharp), ', '.join('(%.1f, %.1f) %s' % (c[3], c[4], c[2]) for c in sharp[:3]))} if sharp else {})))
+        for id_, group, name, why in (
+                ('sim-power', 'power', 'Supply transients and regulator stability simulated',
+                 'a supply that rings or sags resets the board under load'),
+                ('sim-thermal', 'thermal', 'Heat simulated on the routed board at worst-case load',
+                 'the routed board runs hotter than the same design before routing')):
+            self.check(dict(id=id_, group=group, name=name, why=why, status='skip',
+                            detail='not run: the engine does not simulate yet'))
         b = pcbnew.LoadBoard(self.routed)
         self.stats['tracks'] = sum(1 for t in b.GetTracks() if t.GetClass() == 'PCB_TRACK')
         self.stats['vias'] = sum(1 for t in b.GetTracks() if t.GetClass() == 'PCB_VIA')

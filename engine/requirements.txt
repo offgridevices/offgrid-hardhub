@@ -1,0 +1,6 @@
+# The engine's Python dependencies, exact stable releases, each published at
+# least two weeks before it was pinned (checked 28 Oct 2026).  KiCad's own
+# pcbnew module comes with the kicad/kicad image.
+shapely==2.2.0          # geometry: placement, fanout, pours (2026-10-07)
+numpy==2.5.4            # shapely's array backend (2026-10-10)
+easyeda2kicad==1.0.1    # JLCPCB/EasyEDA footprints for LCSC parts, AGPL-3.0 (2026-04-06)

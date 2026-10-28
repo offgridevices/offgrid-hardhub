@@ -1,0 +1,21 @@
+{
+  "_note": "Shaped like JLCPCB's selectSmtComponentList answer, using only the fields offgrid-hardware's tools/lcsc.py and tools/jlc.py read. Written by hand (jlcpcb.com is unreachable from the sandbox this was made in), not captured from the live service; prices and stock are illustrative.",
+  "code": 200,
+  "data": {
+    "componentPageInfo": {
+      "list": [
+        {"componentCode": "C2913198", "componentModelEn": "ESP32-S3-WROOM-1-N8", "componentBrandEn": "Espressif Systems",
+         "componentSpecificationEn": "SMD,18x25.5mm", "stockCount": 5120, "componentLibraryType": "expand",
+         "preferredComponentFlag": true, "describe": "Wi-Fi + BLE module, ESP32-S3, 8 MB flash",
+         "dataManualUrl": "https://example.invalid/esp32-s3-wroom-1.pdf",
+         "componentPrices": [{"startNumber": 1, "productPrice": 3.52}, {"startNumber": 10, "productPrice": 3.31}]},
+        {"componentCode": "C6186", "componentModelEn": "AMS1117-3.3", "componentBrandEn": "Advanced Monolithic Systems",
+         "componentSpecificationEn": "SOT-223", "stockCount": 812345, "componentLibraryType": "base",
+         "describe": "1A 3.3V LDO", "componentPrices": [{"startNumber": 1, "productPrice": 0.1121}]},
+        {"componentCode": "C99999", "componentModelEn": "OLDPART-1", "componentBrandEn": "Acme",
+         "componentSpecificationEn": "SOT-23", "stockCount": 0, "componentLibraryType": "expand",
+         "describe": "Discontinued: replaced by NEWPART-2", "componentPrices": []}
+      ]
+    }
+  }
+}

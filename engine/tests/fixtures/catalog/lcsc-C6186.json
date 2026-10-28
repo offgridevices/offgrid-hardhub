@@ -1,0 +1,10 @@
+{
+  "_note": "Shaped like LCSC's product detail answer, using only the fields offgrid-hardware's tools/lcsc.py reads. Written by hand (lcsc.com is unreachable from the sandbox this was made in); prices and stock are illustrative.",
+  "code": 200,
+  "result": {
+    "productCode": "C6186", "productModel": "AMS1117-3.3", "brandNameEn": "Advanced Monolithic Systems",
+    "encapStandard": "SOT-223", "stockNumber": 812345, "productIntroEn": "1A Fixed 3.3V LDO regulator",
+    "pdfUrl": "https://example.invalid/ams1117.pdf",
+    "productPriceList": [{"ladder": 1, "usdPrice": 0.1121}, {"ladder": 100, "usdPrice": 0.0712}]
+  }
+}
