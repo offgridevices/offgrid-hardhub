@@ -46,7 +46,7 @@ export class EngineContainer extends DurableObject<Env> {
         return await port.fetch(req.clone());
       } catch (e) {
         if (exited) throw new Error(`The KiCad engine did not start (${exited}).`);
-        if (attempt >= 60) throw e;
+        if (attempt >= 180) throw e;
         await new Promise((r) => setTimeout(r, 500));
       }
     }
