@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "name": "C3 Sensor",
+  "revision": "v1",
+  "summary": "ESP32-C3 module, USB-C 5 V in, 3.3 V LDO, SHT40 temperature and humidity sensor on I2C, status LED. Test fixture: KiCad standard footprints only.",
+  "stage": "layout",
+  "requirements": [
+    {"id": "R1", "text": "Wi-Fi temperature and humidity sensor powered from USB-C", "status": "open"},
+    {"id": "R2", "text": "Two copper layers, under 50 x 40 mm", "status": "open"}
+  ],
+  "blocks": {
+    "power": {"name": "Power in", "purpose": "USB-C 5 V to 3.3 V"},
+    "mcu": {"name": "MCU", "purpose": "ESP32-C3 module, boot and reset"},
+    "sensor": {"name": "Sensor", "purpose": "SHT40 on I2C"},
+    "ui": {"name": "Status", "purpose": "LED and UART header"}
+  },
+  "parts": {
+    "USBC": {"mpn": "TYPE-C-31-M-17", "maker": "Korean Hroparts", "kind": "J", "value": "USB-C power", "description": "USB-C receptacle, power only, 6 pins", "footprint": "Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-17", "lifecycle": "active", "sourcing": {"lcsc": "C283540", "tier": "extended"}},
+    "AMS1117": {"mpn": "AMS1117-3.3", "maker": "Advanced Monolithic Systems", "kind": "U", "value": "AMS1117-3.3", "description": "LDO 3.3 V 1 A, SOT-223", "footprint": "Package_TO_SOT_SMD:SOT-223-3_TabPin2", "lifecycle": "active", "sourcing": {"lcsc": "C6186", "tier": "basic", "prices": [{"qty": 1, "usd": 0.11}]}},
+    "ESP32C3": {"mpn": "ESP32-C3-WROOM-02-N4", "maker": "Espressif", "kind": "MOD", "value": "ESP32-C3-WROOM-02", "description": "Wi-Fi + BLE module, ESP32-C3, 4 MB flash, PCB antenna", "footprint": "RF_Module:ESP32-C3-WROOM-02", "lifecycle": "active", "sourcing": {"lcsc": "C2934560", "tier": "extended", "prices": [{"qty": 1, "usd": 2.6}]}},
+    "SHT40": {"mpn": "SHT40-AD1B-R2", "maker": "Sensirion", "kind": "U", "value": "SHT40", "description": "Temperature and humidity sensor, I2C, DFN-4 1.5 x 1.5", "footprint": "Sensor_Humidity:Sensirion_DFN-4_1.5x1.5mm_P0.8mm_SHT4x_NoCentralPad", "lifecycle": "active", "sourcing": {"lcsc": "C2846960", "tier": "extended", "prices": [{"qty": 1, "usd": 1.2}]}},
+    "LED": {"mpn": "19-217/GHC-YR1S2/3T", "maker": "Everlight", "kind": "LED", "value": "green", "description": "LED green 0603", "footprint": "LED_SMD:LED_0603_1608Metric", "lifecycle": "active", "sourcing": {"lcsc": "C72043", "tier": "basic"}},
+    "BUTTON": {"mpn": "TL3342F160QG", "maker": "E-Switch", "kind": "SW", "value": "BOOT", "description": "Tactile switch 4.2 x 3.2 mm", "footprint": "Button_Switch_SMD:SW_SPST_TL3342", "lifecycle": "active", "sourcing": {"lcsc": "C2689636", "tier": "extended"}},
+    "HEADER": {"mpn": "PZ254V-11-04P", "maker": "XFCN", "kind": "J", "value": "UART", "description": "Pin header 1 x 4, 2.54 mm, fitted by hand", "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical", "assembled": false, "lifecycle": "active"},
+    "R1K": {"mpn": "0402WGF1001TCE", "maker": "UNI-ROYAL", "kind": "R", "value": "1k", "description": "Resistor 1k 1% 0402", "footprint": "Resistor_SMD:R_0402_1005Metric", "lifecycle": "active", "sourcing": {"lcsc": "C11702", "tier": "basic"}},
+    "R4K7": {"mpn": "0402WGF4701TCE", "maker": "UNI-ROYAL", "kind": "R", "value": "4.7k", "description": "Resistor 4.7k 1% 0402", "footprint": "Resistor_SMD:R_0402_1005Metric", "lifecycle": "active", "sourcing": {"lcsc": "C25900", "tier": "basic"}},
+    "R5K1": {"mpn": "0402WGF5101TCE", "maker": "UNI-ROYAL", "kind": "R", "value": "5.1k", "description": "Resistor 5.1k 1% 0402", "footprint": "Resistor_SMD:R_0402_1005Metric", "lifecycle": "active", "sourcing": {"lcsc": "C25905", "tier": "basic"}},
+    "R10K": {"mpn": "0402WGF1002TCE", "maker": "UNI-ROYAL", "kind": "R", "value": "10k", "description": "Resistor 10k 1% 0402", "footprint": "Resistor_SMD:R_0402_1005Metric", "lifecycle": "active", "sourcing": {"lcsc": "C25744", "tier": "basic"}},
+    "C100N": {"mpn": "CL05B104KO5NNNC", "maker": "Samsung Electro-Mechanics", "kind": "C", "value": "100nF", "description": "Capacitor 100nF 16V X7R 0402", "footprint": "Capacitor_SMD:C_0402_1005Metric", "lifecycle": "active", "sourcing": {"lcsc": "C1525", "tier": "basic"}},
+    "C1U": {"mpn": "CL05A105KA5NQNC", "maker": "Samsung Electro-Mechanics", "kind": "C", "value": "1uF", "description": "Capacitor 1uF 25V X5R 0402", "footprint": "Capacitor_SMD:C_0402_1005Metric", "lifecycle": "active", "sourcing": {"lcsc": "C52923", "tier": "basic"}},
+    "C10U": {"mpn": "CL10A106KP8NNNC", "maker": "Samsung Electro-Mechanics", "kind": "C", "value": "10uF", "description": "Capacitor 10uF 10V X5R 0603", "footprint": "Capacitor_SMD:C_0603_1608Metric", "lifecycle": "active", "sourcing": {"lcsc": "C19702", "tier": "basic"}},
+    "C22U": {"mpn": "CL10A226MQ8NRNC", "maker": "Samsung Electro-Mechanics", "kind": "C", "value": "22uF", "description": "Capacitor 22uF 6.3V X5R 0603", "footprint": "Capacitor_SMD:C_0603_1608Metric", "lifecycle": "active", "sourcing": {"lcsc": "C59461", "tier": "basic"}}
+  },
+  "components": [
+    {"ref": "J1", "part": "USBC", "block": "power", "pins": {"A9": "VBUS", "B9": "VBUS", "A12": "GND", "B12": "GND", "A5": "CC1", "B5": "CC2", "SH": "GND"}},
+    {"ref": "R1", "part": "R5K1", "block": "power", "pins": {"1": "CC1", "2": "GND"}, "note": "CC1 Rd: asks the source for 5 V"},
+    {"ref": "R2", "part": "R5K1", "block": "power", "pins": {"1": "CC2", "2": "GND"}, "note": "CC2 Rd"},
+    {"ref": "U2", "part": "AMS1117", "block": "power", "pins": {"1": "GND", "2": "+3V3", "3": "VBUS"}},
+    {"ref": "C1", "part": "C10U", "block": "power", "pins": {"1": "VBUS", "2": "GND"}, "note": "LDO input"},
+    {"ref": "C2", "part": "C22U", "block": "power", "pins": {"1": "+3V3", "2": "GND"}, "note": "LDO output: AMS1117 wants 22 uF"},
+    {"ref": "U1", "part": "ESP32C3", "block": "mcu", "pins": {"1": "+3V3", "2": "EN", "3": "SDA", "4": "SCL", "5": null, "6": null, "7": "IO8", "8": "BOOT", "9": "GND", "10": "LED", "11": "RXD", "12": "TXD", "13": null, "14": null, "15": null, "16": "IO2", "17": null, "18": null, "19": "GND"}},
+    {"ref": "C3", "part": "C100N", "block": "mcu", "pins": {"1": "+3V3", "2": "GND"}, "note": "module decoupling"},
+    {"ref": "C4", "part": "C10U", "block": "mcu", "pins": {"1": "+3V3", "2": "GND"}, "note": "module bulk"},
+    {"ref": "R3", "part": "R10K", "block": "mcu", "pins": {"1": "+3V3", "2": "EN"}, "note": "EN pull-up"},
+    {"ref": "C5", "part": "C1U", "block": "mcu", "pins": {"1": "EN", "2": "GND"}, "note": "EN delay: the chip starts after the supply settles"},
+    {"ref": "R4", "part": "R10K", "block": "mcu", "pins": {"1": "+3V3", "2": "IO2"}, "note": "strapping: GPIO2 high"},
+    {"ref": "R5", "part": "R10K", "block": "mcu", "pins": {"1": "+3V3", "2": "IO8"}, "note": "strapping: GPIO8 high for serial download"},
+    {"ref": "SW1", "part": "BUTTON", "block": "mcu", "pins": {"1": "BOOT", "2": "GND"}, "note": "hold at reset for the bootloader"},
+    {"ref": "U3", "part": "SHT40", "block": "sensor", "pins": {"1": "SDA", "2": "SCL", "3": "+3V3", "4": "GND"}},
+    {"ref": "C6", "part": "C100N", "block": "sensor", "pins": {"1": "+3V3", "2": "GND"}, "note": "sensor decoupling"},
+    {"ref": "R6", "part": "R4K7", "block": "sensor", "pins": {"1": "+3V3", "2": "SDA"}, "note": "I2C pull-up"},
+    {"ref": "R7", "part": "R4K7", "block": "sensor", "pins": {"1": "+3V3", "2": "SCL"}, "note": "I2C pull-up"},
+    {"ref": "R8", "part": "R1K", "block": "ui", "pins": {"1": "LED", "2": "LED_A"}, "note": "LED current about 1 mA"},
+    {"ref": "D1", "part": "LED", "block": "ui", "pins": {"1": "GND", "2": "LED_A"}},
+    {"ref": "J2", "part": "HEADER", "block": "ui", "pins": {"1": "GND", "2": "+3V3", "3": "TXD", "4": "RXD"}, "note": "UART for flashing"}
+  ],
+  "nets": {
+    "VBUS": {"kind": "power", "voltage": 5, "current": 0.5},
+    "+3V3": {"kind": "power", "voltage": 3.3, "current": 0.5},
+    "GND": {"kind": "ground"}
+  },
+  "board": {
+    "width": 50, "height": 40, "corner_radius": 1.5, "layers": 2, "fab": "jlcpcb", "mask_color": "black",
+    "holes": [{"x": -21, "y": -16}, {"x": 21, "y": -16}, {"x": -21, "y": 16}, {"x": 21, "y": 16}]
+  },
+  "placement": {
+    "U1": {"x": 0, "y": -1.4, "rot": 0, "side": "top", "locked": true}
+  },
+  "firmware": {
+    "platform": "esphome", "mcu": "U1",
+    "pins": [
+      {"name": "SDA", "gpio": 4, "net": "SDA", "dir": "i2c"},
+      {"name": "SCL", "gpio": 5, "net": "SCL", "dir": "i2c"},
+      {"name": "STATUS_LED", "gpio": 10, "net": "LED", "dir": "out"},
+      {"name": "BOOT", "gpio": 9, "net": "BOOT", "dir": "in"}
+    ],
+    "files": {}
+  }
+}
