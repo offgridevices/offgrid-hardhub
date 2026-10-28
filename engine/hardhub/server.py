@@ -26,6 +26,7 @@ import queue
 import re
 import shutil
 import signal
+import socketserver
 import subprocess
 import sys
 import threading
@@ -355,13 +356,26 @@ class Handler(BaseHTTPRequestHandler):
             _builds.release()
 
 
+class Server(ThreadingHTTPServer):
+    """The standard threading server, minus its look-up of this machine's
+    name: a Cloudflare Container's host name has a label longer than DNS
+    allows (63), so socket.getfqdn() raises UnicodeError ("label too
+    long") and the engine exited before it listened."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
+
 def main():
     os.makedirs(JOBS, exist_ok=True)
     ctx()
     h = health()
     sys.stderr.write('hardhub engine: kicad %s, freerouting %s, %d build(s) at once, jobs in %s\n'
                      % (h['kicad'], h['freerouting'], MAX_BUILDS, JOBS))
-    srv = ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', 8080))), Handler)
+    srv = Server(('0.0.0.0', int(os.environ.get('PORT', 8080))), Handler)
     srv.daemon_threads = True
     signal.signal(signal.SIGTERM, lambda *a: threading.Thread(target=srv.shutdown).start())
     srv.serve_forever()

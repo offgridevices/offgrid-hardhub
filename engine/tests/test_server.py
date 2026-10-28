@@ -1,5 +1,6 @@
 """The HTTP service, started in-process on a free port."""
 import json
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -16,10 +17,25 @@ def url(tmp_path_factory):
     os.environ['HARDHUB_JOBS'] = str(tmp_path_factory.mktemp('jobs'))
     from hardhub import server
     server.JOBS = os.environ['HARDHUB_JOBS']
-    srv = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+    srv = server.Server(('127.0.0.1', 0), server.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield 'http://127.0.0.1:%d' % srv.server_address[1]
     srv.shutdown()
+
+
+def test_starts_where_the_host_name_is_too_long_for_dns(monkeypatch):
+    """A Cloudflare Container: socket.getfqdn() raises on its host name. The
+    standard server dies binding; the engine's must not."""
+    from hardhub import server
+
+    def too_long(*a):
+        raise UnicodeError('encoding with \'idna\' codec failed (UnicodeError: label too long)')
+    monkeypatch.setattr(socket, 'getfqdn', too_long)
+    with pytest.raises(UnicodeError):
+        ThreadingHTTPServer(('127.0.0.1', 0), server.Handler).server_close()
+    srv = server.Server(('127.0.0.1', 0), server.Handler)
+    assert srv.server_port > 0
+    srv.server_close()
 
 
 LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))     # never through an HTTP proxy

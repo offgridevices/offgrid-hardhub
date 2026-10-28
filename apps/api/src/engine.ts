@@ -22,10 +22,20 @@ export class EngineContainer extends DurableObject<Env> {
   override async fetch(req: Request): Promise<Response> {
     const c = this.ctx.container;
     if (!c) return new Response("no container bound to this Durable Object", { status: 500 });
+    // why the container stopped, if it did: Cloudflare otherwise reports a
+    // crash on start as "no container instance can be provided"
+    let exited = "";
     if (!c.running) {
       // the engine reads the JLCPCB/LCSC catalogue, so it needs the internet;
       // standard-3 (2 vCPU, 8 GiB): KiCad and the router on a 4-layer board
       c.start({ image: c.images.engine!, instance: "standard-3", enableInternet: true });
+      c.monitor().then(
+        () => (exited = "the engine stopped"),
+        (e: unknown) => {
+          exited = e instanceof Error ? e.message : String(e);
+          console.error(`engine container exited: ${exited}`);
+        },
+      );
       // a board job can take minutes; keep the instance warm between turns
       await c.setInactivityTimeout(15 * 60_000);
     }
@@ -35,7 +45,8 @@ export class EngineContainer extends DurableObject<Env> {
       try {
         return await port.fetch(req.clone());
       } catch (e) {
-        if (attempt >= 30) throw e;
+        if (exited) throw new Error(`The KiCad engine did not start (${exited}).`);
+        if (attempt >= 60) throw e;
         await new Promise((r) => setTimeout(r, 500));
       }
     }
