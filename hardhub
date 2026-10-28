@@ -76,8 +76,9 @@ need_docker() {
   fi
   if ! docker info >/dev/null 2>&1; then
     if [ "$(uname)" = Darwin ]; then
-      # whichever Docker this Mac has: Docker Desktop, or Colima
-      if [ -d /Applications/Docker.app ] || ! command -v colima >/dev/null 2>&1; then
+      # whichever Docker this Mac uses: Colima when it is the current context
+      # (or the only one installed), else Docker Desktop
+      if ! command -v colima >/dev/null 2>&1 || { [ -d /Applications/Docker.app ] && [ "$(docker context show 2>/dev/null)" != colima ]; }; then
         say "Starting Docker Desktop…"
         open -a Docker || true
       else

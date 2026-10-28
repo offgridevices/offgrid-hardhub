@@ -41,7 +41,8 @@ ARG WITH_TESTS=0
 # and must match the fingerprint Launchpad publishes for it.  Only the
 # symbols, footprints and templates: the full 3D library is 5 GB, the few
 # folders the viewer needs come below.  xvfb gives Freerouting 1.9 its display;
-# librsvg (with cairo) turns view_board's SVGs into PNGs.
+# librsvg (with cairo) turns view_board's SVGs into PNGs.  The engine's user
+# is uid 1000, as in the kicad/kicad image, so existing volumes stay writable.
 ARG KICAD_VERSION=10.0.7~ubuntu24.04.1
 ARG KICAD_PPA_SNAPSHOT=20261027T000000Z
 ARG KICAD_PPA_KEY=FDA854F61C4D0D9572BB95E5245D5502FAD7A805
@@ -59,7 +60,7 @@ RUN apt-get update -qq \
  && apt-get purge -y -qq gnupg > /dev/null && apt-get autoremove -y -qq > /dev/null \
  && rm -rf /var/lib/apt/lists/* /tmp/kicad-ppa.asc \
  && kicad-cli version && python3 -c "import pcbnew; print('pcbnew', pcbnew.GetBuildVersion())" \
- && useradd --create-home --shell /usr/sbin/nologin kicad
+ && userdel --remove ubuntu && useradd --uid 1000 --create-home --shell /usr/sbin/nologin kicad
 
 # pip (Ubuntu's Python ships without it), from PyPI
 ADD --checksum=sha256:71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e \
