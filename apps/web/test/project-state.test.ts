@@ -51,6 +51,18 @@ describe("project state", () => {
     expect(s.checks[0]!.status).toBe("pass");
   });
 
+  it("appends live deltas without advancing seq, then takes the stored whole text", () => {
+    let s = reduce(initialState, ServerEvent.parse({ type: "stage", stage: "idea", seq: 0, at }));
+    s = reduce(s, ServerEvent.parse({ type: "assistant_text", id: "a", text: "Hel", done: false, seq: 0, at }));
+    s = reduce(s, ServerEvent.parse({ type: "assistant_text", id: "a", text: "lo", done: false, seq: 0, at }));
+    expect(s.items).toEqual([{ kind: "assistant", id: "a", text: "Hello", done: false }]);
+    expect(s.lastSeq).toBe(0);
+    s = reduce(s, ServerEvent.parse({ type: "assistant_text", id: "a", text: "Hello.", done: true, seq: 1, at }));
+    expect(s.items).toEqual([{ kind: "assistant", id: "a", text: "Hello.", done: true }]);
+    // a late delta after the whole text changes nothing
+    expect(reduce(s, ServerEvent.parse({ type: "assistant_text", id: "a", text: "x", done: false, seq: 1, at }))).toBe(s);
+  });
+
   it("closes an unfinished stream when the turn ends", () => {
     let s = reduce(initialState, ServerEvent.parse({ type: "assistant_text", id: "a", text: "Half", done: false, seq: 0, at }));
     s = reduce(s, ServerEvent.parse({ type: "turn_end", reason: "stopped", seq: 1, at }));

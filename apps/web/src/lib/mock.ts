@@ -2,7 +2,7 @@
 import {
   Design,
   emptyDesign,
-  type AuthStart,
+
   type LlmProvider,
   type LlmSettings,
   type Me,
@@ -12,7 +12,7 @@ import {
   type Session,
   type Stage,
 } from "@hardhub/protocol";
-import type { Backend, LinkStatus, ProjectLink } from "./backend";
+import type { AuthStart, Backend, LinkStatus, ProjectLink } from "./backend";
 import { usbHubDesign } from "../fixtures/usb-hub";
 import { gardenHistory, hubHistory, replyScript, type ScriptStep } from "../fixtures/script";
 
@@ -48,7 +48,11 @@ export class MockBackend implements Backend {
   private projects = new Map<string, MockProject>();
 
   constructor() {
-    const hub = stamp(hubHistory);
+    // demo mode can show a real KiCad GLB: /p/demo-hub?tab=3d&glb=<url>
+    const glb = typeof location !== "undefined" ? new URLSearchParams(location.search).get("glb") : null;
+    const hub = stamp(hubHistory).map((e) =>
+      glb && e.type === "artifacts" ? { ...e, artifacts: e.artifacts.map((a) => (a.kind === "glb" ? { ...a, url: glb } : a)) } : e,
+    );
     this.projects.set("demo-hub", {
       summary: { id: "demo-hub", name: "Print hub", stage: lastStage(hub), created_at: "2026-10-17T14:58:00Z", updated_at: "2026-10-18T09:12:00Z" },
       design: usbHubDesign,
@@ -76,7 +80,7 @@ export class MockBackend implements Backend {
     return true;
   }
   async authStart(_email: string): Promise<AuthStart> {
-    return { sent: true, token: "demo", dev_link: "#demo" };
+    return { sent: false, token: "demo", dev_link: "#demo" };
   }
   async authVerify(token: string): Promise<Session> {
     this.tok = token;
@@ -150,8 +154,10 @@ export class MockBackend implements Backend {
 
   private push(p: MockProject, e: ScriptStep) {
     const { delay: _d, ...rest } = e;
-    const ev = { ...rest, seq: p.events.length, at: new Date().toISOString() } as ServerEvent;
-    p.events.push(ev);
+    // like the server: a live text delta is not stored and carries the seq of the last stored event
+    const delta = rest.type === "assistant_text" && !rest.done;
+    const ev = { ...rest, seq: delta ? p.events.length - 1 : p.events.length, at: new Date().toISOString() } as ServerEvent;
+    if (!delta) p.events.push(ev);
     if (ev.type === "stage") p.summary = { ...p.summary, stage: ev.stage };
     p.summary = { ...p.summary, updated_at: ev.at };
     for (const l of p.listeners) l(ev);

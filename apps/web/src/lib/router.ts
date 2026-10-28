@@ -42,22 +42,6 @@ export function usePath(): string {
   return useSyncExternalStore(subscribe, getPath, () => "/");
 }
 
-/** Query parameter as React state, kept in the URL (replace, not push). */
-const getSearch = () => location.search;
-export function useQueryParam(key: string): [string | null, (v: string | null) => void] {
-  const search = useSyncExternalStore(subscribe, getSearch, () => "");
-  const value = new URLSearchParams(search).get(key);
-  const set = (v: string | null) => {
-    const q = new URLSearchParams(location.search);
-    if (v === null) q.delete(key);
-    else q.set(key, v);
-    const s = q.toString();
-    history.replaceState(null, "", location.pathname + (s ? `?${s}` : ""));
-    emit();
-  };
-  return [value, set];
-}
-
 /** Plain links that navigate without a reload (modifier clicks still open tabs). */
 export function onLink(e: React.MouseEvent<HTMLAnchorElement>) {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

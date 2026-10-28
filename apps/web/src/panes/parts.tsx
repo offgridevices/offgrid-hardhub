@@ -71,16 +71,16 @@ export default function Parts({ design }: { design: Design }) {
                 <th>Part</th>
                 <th className="r">Qty</th>
                 <th className="hide-sm">LCSC</th>
-                <th>JLCPCB</th>
+                <th className="hide-sm">JLCPCB</th>
                 <th className="r hide-sm">Stock</th>
-                <th className="r">Each</th>
+                <th className="r hide-sm">Each</th>
                 <th className="r">Line</th>
               </tr>
             </thead>
             <tbody>
               {lines.map(({ key, refs, p, unit, total }) => (
                 <tr key={key} style={{ contentVisibility: "auto", containIntrinsicSize: "auto 64px" }}>
-                  <td style={{ minWidth: 190 }}>
+                  <td style={{ minWidth: 150 }}>
                     <div style={{ fontWeight: 500 }}>{p?.value ?? p?.mpn ?? key}</div>
                     <div className="small muted">
                       {p?.mpn} · {p?.maker}
@@ -89,6 +89,12 @@ export default function Parts({ design }: { design: Design }) {
                     <div className="small muted num" title={refs.join(", ")} style={{ marginTop: 2, overflowWrap: "anywhere" }}>
                       {refs.length > 6 ? `${refs.slice(0, 6).join(" ")} +${refs.length - 6}` : refs.join(" ")}
                     </div>
+                    {p?.sourcing?.tier && (
+                      <span className="tag show-sm" style={{ marginTop: 6, marginRight: 6 }}>
+                        {TIER[p.sourcing.tier]}
+                        {unit !== null && <span className="num"> · {usd(unit, unit < 0.1 ? 3 : 2)} each</span>}
+                      </span>
+                    )}
                     {p && p.lifecycle !== "active" && (
                       <span className={`tag${p.lifecycle === "unknown" ? "" : " tag-warn"}`} style={{ marginTop: 6 }}>
                         {LIFE[p.lifecycle]}
@@ -97,9 +103,9 @@ export default function Parts({ design }: { design: Design }) {
                   </td>
                   <td className="r num">{refs.length}</td>
                   <td className="num hide-sm">{p?.sourcing?.lcsc ?? "—"}</td>
-                  <td>{p?.sourcing?.tier ? <span className="tag">{TIER[p.sourcing.tier]}</span> : <span className="muted">—</span>}</td>
+                  <td className="hide-sm">{p?.sourcing?.tier ? <span className="tag">{TIER[p.sourcing.tier]}</span> : <span className="muted">—</span>}</td>
                   <td className="r num hide-sm">{p?.sourcing?.stock !== undefined ? int(p.sourcing.stock) : "—"}</td>
-                  <td className="r num">{unit === null ? "—" : usd(unit, unit < 0.1 ? 3 : 2)}</td>
+                  <td className="r num hide-sm">{unit === null ? "—" : usd(unit, unit < 0.1 ? 3 : 2)}</td>
                   <td className="r num">{total === null ? "—" : usd(total)}</td>
                 </tr>
               ))}

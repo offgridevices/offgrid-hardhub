@@ -3,6 +3,7 @@
 // demo layers. Results come back as transferable buffers.
 /// <reference lib="webworker" />
 import type { Design } from "@hardhub/protocol";
+import type { MeshoptSimplifier as Simplifier } from "meshoptimizer/simplifier";
 import { demoLayers, demoScene, type MeshData, type SceneData } from "./geometry";
 
 export type WorkerRequest =
@@ -18,7 +19,16 @@ export type WorkerResponse =
 declare const self: DedicatedWorkerGlobalScope;
 
 function transferables(scene: SceneData): ArrayBuffer[] {
-  return scene.meshes.flatMap((m) => [m.positions.buffer, m.normals.buffer, m.index.buffer] as ArrayBuffer[]);
+  return scene.meshes.flatMap((m) => [m.positions.buffer, m.normals.buffer, m.index.buffer, ...(m.lod ? [m.lod.buffer] : [])] as ArrayBuffer[]);
+}
+
+// A lighter index buffer for phones: the same vertices, about a quarter of the
+// triangles, with the surface moved by at most 0.2 % of the mesh's size (a
+// few hundredths of a millimetre on a small board). Small meshes keep theirs.
+function lowDetail(MeshoptSimplifier: typeof Simplifier, index: Uint32Array, positions: Float32Array): Uint32Array | undefined {
+  if (index.length < 30_000 || !MeshoptSimplifier.supported) return undefined;
+  const [lod] = MeshoptSimplifier.simplify(index, positions, 3, Math.floor(index.length / 4 / 3) * 3, 0.002, ["Prune"]);
+  return lod.length < index.length * 0.8 ? lod : undefined;
 }
 
 async function parseGlb(url: string): Promise<SceneData> {
@@ -84,17 +94,22 @@ async function parseGlb(url: string): Promise<SceneData> {
     g.geos.push(it.geo);
   }
   const meshes: MeshData[] = [];
+  const { MeshoptSimplifier } = await import("meshoptimizer/simplifier");
+  await MeshoptSimplifier.ready;
   for (const [key, g] of groups) {
     const merged = g.geos.length === 1 ? g.geos[0]! : mergeGeometries(g.geos as Parameters<typeof mergeGeometries>[0], false);
     if (!merged) continue;
     const idx = merged.index!.array;
+    const index = idx instanceof Uint32Array ? idx : new Uint32Array(idx);
+    const positions = new Float32Array((merged.getAttribute("position") as InstanceType<typeof THREE.BufferAttribute>).array);
     meshes.push({
       key,
       group: g.group,
       color: g.color,
-      positions: new Float32Array((merged.getAttribute("position") as InstanceType<typeof THREE.BufferAttribute>).array),
+      positions,
       normals: new Float32Array((merged.getAttribute("normal") as InstanceType<typeof THREE.BufferAttribute>).array),
-      index: idx instanceof Uint32Array ? idx : new Uint32Array(idx),
+      index,
+      lod: lowDetail(MeshoptSimplifier, index, positions),
     });
   }
   const thickness = (() => {

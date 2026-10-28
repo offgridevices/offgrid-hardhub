@@ -46,8 +46,18 @@ export const QuestionCard = memo(function QuestionCard({
     onSubmit(answers);
   };
 
+  if (!open)
+    return (
+      <details className="thinking" data-testid="questions-answered">
+        <summary>
+          {questions.length === 1 ? "1 question" : `${questions.length} questions`} · answered
+        </summary>
+        <p>{questions.map((q) => q.text).join("\n")}</p>
+      </details>
+    );
+
   return (
-    <form className={`qcard${open ? "" : " answered"}`} onSubmit={submit} data-testid="questions" data-question-set={id}>
+    <form className="qcard" onSubmit={submit} data-testid="questions" data-question-set={id}>
       <div className="qcard-head">
         <span>
           {questions.length === 1 ? "One question" : `${questions.length} questions`}
@@ -260,11 +270,23 @@ export function ChatLog({
   const [shown, setShown] = useState(WINDOW);
   const start = Math.max(0, items.length - shown);
 
-  // follow the stream while the reader is at the bottom; leave them be if they scrolled up
+  // follow the stream while the reader is at the bottom; leave them be if
+  // they scrolled up. Content grows as items lay out, so watch its size too.
+  const inner = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   });
+  useEffect(() => {
+    const el = ref.current;
+    const box = inner.current;
+    if (!el || !box) return;
+    const ro = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, []);
   const onScroll = () => {
     const el = ref.current;
     if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -272,6 +294,7 @@ export function ChatLog({
 
   return (
     <div className="chat-log" ref={ref} onScroll={onScroll} data-testid="chat-log" aria-live="polite">
+      <div ref={inner} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {start > 0 && (
         <button className="btn btn-sm btn-quiet" style={{ alignSelf: "center" }} onClick={() => setShown((n) => n + WINDOW)}>
           Show {Math.min(start, WINDOW)} earlier
@@ -288,6 +311,7 @@ export function ChatLog({
           <span className="muted">Working…</span>
         </div>
       )}
+      </div>
     </div>
   );
 }

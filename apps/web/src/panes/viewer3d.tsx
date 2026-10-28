@@ -33,7 +33,10 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
     let disposed = false;
     const coarse = matchMedia("(pointer: coarse)").matches;
     const renderer = new THREE.WebGLRenderer({ antialias: !coarse, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2));
+    // sharp when still, cheaper while a finger is turning the board
+    const dpr = Math.min(devicePixelRatio, coarse ? 1.5 : 2);
+    const movingDpr = coarse ? Math.min(dpr, 1) : dpr;
+    renderer.setPixelRatio(dpr);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setClearColor(0x100d09, 1);
     renderer.domElement.setAttribute("data-testid", "viewer-3d-canvas");
@@ -44,8 +47,8 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.12;
-    scene.add(new THREE.HemisphereLight(0xf1ece0, 0x1b1813, 1.4));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    scene.add(new THREE.HemisphereLight(0xf1ece0, 0x1b1813, 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
     sun.position.set(1, 2, 3);
     scene.add(sun);
 
@@ -65,12 +68,25 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
     };
     controls.addEventListener("change", request);
 
+    let touched = false;
+    controls.addEventListener("start", () => {
+      touched = true;
+      if (movingDpr !== dpr) renderer.setPixelRatio(movingDpr);
+    });
+    controls.addEventListener("end", () => {
+      if (movingDpr !== dpr) {
+        renderer.setPixelRatio(dpr);
+        request();
+      }
+    });
+    let fitTo: (() => void) | null = null;
     const resize = () => {
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
       renderer.setSize(r.width, r.height, false);
       camera.aspect = r.width / r.height;
       camera.updateProjectionMatrix();
+      if (!touched) fitTo?.();
       request();
     };
     const ro = new ResizeObserver(resize);
@@ -87,7 +103,9 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
         const g = new THREE.BufferGeometry();
         g.setAttribute("position", new THREE.BufferAttribute(m.positions, 3));
         g.setAttribute("normal", new THREE.BufferAttribute(m.normals, 3));
-        g.setIndex(new THREE.BufferAttribute(m.index, 1));
+        // phones draw the lighter index the worker made, where there is one
+        const index = coarse && m.lod ? m.lod : m.index;
+        g.setIndex(new THREE.BufferAttribute(index, 1));
         g.computeBoundingSphere();
         const ck = m.color.join(",");
         let mat = mats.get(ck);
@@ -104,7 +122,7 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
         mesh.userData.group = m.group;
         groups[m.group]!.push(mesh);
         scene.add(mesh);
-        stats.triangles += m.index.length / 3;
+        stats.triangles += index.length / 3;
       }
       stats.meshes = data.meshes.length;
       upVec = new THREE.Vector3(data.up === 0 ? 1 : 0, data.up === 1 ? 1 : 0, data.up === 2 ? 1 : 0);
@@ -114,15 +132,21 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
       camera.up.copy(upVec);
       camera.near = radius / 100;
       camera.far = radius * 100;
-      // three-quarter view from the front, above the top face
+      // three-quarter view from the front, above the top face, far enough
+      // that the whole board fits across the narrower of the two directions
       const dir = new THREE.Vector3(0.0, -1.1, 0.9);
       if (data.up === 1) dir.set(0, 0.9, 1.1);
-      const dist = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 0.95;
-      camera.position.copy(center).add(dir.normalize().multiplyScalar(dist));
-      controls.target.copy(center);
-      camera.updateProjectionMatrix();
-      home = { pos: camera.position.clone(), target: center.clone() };
-      controls.update();
+      dir.normalize();
+      fitTo = () => {
+        const v = THREE.MathUtils.degToRad(camera.fov / 2);
+        const h = Math.atan(Math.tan(v) * camera.aspect);
+        const dist = (radius / Math.sin(Math.min(v, h))) * 1.02;
+        camera.position.copy(center).addScaledVector(dir, dist);
+        controls.target.copy(center);
+        home = { pos: camera.position.clone(), target: center.clone() };
+        controls.update();
+      };
+      fitTo();
       request();
     };
 
@@ -144,6 +168,8 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
         request();
       },
       reset() {
+        touched = false;
+        if (fitTo) fitTo();
         if (!home) return;
         camera.position.copy(home.pos);
         controls.target.copy(home.target);

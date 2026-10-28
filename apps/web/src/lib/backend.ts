@@ -1,7 +1,7 @@
 // What the interface needs from a server. The real client (api.ts) and the
 // demo data (mock.ts) both implement it, so every screen runs on either.
 import type {
-  AuthStart,
+
   ClientMessage,
   LlmProvider,
   LlmSettings,
@@ -13,6 +13,13 @@ import type {
 } from "@hardhub/protocol";
 
 export type LinkStatus = "connecting" | "open" | "closed";
+
+/** POST /auth/start: production emails a link (204); local dev answers with a session. */
+export interface AuthStart {
+  sent: boolean;
+  dev_link?: string;
+  token?: string;
+}
 
 export interface ProjectLink {
   send(msg: ClientMessage): void;

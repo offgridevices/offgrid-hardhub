@@ -1,23 +1,38 @@
 // One project: the conversation on one side, the board on the other. On a
 // phone they are two panes switched at the bottom of the screen.
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, memo, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STAGES, type Stage } from "@hardhub/protocol";
 import { TopBar } from "../components/topbar";
 import { ChatLog, Composer } from "../components/chat";
 import { useApp } from "../lib/app";
-import { navigate, onLink, useQueryParam } from "../lib/router";
+import { navigate, onLink } from "../lib/router";
 import { useProject } from "../lib/use-project";
 import { isKeyError } from "../lib/project-state";
 import { STAGE_LABEL, usd } from "../lib/format";
 import { providerInfo, modelLabel } from "../config/llm";
 
-const Overview = lazy(() => import("../panes/overview"));
-const Parts = lazy(() => import("../panes/parts"));
-const Circuit = lazy(() => import("../panes/circuit"));
-const Board2D = lazy(() => import("../panes/board2d"));
+// each tab is its own chunk; the light ones are fetched while the browser is
+// idle so switching tabs never waits on the network (3D waits until opened:
+// it brings three.js)
+const once = <T,>(f: () => Promise<T>) => {
+  let p: Promise<T> | undefined;
+  return () => (p ??= f());
+};
+const loaders = {
+  overview: once(() => import("../panes/overview")),
+  parts: once(() => import("../panes/parts")),
+  circuit: once(() => import("../panes/circuit")),
+  board: once(() => import("../panes/board2d")),
+  checks: once(() => import("../panes/checks")),
+  order: once(() => import("../panes/order")),
+};
+const Overview = lazy(loaders.overview);
+const Parts = lazy(loaders.parts);
+const Circuit = lazy(loaders.circuit);
+const Board2D = lazy(loaders.board);
 const Viewer3D = lazy(() => import("../panes/viewer3d"));
-const Checks = lazy(() => import("../panes/checks"));
-const Order = lazy(() => import("../panes/order"));
+const Checks = lazy(loaders.checks);
+const Order = lazy(loaders.order);
 
 const TABS = [
   { id: "overview", label: "Requirements" },
@@ -42,10 +57,17 @@ const STAGE_TAB: Record<Stage, Tab> = {
   order: "order",
 };
 
-const Stepper = memo(function Stepper({ stage, onPick }: { stage: Stage | null; onPick(s: Stage): void }) {
+const Stepper = memo(function Stepper({ stage, onPick, shown }: { stage: Stage | null; onPick(s: Stage): void; shown: string }) {
   const at = stage ? STAGES.indexOf(stage) : 0;
+  const nav = useRef<HTMLElement>(null);
+  // on a narrow screen, keep the current stage in view
+  useEffect(() => {
+    const el = nav.current;
+    const cur = el?.querySelector<HTMLElement>(".current");
+    if (el && cur) el.scrollLeft = cur.offsetLeft - (el.clientWidth - cur.offsetWidth) / 2;
+  }, [at, shown]);
   return (
-    <nav className="stepper" aria-label="Design stages" data-testid="stepper" data-stage={stage ?? "idea"}>
+    <nav ref={nav} className="stepper" aria-label="Design stages" data-testid="stepper" data-stage={stage ?? "idea"}>
       {STAGES.map((s, i) => (
         <button
           key={s}
@@ -65,7 +87,19 @@ const Stepper = memo(function Stepper({ stage, onPick }: { stage: Stage | null; 
 export default function Workspace({ id }: { id: string }) {
   const { backend, me } = useApp();
   const { detail, state, link, error, send } = useProject(backend, id);
-  const [tabParam, setTab] = useQueryParam("tab");
+  // the tab lives in React state (so a transition can keep the current tab on
+  // screen until the next one is ready) and is mirrored into the URL
+  const [tabParam, setTabParam] = useState(() => new URLSearchParams(location.search).get("tab"));
+  const setTab = useCallback((t: string) => {
+    const q = new URLSearchParams(location.search);
+    q.set("tab", t);
+    history.replaceState(null, "", `${location.pathname}?${q}`);
+    startTransition(() => setTabParam(t));
+  }, []);
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((f: () => void) => setTimeout(f, 300));
+    idle(() => Object.values(loaders).forEach((l) => l()));
+  }, []);
   const [pane, setPane] = useState<"chat" | "board">("chat");
   const [seenArtifacts, setSeenArtifacts] = useState(0);
 
@@ -178,7 +212,7 @@ export default function Workspace({ id }: { id: string }) {
         </section>
         <section className="ws-main" aria-label="Board">
           <div className="ws-stepbar">
-            <Stepper stage={stage} onPick={pickStage} />
+            <Stepper stage={stage} onPick={pickStage} shown={pane} />
           </div>
           <div className="tabs" role="tablist" aria-label="Views">
             {TABS.map((t) => (

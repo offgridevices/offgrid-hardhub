@@ -61,6 +61,11 @@ describe("ApiClient", () => {
     expect(localStorage.getItem("hh_token")).toBe("tok");
   });
 
+  it("reads a 204 from /auth/start as 'link emailed'", async () => {
+    const { f } = fakeFetch({ "POST /auth/start": { status: 204 } });
+    expect(await new ApiClient("http://h", f).authStart("a@b.co")).toEqual({ sent: true });
+  });
+
   it("turns an error body into an ApiError and forgets a rejected token", async () => {
     const { f } = fakeFetch({ "GET /me": { status: 401, body: { error: "Not signed in" } } });
     const api = new ApiClient("http://localhost:8787", f);
@@ -115,8 +120,12 @@ describe("ApiClient", () => {
     ws1.onmessage!({ data: ev(0) });
     ws1.onmessage!({ data: ev(1) });
     ws1.onmessage!({ data: ev(1) });
+    // live deltas repeat the last stored seq and must still get through
+    const delta = JSON.stringify({ type: "assistant_text", id: "a", text: "Hi", done: false, seq: 1, at: "2026-10-28T00:00:00Z" });
+    ws1.onmessage!({ data: delta });
+    ws1.onmessage!({ data: delta });
     ws1.onmessage!({ data: "{not json" });
-    expect(got.map((e) => e.seq)).toEqual([0, 1]);
+    expect(got.map((e) => `${e.type}:${e.seq}`)).toEqual(["stage:0", "stage:1", "assistant_text:1", "assistant_text:1"]);
     ws1.close(); // server drop: reconnects after a backoff
     await new Promise((r) => setTimeout(r, 600));
     const ws2 = FakeWS.last!;

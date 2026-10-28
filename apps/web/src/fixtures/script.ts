@@ -7,12 +7,17 @@ export type ScriptStep = Bare<ServerEvent> & { delay?: number };
 
 const LAYERS = ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen", "Edge.Cuts"];
 
-/** Text split into the growing prefixes a streaming server would send. */
+/** A live message: the deltas a streaming server sends, then the whole text. */
 function stream(id: string, text: string, chunk = 18, delay = 28): ScriptStep[] {
   const out: ScriptStep[] = [];
-  for (let i = chunk; i < text.length; i += chunk) out.push({ type: "assistant_text", id, text: text.slice(0, i), done: false, delay });
+  for (let i = 0; i < text.length; i += chunk) out.push({ type: "assistant_text", id, text: text.slice(i, i + chunk), done: false, delay });
   out.push({ type: "assistant_text", id, text, done: true, delay });
   return out;
+}
+
+/** A finished message as history stores it: deltas are never stored. */
+function said(id: string, text: string): ScriptStep[] {
+  return [{ type: "assistant_text", id, text, done: true }];
 }
 
 const hubPrompt =
@@ -22,7 +27,7 @@ export const hubHistory: ScriptStep[] = [
   { type: "stage", stage: "idea" },
   { type: "user_message", id: "u1", text: hubPrompt },
   { type: "thinking", id: "th1", text: "Five switched ports, Wi-Fi, Home Assistant. Unknowns: power source, current per port, whether the server should control it over USB too, size, budget." },
-  ...stream("a1", "A five-port switched USB box is a good fit for a small board. Four questions before I propose anything — each changes the parts or the board size."),
+  ...said("a1", "A five-port switched USB box is a good fit for a small board. Three questions before I propose anything — each changes the parts or the board size."),
   {
     type: "questions",
     id: "q1",
@@ -123,7 +128,7 @@ export const hubHistory: ScriptStep[] = [
     ],
   },
   { type: "stage", stage: "order" },
-  ...stream("a2", "The board is ready to order. Every check passes except one warning I want you to see: in a closed case at 35 °C the capacitor by the converter reaches 81 °C of its 85 °C rating at full load. The firmware turns the ports down before that. If the box will sit somewhere hot, I can add vents to the case or a larger capacitor.", 40, 4),
+  ...said("a2", "The board is ready to order. Every check passes except one warning I want you to see: in a closed case at 35 °C the capacitor by the converter reaches 81 °C of its 85 °C rating at full load. The firmware turns the ports down before that. If the box will sit somewhere hot, I can add vents to the case or a larger capacitor."),
   { type: "usage", input_tokens: 182_400, output_tokens: 21_700, cost_usd: 1.16 },
   { type: "turn_end", reason: "done" },
 ];
@@ -133,7 +138,7 @@ const gardenPrompt = "A soil moisture sensor for my vegetable bed that runs on a
 export const gardenHistory: ScriptStep[] = [
   { type: "stage", stage: "idea" },
   { type: "user_message", id: "g1", text: gardenPrompt },
-  ...stream("ga1", "Battery life decides almost everything here, so I'll start there. Three questions.", 30, 4),
+  ...said("ga1", "Battery life decides almost everything here, so I'll start there. Three questions."),
   {
     type: "questions",
     id: "gq1",

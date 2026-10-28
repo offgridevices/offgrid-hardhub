@@ -9,11 +9,17 @@ const Projects = lazy(() => import("./screens/projects"));
 const Workspace = lazy(() => import("./screens/workspace"));
 const Settings = lazy(() => import("./screens/settings"));
 
+// the frame paints at once, before the server has answered
 function Loading() {
   return (
-    <div className="center-state" style={{ minHeight: "100dvh" }} aria-busy="true">
-      <div style={{ alignItems: "center" }}>
-        <div className="spinner-line" />
+    <div className="screen" aria-busy="true">
+      <header className="topbar">
+        <Lockup />
+      </header>
+      <div className="center-state">
+        <div style={{ alignItems: "center" }}>
+          <div className="spinner-line" />
+        </div>
       </div>
     </div>
   );

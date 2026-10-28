@@ -31,6 +31,8 @@ export default defineConfig({
   worker: { format: "es" },
   build: {
     target: "es2022",
+    // three.js is one lazy chunk, loaded only by the 3D tab
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: { manualChunks: (id) => (id.includes("node_modules/three") ? "three" : undefined) },
     },

@@ -486,6 +486,7 @@ svg {
 
 /* ---------- stepper ---------- */
 .stepper {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0;
@@ -543,6 +544,7 @@ svg {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   height: calc(100dvh - 57px);
 }
@@ -877,6 +879,7 @@ svg {
 }
 .composer textarea {
   flex: 1;
+  resize: none;
   border: 0;
   background: transparent;
   min-height: 32px;
@@ -966,20 +969,19 @@ svg {
   margin-bottom: 12px;
 }
 .stats {
+  /* hairline grid: each cell's outline draws the rules, so a short last row
+     leaves no filled gap */
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
+  gap: 1px;
+  padding: 1px;
 }
 .stat {
-  padding: 16px 16px 16px 0;
+  padding: 16px;
+  outline: 1px solid var(--hairline);
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-.stat + .stat {
-  border-left: 1px solid var(--hairline);
-  padding-left: 16px;
 }
 .stat .n {
   font-family: var(--font-mono);
@@ -1308,6 +1310,7 @@ svg {
 @media (max-width: 899px) {
   .ws {
     grid-template-columns: minmax(0, 1fr);
+    flex: none; /* its height leaves room for the fixed pane switch */
     height: calc(100dvh - 57px - 56px - env(safe-area-inset-bottom));
   }
   .ws-chat {

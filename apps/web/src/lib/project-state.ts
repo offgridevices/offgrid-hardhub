@@ -51,6 +51,14 @@ function upsert(items: ChatItem[], item: ChatItem): ChatItem[] {
 }
 
 export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
+  if (e.type === "assistant_text" && !e.done) {
+    // a live delta: not stored, carries the seq of the last stored event.
+    // Append it to its message; the closing done:true event replaces the text.
+    const cur = s.items.find((x) => x.kind === "assistant" && x.id === e.id);
+    if (cur && cur.kind === "assistant" && cur.done) return s; // the full text already arrived
+    const text = (cur && cur.kind === "assistant" ? cur.text : "") + e.text;
+    return { ...s, busy: true, items: upsert(s.items, { kind: "assistant", id: e.id, text, done: false }) };
+  }
   if (e.seq <= s.lastSeq) return s; // duplicate after a reconnect
   const n: ProjectState = { ...s, lastSeq: e.seq };
   switch (e.type) {
@@ -60,13 +68,11 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
       n.openQuestions = null;
       n.lastError = null;
       break;
-    case "assistant_text": {
-      // deltas: the server sends the text so far under one id, or appends;
-      // either way the latest event carries the whole text
-      n.items = upsert(s.items, { kind: "assistant", id: e.id, text: e.text, done: e.done });
+    case "assistant_text":
+      // done:true (deltas returned above): the stored, whole text
+      n.items = upsert(s.items, { kind: "assistant", id: e.id, text: e.text, done: true });
       n.busy = true;
       break;
-    }
     case "thinking":
       n.items = upsert(s.items, { kind: "thinking", id: e.id, text: e.text });
       n.busy = true;

@@ -9,6 +9,8 @@ export interface MeshData {
   positions: Float32Array;
   normals: Float32Array;
   index: Uint32Array;
+  /** fewer triangles over the same vertices, for phones */
+  lod?: Uint32Array;
 }
 
 export interface SceneData {

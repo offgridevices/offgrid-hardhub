@@ -2,7 +2,7 @@
 // The session token goes in the Authorization header, so the API can live on
 // another origin (localhost:8787 in dev, its own hostname on Cloudflare).
 import {
-  AuthStart,
+  DevSignIn,
   Me,
   ProjectDetail,
   ProjectSummary,
@@ -13,7 +13,7 @@ import {
   type LlmSettings,
 } from "@hardhub/protocol";
 import type { z } from "zod";
-import { ApiError, type Backend, type LinkStatus, type ProjectLink } from "./backend";
+import { ApiError, type AuthStart, type Backend, type LinkStatus, type ProjectLink } from "./backend";
 
 const TOKEN_KEY = "hh_token";
 
@@ -107,8 +107,10 @@ export class ApiClient implements Backend {
     }
   }
 
-  async authStart(email: string) {
-    return this.req("POST", "/auth/start", { email }, AuthStart);
+  async authStart(email: string): Promise<AuthStart> {
+    // 204: a link was emailed. 200: local dev, here is the session.
+    const dev = await this.req("POST", "/auth/start", { email }, DevSignIn);
+    return dev ? { sent: false, ...dev } : { sent: true };
   }
   async authVerify(token: string) {
     const s = await this.req("POST", "/auth/verify", { token }, Session);
@@ -188,8 +190,12 @@ export class ApiClient implements Backend {
         } catch {
           return; // a newer server may send event types this client doesn't know
         }
-        if (parsed.seq <= last) return; // replay overlap
-        last = parsed.seq;
+        // a live text delta carries the seq of the last stored event: pass it on
+        // without advancing; any stored event already seen is replay overlap
+        if (!(parsed.type === "assistant_text" && !parsed.done)) {
+          if (parsed.seq <= last) return;
+          last = parsed.seq;
+        }
         onEvent(parsed);
       };
       ws.onclose = () => {
