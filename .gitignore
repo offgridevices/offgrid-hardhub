@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+*.log
+out/
+__pycache__/
+.venv/
+*.pyc
+.DS_Store
+engine/.cache/
+coverage/
+playwright-report/
+test-results/
