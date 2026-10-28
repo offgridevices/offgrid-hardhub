@@ -345,9 +345,8 @@ svg {
   padding: 0 var(--gutter);
   padding-top: env(safe-area-inset-top);
   border-bottom: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* solid: surfaces don't float (brand), and a blur costs frames on phones */
+  background: var(--bg);
 }
 .topbar .grow {
   flex: 1;

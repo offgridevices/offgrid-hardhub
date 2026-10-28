@@ -19,6 +19,13 @@ const FINISH: Record<string, string> = { hasl: "HASL", "lead-free-hasl": "Lead-f
 
 export default function Order({ design, artifacts, fileUrl }: { design: Design; artifacts: Artifact[]; fileUrl(u: string): string }) {
   const files = artifacts.filter((a) => a.kind in WHAT);
+  // the same kind can come in more than one format
+  const what = (f: Artifact) =>
+    f.kind === "bom" && /pcbway/i.test(f.name)
+      ? "Bill of materials in PCBWay's format"
+      : f.kind === "netlist" && /\.ipc$/i.test(f.name)
+        ? "IPC-D-356 netlist, for the fab's electrical test"
+        : WHAT[f.kind];
   const b = design.board;
   const [shown, setShown] = useState<string | null>(null);
   const fw = Object.entries(design.firmware.files);
@@ -46,7 +53,7 @@ export default function Order({ design, artifacts, fileUrl }: { design: Design; 
                     {f.name}
                   </div>
                   <div className="small muted">
-                    {WHAT[f.kind]}
+                    {what(f)}
                     {f.bytes ? ` · ${bytes(f.bytes)}` : ""}
                   </div>
                 </div>

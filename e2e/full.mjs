@@ -156,6 +156,41 @@ try {
   // ---------------------------------------------------------------- the rest
   const status = await (await fetch(`${FAKE}/__fake/status`)).json();
   status.problems.length ? fail("every AI request stayed US-only and in order", status.problems.join("; ")) : ok("every AI request stayed US-only and in order");
+  // ---------------------------------------------------------------- every size
+  // the finished project on a phone, a tablet and a desktop, light and dark:
+  // every tab renders, nothing scrolls sideways
+  const projectUrl = page.url();
+  const state = await ctx.storageState();
+  const tabs = ["overview", "parts", "circuit", "board", "3d", "checks", "order"];
+  const sizes = { phone: { width: 390, height: 844 }, tablet: { width: 768, height: 1024 }, desktop: { width: 1440, height: 900 } };
+  const wide = [];
+  for (const [size, viewport] of Object.entries(sizes))
+    for (const scheme of ["light", "dark"]) {
+      const c = await browser.newContext({ viewport, colorScheme: scheme, storageState: state, deviceScaleFactor: size === "phone" ? 2 : 1 });
+      const p = await c.newPage();
+      p.on("pageerror", (e) => errors.push(`${size}/${scheme}: ${e.message}`));
+      const snap = async (n) => SHOTS && p.screenshot({ path: path.join(SHOTS, `size-${size}-${scheme}-${n}.png`) });
+      const sideways = async (n) => (await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) && wide.push(`${size}/${scheme}/${n}`);
+      await p.goto(new URL("/", projectUrl).href);
+      await p.getByTestId("project-row").first().waitFor({ timeout: 20000 });
+      await snap("boards"), await sideways("boards");
+      await p.goto(projectUrl);
+      await p.getByTestId("chat-log").waitFor({ timeout: 20000 });
+      await p.waitForTimeout(600);
+      await snap("chat"), await sideways("chat");
+      // phones and tablets switch between chat and board with a bottom control
+      if (await p.getByTestId("pane-board").isVisible()) await p.getByTestId("pane-board").click();
+      for (const t of tabs) {
+        await p.getByTestId(`tab-${t}`).click();
+        await p.waitForTimeout(t === "3d" ? 3500 : t === "board" ? 1200 : 500);
+        await snap(t), await sideways(t);
+      }
+      await p.goto(new URL("/settings", projectUrl).href);
+      await p.waitForTimeout(600);
+      await snap("settings"), await sideways("settings");
+      await c.close();
+    }
+  wide.length ? fail("no screen scrolls sideways (3 sizes x light/dark x 10 screens)", wide.join(", ")) : ok("no screen scrolls sideways", "3 sizes x light/dark x 10 screens");
 } catch (e) {
   fail("journey", e.message.split("\n")[0]);
   await shot("failure").catch(() => {});
