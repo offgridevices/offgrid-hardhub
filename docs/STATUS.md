@@ -12,8 +12,8 @@ file, in a Linux cloud container (Docker, no GPU).
 | Every screen, every size | the same run: boards, chat, 7 tabs and settings on a phone (390), a tablet (768) and a desktop (1440), light and dark | 60 screens, none scrolls sideways, no console errors; reviewed by eye against the brand rules |
 | A first-time person | `e2e/first-run.mjs` against `./hardhub` with no server key | 4 of 4: asked for a key; banner gone once saved; a wrong Claude key (sent to Anthropic's real API) and an Ollama that is not running each give a clear message |
 | One-command start | `./hardhub` from nothing | up and healthy in about 17 s with images built; opens the app |
-| The engine | `engine/tests` inside the engine image | 20 of 20 pass, including Print Hub |
-| Print Hub, the benchmark | offgrid-hardware's Print Hub v1 (137 parts, 4 layers) converted to a HardHub design and built by the generic pipeline | **DRC 0 errors, 0 warnings, 0 unconnected; nets match pad for pad**, about 5 min. Warnings left: some power tracks narrower than their current asks (Print Hub draws that copper by hand); the ESP32's GPIO0 strapping pin |
+| The engine | `engine/tests` inside the engine image | 20 of 20 pass, including Print Hub (13 min) |
+| Print Hub, the benchmark | offgrid-hardware's Print Hub v1 (137 parts, 4 layers) converted to a HardHub design and built by the generic pipeline | **DRC 0 errors, 0 warnings, 0 unconnected; nets match pad for pad**, in 5 min alone (12 min with other builds running alongside). Warnings left: some power tracks narrower than their current asks (Print Hub draws that copper by hand); the ESP32's GPIO0 strapping pin |
 | API and web units | `pnpm -r test` | API 36, web 18, all pass |
 | Cloudflare config | `wrangler deploy --dry-run --env production` | one Worker (app + API), D1, R2 (us), Durable Objects; 1020 KiB, 244 KiB gzipped |
 | The engine image | `engine/Dockerfile` built here (only its first line swapped for a copy of the KiCad image carrying this container's network certificate) | every download checksum-verified; 1.5 min |
