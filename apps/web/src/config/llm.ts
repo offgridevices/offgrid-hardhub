@@ -39,7 +39,7 @@ export const PROVIDERS: ProviderInfo[] = [
   {
     id: "openrouter",
     name: "OpenRouter",
-    where: "Routed through OpenRouter and pinned to US-hosted providers only.",
+    where: "Routed through OpenRouter and pinned to US\u2011hosted providers only.",
     needsKey: true,
     keyHint: "sk-or-…",
     keyUrl: "https://openrouter.ai/settings/keys",

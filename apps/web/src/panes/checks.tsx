@@ -10,7 +10,9 @@ const GROUPS: { id: CheckResult["group"]; name: string }[] = [
   { id: "firmware", name: "Firmware" },
   { id: "fab", name: "Manufacturing" },
 ];
-const ST: Record<CheckResult["status"], string> = { pass: "PASS", fail: "FAIL", warn: "WARN", skip: "LATER" };
+// sentence case, like every other label
+const ST: Record<CheckResult["status"], string> = { pass: "Pass", fail: "Fail", warn: "Warning", skip: "Not run" };
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function Checks({ checks }: { checks: CheckResult[] }) {
   if (checks.length === 0)
@@ -31,7 +33,7 @@ export default function Checks({ checks }: { checks: CheckResult[] }) {
       <div className="stats">
         <div className="stat">
           <span className="n">
-            {n("pass")} of {checks.length}
+            {n("pass")} <span className="of">of</span> {checks.length}
           </span>
           <span className="m">checks pass</span>
         </div>
@@ -59,7 +61,7 @@ export default function Checks({ checks }: { checks: CheckResult[] }) {
                 <div key={c.id} className={`check ${c.status}`} data-testid="check-row" data-status={c.status}>
                   <span className="st">{ST[c.status]}</span>
                   <span className="name">{c.name}</span>
-                  <span className="why">{c.why}</span>
+                  <span className="why">{cap(c.why)}</span>
                   {c.detail && <span className="det">{c.detail}</span>}
                 </div>
               ))}

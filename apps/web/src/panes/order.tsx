@@ -54,7 +54,7 @@ export default function Order({ design, artifacts, fileUrl }: { design: Design; 
                   </div>
                   <div className="small muted">
                     {what(f)}
-                    {f.bytes ? ` · ${bytes(f.bytes)}` : ""}
+                    {f.bytes ? `\u00a0·\u00a0${bytes(f.bytes)}` : ""}
                   </div>
                 </div>
                 <a className="btn btn-sm" href={f.url.startsWith("mock:") ? undefined : fileUrl(f.url)} download aria-disabled={f.url.startsWith("mock:")} data-testid={`download-${f.kind}`}>

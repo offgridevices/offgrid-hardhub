@@ -219,7 +219,7 @@ const ItemView = memo(function ItemView({
         <div className="job" data-testid="job">
           <div className="job-row">
             <span>{item.done ? (item.ok === false ? "Board build failed" : "Board built") : "Building the board"}</span>
-            <span className="num muted">{item.done ? "done" : item.step}</span>
+            <span className="muted small">{item.done ? "Done" : item.step}</span>
           </div>
           <div className="bar">
             <span style={{ width: `${Math.round(item.progress * 100)}%` }} />

@@ -92,7 +92,12 @@ export default function Parts({ design }: { design: Design }) {
                     {p?.sourcing?.tier && (
                       <span className="tag show-sm" style={{ marginTop: 6, marginRight: 6 }}>
                         {TIER[p.sourcing.tier]}
-                        {unit !== null && <span className="num"> · {usd(unit, unit < 0.1 ? 3 : 2)} each</span>}
+                        {unit !== null && (
+                          <span>
+                            {" ·\u00a0"}
+                            <span className="num">{usd(unit, unit < 0.1 ? 3 : 2)}</span> each
+                          </span>
+                        )}
                       </span>
                     )}
                     {p && p.lifecycle !== "active" && (

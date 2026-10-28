@@ -68,7 +68,7 @@ export default function Settings() {
 
   return (
     <div className="screen">
-      <TopBar back />
+      <TopBar back current="settings" />
       <main className="wrap">
         <div className="settings">
           <div className="pane-head">

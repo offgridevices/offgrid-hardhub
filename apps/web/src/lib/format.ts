@@ -4,10 +4,17 @@ export const usd = (n: number, digits = 2) =>
 
 export const int = (n: number) => n.toLocaleString("en-US");
 
+// numbers and their units never split across lines (a no-break space)
 export function bytes(n: number) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n < 1024) return `${n}\u00a0B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)}\u00a0KB`;
+  return `${(n / 1024 / 1024).toFixed(1)}\u00a0MB`;
+}
+
+/** Text with short hyphenated words ("USB-C", "US-hosted", "2-layer") kept
+ * whole: their hyphen becomes a non-breaking one. */
+export function keepHyphens(text: string) {
+  return text.replace(/\b([\w.]{1,12})-(?=[\w.]{1,12}\b)/g, "$1\u2011");
 }
 
 export function date(iso: string) {
@@ -24,11 +31,12 @@ export function ago(iso: string, now = Date.now()) {
   return date(iso);
 }
 
+// the same words as the tabs where a stage and a tab mean the same thing
 export const STAGE_LABEL = {
-  idea: "Idea",
+  idea: "Requirements",
   parts: "Parts",
   circuit: "Circuit",
-  board: "Board",
+  board: "Size\u00a0& layers",
   layout: "Layout",
   checks: "Checks",
   view: "3D",

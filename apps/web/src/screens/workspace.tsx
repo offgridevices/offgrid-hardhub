@@ -10,6 +10,7 @@ import { useProject } from "../lib/use-project";
 import { isKeyError } from "../lib/project-state";
 import { STAGE_LABEL, usd } from "../lib/format";
 import { providerInfo, modelLabel } from "../config/llm";
+import { centreIn, useEdgeFade } from "../lib/edge-fade";
 
 // each tab is its own chunk; the light ones are fetched while the browser is
 // idle so switching tabs never waits on the network (3D waits until opened:
@@ -38,7 +39,7 @@ const TABS = [
   { id: "overview", label: "Requirements" },
   { id: "parts", label: "Parts" },
   { id: "circuit", label: "Circuit" },
-  { id: "board", label: "Board" },
+  { id: "board", label: "Layout" },
   { id: "3d", label: "3D" },
   { id: "checks", label: "Checks" },
   { id: "order", label: "Order" },
@@ -60,11 +61,10 @@ const STAGE_TAB: Record<Stage, Tab> = {
 const Stepper = memo(function Stepper({ stage, onPick, shown }: { stage: Stage | null; onPick(s: Stage): void; shown: string }) {
   const at = stage ? STAGES.indexOf(stage) : 0;
   const nav = useRef<HTMLElement>(null);
+  useEdgeFade(nav);
   // on a narrow screen, keep the current stage in view
   useEffect(() => {
-    const el = nav.current;
-    const cur = el?.querySelector<HTMLElement>(".current");
-    if (el && cur) el.scrollLeft = cur.offsetLeft - (el.clientWidth - cur.offsetWidth) / 2;
+    centreIn(nav.current, nav.current?.querySelector<HTMLElement>(".current") ?? null);
   }, [at, shown]);
   return (
     <nav ref={nav} className="stepper" aria-label="Design stages" data-testid="stepper" data-stage={stage ?? "idea"}>
@@ -101,10 +101,16 @@ export default function Workspace({ id }: { id: string }) {
     idle(() => Object.values(loaders).forEach((l) => l()));
   }, []);
   const [pane, setPane] = useState<"chat" | "board">("chat");
+  const tabRow = useRef<HTMLDivElement>(null);
+  useEdgeFade(tabRow);
   const [seenArtifacts, setSeenArtifacts] = useState(0);
 
   const stage = state.stage ?? detail?.stage ?? null;
   const tab: Tab = (TABS.some((t) => t.id === tabParam) ? tabParam : stage ? STAGE_TAB[stage] : "overview") as Tab;
+  // a phone shows a few tabs at a time: keep the open one in view
+  useEffect(() => {
+    centreIn(tabRow.current, tabRow.current?.querySelector<HTMLElement>('[aria-selected="true"]') ?? null);
+  }, [tab, pane]);
 
   const provider = me ? providerInfo(me.llm.provider) : null;
   const noKey = !!me && !me.llm_ready;
@@ -214,7 +220,7 @@ export default function Workspace({ id }: { id: string }) {
           <div className="ws-stepbar">
             <Stepper stage={stage} onPick={pickStage} shown={pane} />
           </div>
-          <div className="tabs" role="tablist" aria-label="Views">
+          <div className="tabs" role="tablist" aria-label="Views" ref={tabRow}>
             {TABS.map((t) => (
               <button
                 key={t.id}
@@ -240,7 +246,7 @@ export default function Workspace({ id }: { id: string }) {
           {state.openQuestions && pane !== "chat" && <span className="badge" aria-label="Questions waiting" />}
         </button>
         <button aria-pressed={pane === "board"} onClick={() => setPane("board")} data-testid="pane-board">
-          Board
+          Design
           {newResults && <span className="badge" aria-label="New results" />}
         </button>
       </nav>

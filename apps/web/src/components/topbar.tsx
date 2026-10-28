@@ -3,12 +3,13 @@ import { Lockup } from "./brand";
 import { MOCK } from "../lib/app";
 import { onLink } from "../lib/router";
 
-export function TopBar({ children, back }: { children?: ReactNode; back?: boolean }) {
+export function TopBar({ children, back, current }: { children?: ReactNode; back?: boolean; current?: "settings" }) {
   return (
     <header className="topbar">
       {back ? (
         <a className="btn btn-sm btn-quiet" href="/" onClick={onLink} aria-label="All boards" style={{ marginLeft: -10 }}>
-          ← <span className="hide-sm">Boards</span>
+          {/* with no title beside it (Settings) the word fits on a phone too */}
+          ← <span className={children ? "hide-sm" : undefined}>Boards</span>
         </a>
       ) : (
         <Lockup />
@@ -21,7 +22,14 @@ export function TopBar({ children, back }: { children?: ReactNode; back?: boolea
           Demo
         </span>
       )}
-      <a className="btn btn-sm btn-quiet" href="/settings" onClick={onLink} data-testid="nav-settings" style={{ marginRight: -10 }}>
+      <a
+        className={`btn btn-sm btn-quiet${current === "settings" ? " is-current" : ""}`}
+        href="/settings"
+        onClick={onLink}
+        aria-current={current === "settings" ? "page" : undefined}
+        data-testid="nav-settings"
+        style={{ marginRight: -10 }}
+      >
         Settings
       </a>
     </header>

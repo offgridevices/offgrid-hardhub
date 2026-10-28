@@ -1,6 +1,6 @@
 // Requirements and decisions: what the board must do, and every choice made.
 import type { Design } from "@hardhub/protocol";
-import { date } from "../lib/format";
+import { date, keepHyphens } from "../lib/format";
 
 const STATUS: Record<string, string> = { open: "Open", met: "Met", unmet: "Not met", limit: "Limit" };
 
@@ -11,7 +11,7 @@ export default function Overview({ design }: { design: Design }) {
     <div className="pane-inner">
       <div className="pane-head">
         <h2 className="d4">{design.name}</h2>
-        {design.summary && <p className="secondary">{design.summary}</p>}
+        {design.summary && <p className="secondary">{keepHyphens(design.summary)}</p>}
       </div>
 
       <section>
@@ -34,7 +34,7 @@ export default function Overview({ design }: { design: Design }) {
                   <tr key={r.id}>
                     <td className="num muted">{r.id}</td>
                     <td>
-                      {r.text}
+                      {keepHyphens(r.text)}
                       {r.note && <div className="small muted" style={{ marginTop: 4 }}>{r.note}</div>}
                     </td>
                     <td className="hide-sm secondary">{r.check ?? "—"}</td>
