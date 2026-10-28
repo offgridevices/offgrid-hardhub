@@ -184,6 +184,21 @@ describe.each(providers.map(([k]) => k))("graceful with weak models (%s)", (kind
     expect(await room.core.message({ text: "go" })).toBe("done");
   });
 
+  it("carries on after a reply with nothing in it", async () => {
+    // a small local model answered a tool error with an empty reply; the
+    // next message then failed for good ("invalid message content type")
+    const { llm, rec } = make([[{ tool: "nope", input: {} }], [], [{ text: "ok" }]]);
+    const room = makeRoom(llm);
+    expect(await room.core.message({ text: "go" })).toBe("done");
+    expect(await room.core.message({ text: "go on" })).toBe("done");
+    const sent = rec.bodies.at(-1)!.messages as { role: string; content: unknown; tool_calls?: unknown[] }[];
+    for (const m of sent.filter((m) => m.role === "assistant")) {
+      if (kind === "anthropic") expect(m.content).not.toEqual([]);
+      else if (!m.tool_calls?.length) expect(typeof m.content).toBe("string");
+    }
+    expectAppendOnly(rec);
+  });
+
   it("stops mid-tool when asked and closes every open call", async () => {
     let started!: () => void;
     const running = new Promise<void>((r) => (started = r));

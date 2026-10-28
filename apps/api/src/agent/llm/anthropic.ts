@@ -94,7 +94,8 @@ export class AnthropicLlm implements Llm {
       // tools render before system, so this one breakpoint caches both
       system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
       tools: req.tools.map((t) => ({ ...t, eager_input_streaming: true })),
-      messages: req.history as Msg[],
+      // histories saved before empty replies were stored as "(no reply)"
+      messages: (req.history as Msg[]).map((m) => (m.role === "assistant" && Array.isArray(m.content) && !m.content.length ? { ...m, content: "(no reply)" } : m)),
       // and the conversation so far, moving with each request
       cache_control: { type: "ephemeral" },
     };
@@ -140,8 +141,10 @@ export class AnthropicLlm implements Llm {
       .join("\n");
     const u = message.usage;
     return {
-      // appended exactly as received: thinking blocks and their signatures included
-      assistant: { role: "assistant", content: message.content } satisfies Msg,
+      // appended exactly as received: thinking blocks and their signatures
+      // included; an empty reply as "(no reply)", since the API refuses an
+      // empty message in the history (as fromNeutral below does)
+      assistant: { role: "assistant", content: message.content.length ? message.content : "(no reply)" } satisfies Msg,
       text,
       toolCalls,
       stop: STOP[message.stop_reason ?? "end_turn"] ?? "end",

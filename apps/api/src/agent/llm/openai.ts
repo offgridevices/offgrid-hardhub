@@ -79,7 +79,7 @@ export class OpenAiLlm implements Llm {
       model: this.model,
       stream: true as const,
       stream_options: { include_usage: true },
-      messages: [{ role: "system" as const, content: req.system }, ...(req.history as Msg[])],
+      messages: [{ role: "system" as const, content: req.system }, ...(req.history as Msg[]).map(emptyText)],
       tools: req.tools.map((t) => ({
         type: "function" as const,
         function: { name: t.name, description: t.description, parameters: t.input_schema },
@@ -155,7 +155,7 @@ export class OpenAiLlm implements Llm {
 
     const assistant: Msg = {
       role: "assistant",
-      content: text || null,
+      content: text || (toolCalls.length ? null : ""),
       ...(toolCalls.length
         ? {
             tool_calls: toolCalls.map((c) => ({
@@ -219,7 +219,7 @@ export class OpenAiLlm implements Llm {
       } else {
         out.push({
           role: "assistant",
-          content: m.text || null,
+          content: m.text || (m.calls.length ? null : ""),
           ...(m.calls.length
             ? { tool_calls: m.calls.map((c) => ({ id: c.id, type: "function" as const, function: { name: c.name, arguments: JSON.stringify(c.input ?? {}) } })) }
             : {}),
@@ -241,6 +241,13 @@ export class OpenAiLlm implements Llm {
     if (e instanceof OpenAI.APIError) return new LlmError(`${who} error ${e.status ?? ""}: ${e.message}`, true);
     return new LlmError(`${who}: ${e instanceof Error ? e.message : String(e)}`, true);
   }
+}
+
+/** An assistant message with neither text nor tool calls must carry "" rather
+ *  than null: Ollama rejects null ("invalid message content type"). Also
+ *  repairs histories saved before replies were stored that way. */
+function emptyText(m: Msg): Msg {
+  return m.role === "assistant" && m.content == null && !m.tool_calls?.length ? { ...m, content: "" } : m;
 }
 
 function safeParse(s: string): unknown {
