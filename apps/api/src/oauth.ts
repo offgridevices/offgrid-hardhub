@@ -122,9 +122,21 @@ async function metadataClient(env: Env, url: string, fetcher: typeof fetch): Pro
     .first<{ name: string; redirect_uris: string; created_at: string }>();
   if (cached && Date.parse(cached.created_at) > Date.now() - METADATA_HOURS * 3_600_000)
     return { client_id: url, name: cached.name, redirect_uris: JSON.parse(cached.redirect_uris) as string[], host };
+  // why a description was refused goes to the Worker's logs (wrangler tail)
+  const refuse = (why: string) => {
+    console.warn(`client metadata ${url} refused: ${why}`);
+    return null;
+  };
   try {
-    const res = await fetcher(url, { headers: { accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(5000) });
-    if (!res.ok || !res.body || Number(res.headers.get("content-length") ?? 0) > METADATA_LIMIT) return null;
+    const res = await fetcher(url, {
+      headers: { accept: "application/json", "user-agent": "HardHub (MCP client metadata)" },
+      // a redirect is refused (res.ok is false): the description must live at
+      // its id. Workers have no redirect: "error"; it throws.
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return refuse(`HTTP ${res.status} ${res.headers.get("content-type") ?? ""}`);
+    if (!res.body || Number(res.headers.get("content-length") ?? 0) > METADATA_LIMIT) return refuse("no body, or too large");
     // read at most the limit, whatever the server claims
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -135,13 +147,14 @@ async function metadataClient(env: Env, url: string, fetcher: typeof fetch): Pro
       size += value.byteLength;
       if (size > METADATA_LIMIT) {
         void reader.cancel();
-        return null;
+        return refuse("too large");
       }
       chunks.push(value);
     }
     const text = new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
     const doc = ClientMetadata.extend({ client_id: z.string() }).parse(JSON.parse(text));
-    if (doc.client_id !== url || !doc.redirect_uris.every(redirectAllowed)) return null;
+    if (doc.client_id !== url) return refuse(`its client_id is ${doc.client_id}`);
+    if (!doc.redirect_uris.every(redirectAllowed)) return refuse(`a redirect is not allowed: ${doc.redirect_uris.join(" ")}`);
     const client = { client_id: url, name: cleanName(doc.client_name ?? host), redirect_uris: doc.redirect_uris, host };
     await env.DB.prepare(
       `INSERT INTO oauth_clients (client_id, name, redirect_uris, created_at) VALUES (?, ?, ?, ?)
@@ -150,8 +163,8 @@ async function metadataClient(env: Env, url: string, fetcher: typeof fetch): Pro
       .bind(client.client_id, client.name, JSON.stringify(client.redirect_uris), now())
       .run();
     return client;
-  } catch {
-    return null;
+  } catch (e) {
+    return refuse(e instanceof Error ? e.message : String(e));
   }
 }
 
