@@ -9,6 +9,8 @@ file, in a Linux cloud container (Docker, no GPU).
 | What | How | Result |
 |---|---|---|
 | The whole journey in a browser | `./hardhub test` (`e2e/full.mjs`): the real web app, API and KiCad engine, with a scripted stand-in for Claude that speaks the real API's streaming format | **19 of 19 pass.** The AI asks first, compares chips in a table, draws the circuit, sets the board; KiCad places and routes it (about 25 s); every tab renders; the 3D view shows the board; 22 checks, none failing, DRC 0 errors; Gerber zip, BOM and CPL download; every AI request asked for US-only inference |
+| Designing from your own AI app (MCP) | `e2e/mcp.mjs` in the same Docker run: the official MCP client (as Claude Code and Codex use it) signs in through a real browser, then designs and builds a board | **24 of 24 pass.** Sent to sign in, registers itself, the consent page names it (phone and desktop), Allow returns a code, it connects; it saves the ESP32-C3 sensor circuit, checks it, builds it in real KiCad (**20 checks pass, 0 fail**), sees the render, reads the BOM, leaves a note; the web app shows all of it live and goes idle after; Settings lists it, and Disconnect locks it out |
+| MCP sign-in rules | `apps/api/test/mcp.test.ts` (11 tests) | PKCE required and checked, a code works once, refresh tokens rotate, unsafe redirect addresses refused, agent tokens open MCP only, other people's projects unreachable, a long build hands back progress |
 | Every screen, every size | the same run: boards, chat, 7 tabs and settings on a phone (390), a tablet (768) and a desktop (1440), light and dark | 60 screens, none scrolls sideways, no console errors; reviewed by eye against the brand rules |
 | A first-time person | `e2e/first-run.mjs` against `./hardhub` with no server key | 4 of 4: asked for a key; banner gone once saved; a wrong Claude key (sent to Anthropic's real API) and an Ollama that is not running each give a clear message |
 | One-command start | `./hardhub` from nothing | up and healthy in about 17 s with images built; opens the app |
@@ -18,7 +20,7 @@ file, in a Linux cloud container (Docker, no GPU).
 | `./hardhub deploy` | run against a recording stand-in for wrangler: a fresh account, a repeat deploy, and one with no answers typed | creates D1/R2 in the US, migrates, uploads secrets from a 0600 file that is then deleted, builds the app for `/api`, deploys; repeat deploys create nothing; works on a Node with no corepack (Node 25+ dropped it). Found and fixed: piped answers were lost; Node 25+ had no corepack |
 | Apple Silicon readiness | the exact install a Mac's containers do (`pnpm install --frozen-lockfile` for linux/arm64), each native file inspected; the Node image's manifest | every native program (workerd, esbuild, rolldown, lightningcss, sharp) installs as an ARM64 build, none Intel; workerd needs glibc 2.35 and the image has 2.36; `node:22.22.0-bookworm-slim` is published for arm64. Not run: emulating ARM64 here was not allowed. The KiCad engine is amd64 by design (Rosetta) |
 | Launcher scripts | shellcheck | clean; no bash 4 features (macOS ships bash 3.2) |
-| API and web units | `pnpm -r test` | API 39, web 18, all pass |
+| API and web units | `pnpm -r test` | API 50, web 18, all pass |
 | Cloudflare config | `wrangler deploy --dry-run --env production` | one Worker (app + API), D1, R2 (us), Durable Objects; 1020 KiB, 244 KiB gzipped |
 | The engine image | `engine/Dockerfile` built here (only its first line swapped for a copy of the KiCad image carrying this container's network certificate) | every download checksum-verified; 1.5 min |
 
@@ -31,6 +33,8 @@ file, in a Linux cloud container (Docker, no GPU).
 | `./hardhub deploy` against real Cloudflare | Cloudflare's API was blocked from the build container; the script's whole flow ran against a stand-in, and the Worker config passed wrangler's dry run | run it once you have a Workers Paid account |
 | The engine's optional fallback router (Freerouting 1.9) | it needs a display package from Debian, whose servers were blocked; the image builds without it and routes with 2.5 | on your Mac the build installs it; `curl localhost:8080/health` shows `"freerouting_fallback": true` |
 | Live part prices and stock (JLCPCB / LCSC) | those sites were blocked; tests use recorded part data | ask the AI to look up a part |
+| Claude (website, phone, desktop) and ChatGPT connecting over MCP | they connect from their own servers, so HardHub must be online; this container could not reach them. The same sign-in passed with the official MCP client | after `./hardhub deploy`, add `https://<your HardHub>/mcp` as a custom connector |
+| Claude Code and Codex connecting on your Mac | not installed in the build container with your accounts | `claude mcp add --transport http hardhub http://localhost:8787/mcp` |
 | Docker on Apple Silicon | built and run on Linux (amd64); on a Mac the engine runs under Rosetta | `./hardhub` |
 
 ## Known limits
