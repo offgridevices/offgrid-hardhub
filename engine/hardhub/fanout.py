@@ -40,6 +40,56 @@ def rule_areas(b, layer=None):
     return [z for z in zs if z.Outline().OutlineCount() and (layer is None or z.IsOnLayer(layer))]
 
 
+STEP = 0.05                    # escape search grid, mm
+REACH = 3.0                    # how far an escape track may go from its pad, mm
+
+
+def _escape(cx, cy, pad_poly, w, blocked, via_ok):
+    """A path for a track of width w from the pad's centre to the nearest
+    spot where a via fits, moving in 45-degree steps on a fine grid and
+    never closer than the clearance to another net's copper (`blocked`, a
+    shapely geometry already grown by clearance + w/2).  Returns the points
+    of the path (corners only) or None.  For an inner pad of a crowded part,
+    where no via fits right beside it."""
+    import heapq
+    n = int(REACH / STEP)
+    free = {}
+
+    def ok(i, j):
+        k = (i, j)
+        if k not in free:
+            pt = Point(cx + i * STEP, cy + j * STEP)
+            free[k] = pad_poly.contains(pt) or not blocked.contains(pt)
+        return free[k]
+
+    moves = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+    seen = {(0, 0): None}
+    q = [(0.0, 0, 0)]
+    while q:
+        d, i, j = heapq.heappop(q)
+        x, y = cx + i * STEP, cy + j * STEP
+        if d > 0 and not pad_poly.contains(Point(x, y)) and via_ok((x, y)):
+            cells, k = [], (i, j)
+            while k is not None:
+                cells.append(k)
+                k = seen[k]
+            cells.reverse()
+            # keep the corners only, compared in whole grid steps
+            keep = [cells[0]]
+            for a, b_, c in zip(cells, cells[1:], cells[2:]):
+                if (b_[0] - a[0], b_[1] - a[1]) != (c[0] - b_[0], c[1] - b_[1]):
+                    keep.append(b_)
+            keep.append(cells[-1])
+            return [(cx + a * STEP, cy + b_ * STEP) for a, b_ in keep]
+        for di, dj in moves:
+            k = (i + di, j + dj)
+            if k in seen or abs(k[0]) > n or abs(k[1]) > n or not ok(*k):
+                continue
+            seen[k] = (i, j)
+            heapq.heappush(q, (d + math.hypot(di, dj) * STEP, k[0], k[1]))
+    return None
+
+
 def fanout(b, nets, corner_radius=0.0):
     """Returns (vias placed, pads that found no spot, pads given a via in the pad)."""
     via_r = rules.VIA[0] / 2
@@ -100,7 +150,7 @@ def _fanout_side(b, nets, F, via_r, corner_radius):
             return False
         return True
 
-    failed, in_pad, done = [], [], 0
+    failed, in_pad, escaped, done = [], [], [], 0
     for fp, p, poly in pads:
         net = p.GetNetname()
         if net not in nets or p.GetAttribute() != pcbnew.PAD_ATTRIB_SMD:
@@ -131,6 +181,28 @@ def _fanout_side(b, nets, F, via_r, corner_radius):
                     break
             if spot:
                 break
+        if not spot:
+            # no room right beside it: a short escape track, bending at 45
+            # degrees, out to the nearest place a via fits (offgrid-hardware's
+            # Print Hub draws U2 pin 10's that way by hand)
+            # the fab's own clearance (plus a hair), not the roomier fanout
+            # one: between fine-pitch pins that is the only way out
+            ew, ec = rules.TRACK, rules.CLEAR + 0.01
+            others = [poly2.buffer(ec + ew / 2) for fp2, p2, poly2 in pads if p2.GetNetname() != net]
+            others += [g.buffer(ec + ew / 2) for g, n in tracks if n != net]
+            others += [g.buffer(via_r + ec + ew / 2) for g, n in vias if n != net]
+            others += [h.buffer(ec + ew / 2) for h in holes] + [k.buffer(ew / 2) for k in keep]
+            blocked = unary_union(others).union(Polygon(edge.exterior).buffer(1000).difference(edge.buffer(via_r)))
+            path = _escape(cx, cy, poly, ew, blocked,
+                           lambda pt: clear(pt, Point(pt), net, fp.GetReference(), False))
+            if path:
+                K.track(b, path, ew, F, net)
+                K.via(b, path[-1][0], path[-1][1], net, *rules.VIA)
+                vias.append((Point(path[-1]), net))
+                tracks.append((LineString(path).buffer(ew / 2), net))
+                escaped.append('%s.%s' % (fp.GetReference(), p.GetNumber()))
+                done += 1
+                continue
         if not spot:
             # no room beside it (an inner ground pad of a QFN, between the
             # switch-node pads): the via goes in the pad when the pad can
