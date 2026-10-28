@@ -124,14 +124,36 @@ case "${1:-start}" in
   reset) stop_bridge; compose down --volumes ;;
   deploy)
     need_docker
-    command -v node >/dev/null || { say "Install Node.js 22 or newer: https://nodejs.org"; exit 1; }
-    [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ] || { say "Node.js 22 or newer is needed (you have $(node -v))."; exit 1; }
-    # pnpm at the version package.json pins, with nothing installed globally:
-    # through corepack where Node ships it (up to 24), else through npx
-    pm=$(node -p 'require("./package.json").packageManager')
-    if command -v corepack >/dev/null; then pnpm() { corepack pnpm "$@"; }; else pnpm() { npx --yes "$pm" "$@"; }; fi
-    pnpm install --frozen-lockfile
-    pnpm --filter @hardhub/api run deploy
+    # wrangler builds the engine image with Docker's buildx add-on and needs
+    # Node.js 22+; without them here (Colima, say) the deploy runs in a Node
+    # container with Docker's own CLI, so nothing is installed on this computer
+    if command -v node >/dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ] \
+       && docker buildx version >/dev/null 2>&1; then
+      # pnpm at the version package.json pins, with nothing installed globally:
+      # through corepack where Node ships it (up to 24), else through npx
+      pm=$(node -p 'require("./package.json").packageManager')
+      if command -v corepack >/dev/null; then pnpm() { corepack pnpm "$@"; }; else pnpm() { npx --yes "$pm" "$@"; }; fi
+      pnpm install --frozen-lockfile
+      pnpm --filter @hardhub/api run deploy
+    else
+      say "Deploying from a container (this computer has no Docker buildx add-on or no Node.js 22+)."
+      # Docker's CLI, buildx and CA certificates, copied from Docker's own image
+      docker run --rm -v hardhub-dockercli:/out "$DOCKER_CLI_IMAGE" sh -c \
+        'cp /usr/local/bin/docker /etc/ssl/certs/ca-certificates.crt /out/ && mkdir -p /out/cli-plugins && cp /usr/local/libexec/docker/cli-plugins/docker-buildx /out/cli-plugins/'
+      # the Cloudflare sign-in stays in .hardhub/, this computer's local state
+      mkdir -p "$STATE/xdg" && chmod 700 "$STATE"
+      tty=(-i); [ -t 0 ] && tty=(-it)
+      # node_modules in volumes: Linux builds of native packages never land in this folder
+      docker run --rm "${tty[@]}" -p 127.0.0.1:8976:8976 \
+        -e HARDHUB_DEPLOY_IN_CONTAINER=1 -e XDG_CONFIG_HOME="$PWD/$STATE/xdg" -e SSL_CERT_FILE=/opt/dockercli/ca-certificates.crt \
+        -v /var/run/docker.sock:/var/run/docker.sock -v hardhub-dockercli:/opt/dockercli:ro \
+        -v "$PWD:$PWD" -v hardhub-deploy-nm:"$PWD/node_modules" -v hardhub-deploy-nm-api:"$PWD/apps/api/node_modules" \
+        -v hardhub-deploy-nm-web:"$PWD/apps/web/node_modules" -v hardhub-deploy-nm-protocol:"$PWD/packages/protocol/node_modules" \
+        -e CI=true -e npm_config_store_dir=/pnpm-store -v hardhub-deploy-pnpm-store:/pnpm-store \
+        -w "$PWD" node:22.22.0-bookworm-slim bash -c \
+        'set -e; mkdir -p ~/.docker && ln -sf /opt/dockercli/cli-plugins ~/.docker/cli-plugins; export PATH=/opt/dockercli:$PATH
+         corepack enable >/dev/null; pnpm install --frozen-lockfile; pnpm --filter @hardhub/api run deploy'
+    fi
     ;;
   *) sed -n '2,11p' "$0"; exit 2 ;;
 esac

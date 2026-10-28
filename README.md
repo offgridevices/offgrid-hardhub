@@ -75,8 +75,10 @@ Rosetta. Cloudflare gets the amd64 build of the same recipe.
 
 ## Put it on Cloudflare
 
-You need a Cloudflare account on the Workers Paid plan (Containers need it),
-Node.js 22+ and Docker. Then:
+You need a Cloudflare account on the Workers Paid plan (Containers need it)
+and Docker. With Node.js 22+ and Docker's buildx add-on the deploy runs here;
+without them (Colima, say) it runs in a container, installing nothing, and
+prints a Cloudflare sign-in link to open. Then:
 
 ```bash
 ./hardhub deploy
@@ -84,7 +86,11 @@ Node.js 22+ and Docker. Then:
 
 It signs you in to Cloudflare, creates the database and file storage in the US
 jurisdiction, and deploys one Worker that serves the app and the API, with the
-KiCad engine as a Cloudflare Container (US placement). It asks once for a
+KiCad engine as a Cloudflare Container (US placement). The Worker answers on
+the custom domain in `apps/api/wrangler.jsonc` (OffGrid's is
+`hardhub.offgridevices.com`; a fork puts its own, on a domain in the same
+Cloudflare account). Cloudflare adds that hostname's DNS record and
+certificate and changes nothing else on the domain. It asks once for a
 [Resend](https://resend.com) key so sign-in links can be emailed. Run it again
 to ship an update.
 

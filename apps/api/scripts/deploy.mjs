@@ -36,11 +36,18 @@ const run = (args, input) => {
 };
 
 say("Cloudflare account");
+// whoami exits 0 when nobody is signed in too, so read what it says
+let who = "";
 try {
-  console.log(wrangler(["whoami"]).split("\n").find((l) => l.includes("@") || l.includes("associated")) ?? "signed in");
-} catch {
-  run(["login"]);
+  who = wrangler(["whoami"]);
+} catch {}
+if (/not authenticated/i.test(who) || !/associated with/i.test(who)) {
+  // in ./hardhub's deploy container: print the sign-in link, and take
+  // Cloudflare's answer on the port the container publishes
+  run(process.env.HARDHUB_DEPLOY_IN_CONTAINER ? ["login", "--browser=false", "--callback-host", "0.0.0.0"] : ["login"]);
+  who = wrangler(["whoami"]);
 }
+console.log(who.split("\n").find((l) => l.includes("associated with")) ?? "signed in");
 
 let config = readFileSync(CONFIG, "utf8");
 
@@ -108,4 +115,4 @@ try {
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
-console.log("\nDone. HardHub is live at the workers.dev address printed above.");
+console.log("\nDone. HardHub is live at the address printed above (the custom domain in wrangler.jsonc).");

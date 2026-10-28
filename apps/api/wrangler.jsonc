@@ -31,6 +31,13 @@
   "env": {
     "production": {
       "name": "hardhub-api",
+      // OffGrid's address: Cloudflare adds the DNS record and certificate for
+      // this one hostname on deploy and touches nothing else in the zone. The
+      // zone must be on the same Cloudflare account; a fork puts its own here.
+      // No workers.dev address, so sign-in and MCP have one address only.
+      "routes": [{ "pattern": "hardhub.offgridevices.com", "custom_domain": true }],
+      "workers_dev": false,
+      "preview_urls": false,
       // Secrets (wrangler secret put --env production): KEY_ENCRYPTION_KEY (made by ./hardhub deploy)
       "vars": {
         "DEV": "0",
