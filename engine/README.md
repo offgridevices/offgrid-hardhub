@@ -29,20 +29,23 @@ fanout); the source of each part says where it came from.
 
 ## Run it on a Mac
 
-Docker Desktop, then from the repository root:
+Docker (Docker Desktop or Colima), then from the repository root:
 
 ```bash
 docker compose -f engine/docker-compose.yml up --build
 curl localhost:8080/health
 ```
 
-KiCad publishes its Docker images for `linux/amd64` only, so on Apple
-Silicon the engine runs under Rosetta (Docker Desktop → Settings → General →
-"Use Rosetta for x86_64/amd64 emulation"). Expect builds to take longer
-than on an x86 server; time one before judging the router.
+The image builds natively for the computer it is built on: arm64 on Apple
+Silicon, amd64 on Intel and on Cloudflare (`wrangler` builds `linux/amd64`).
+KiCad's own Docker images are amd64 only, so the engine starts from Ubuntu
+24.04 and installs KiCad from the KiCad team's PPA, which publishes the same
+release for both. Downloads that differ by processor (Java, Node) are picked
+by `TARGETARCH`, each with its own sha256.
 
-The first build of the image downloads about 1.5 GB (KiCad, its 3D models,
-Freerouting, Node for gltf-transform).
+The first build downloads about 900 MB and takes about 1.5 minutes on an
+M-series Mac; the image is about 870 MB. To build Cloudflare's variant here:
+`docker build --platform linux/amd64 engine`.
 
 ## HTTP API
 
@@ -133,9 +136,11 @@ pinned; downloads are checked against their published sha256.
 
 | What | Version | Why this one |
 |---|---|---|
-| KiCad (`kicad/kicad` image) | 10.0.6, by digest | newest stable with an image |
+| Ubuntu | 24.04 LTS, by digest | the base; KiCad's PPA builds for it on arm64 and amd64 |
+| KiCad | 10.0.7 from the KiCad PPA, through Launchpad's dated snapshot; signing key in `kicad-ppa.asc`, fingerprint checked | newest stable; the same packages on both processors |
 | Freerouting | 2.5.0 (primary), 1.9.0 (fallback) | 2.5: headless and multi-threaded; 1.9: what offgrid-hardware's boards were routed with |
-| OpenJDK | 21 (Debian) | runs Freerouting 1.9 |
+| Freerouting jars | 2.5.0 is the jar its Linux bundle carries (same build); the bundle is x64 only | runs on either processor |
+| OpenJDK (Eclipse Temurin) | 25.0.4.1 | the Java Freerouting 2.5 is built and shipped with; runs 1.9 too |
 | Node.js | 22.23.3 LTS | runs gltf-transform |
 | @gltf-transform/cli | 4.5.1, lockfile `tools/gltf/package-lock.json` | centres and meshopt-compresses the GLB (the C3 fixture's: 3.7 MB to 0.40 MB) |
 | shapely | 2.2.0 | geometry |

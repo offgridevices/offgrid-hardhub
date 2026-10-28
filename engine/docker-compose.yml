@@ -4,10 +4,8 @@ services:
   engine:
     build:
       context: .
-      platform: linux/amd64
       args:
         WITH_TESTS: "1"
-    platform: linux/amd64
     image: hardhub-engine:dev
     ports:
       - "8080:8080"

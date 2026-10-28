@@ -12,8 +12,6 @@ name: hardhub
 services:
   engine:
     build: { context: engine, dockerfile: Dockerfile }
-    # KiCad publishes amd64 images only; on Apple Silicon Docker runs it under Rosetta
-    platform: linux/amd64
     # this computer only, unless HARDHUB_BIND=0.0.0.0 (see README: other devices)
     ports: ["${HARDHUB_BIND:-127.0.0.1}:8080:8080"]
     # the image's own folders, owned by the engine's user: a new named volume

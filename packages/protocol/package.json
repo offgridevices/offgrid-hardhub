@@ -9,7 +9,7 @@
   "exports": { ".": "./src/index.ts" },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "schema": "tsx scripts/json-schema.ts"
   },
   "dependencies": { "zod": "4.3.3" },

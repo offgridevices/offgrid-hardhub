@@ -25,7 +25,7 @@ import pcbnew
 from . import kicad as K, rules
 
 JAR = os.environ.get('FREEROUTING_JAR', '/opt/freerouting-1.9.0.jar')
-FR2 = os.environ.get('FREEROUTING2', '/opt/freerouting-2.5.0-linux-x64/bin/freerouting')
+FR2 = os.environ.get('FREEROUTING2', '/usr/local/bin/freerouting')
 THREADS = max(1, (os.cpu_count() or 2) - 1)
 TIMEOUT = int(os.environ.get('FREEROUTING_TIMEOUT', 900))     # seconds per Freerouting run
 

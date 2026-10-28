@@ -9,14 +9,16 @@ and assemble it.
 
 ## Run it on your computer
 
-You need [Docker Desktop](https://www.docker.com/products/docker-desktop/). Then:
+You need Docker: [Docker Desktop](https://www.docker.com/products/docker-desktop/),
+or [Colima](https://github.com/abiosoft/colima) on a Mac. Then:
 
 ```bash
 ./hardhub
 ```
 
-The first run downloads KiCad and builds everything (about 10 minutes on a Mac);
-later runs start in seconds. Your browser opens http://localhost:5173. Sign in
+The first run downloads KiCad and builds everything (a few minutes); later runs
+start in seconds. Docker without the Compose add-on (a plain Colima install) is
+fine: `./hardhub` then runs Compose from Docker's own image, installing nothing. Your browser opens http://localhost:5173. Sign in
 with any email (local mode needs no email), open **Settings**, and pick the AI:
 
 | AI | What you need |
@@ -67,9 +69,9 @@ or another computer on your network, start it with `HARDHUB_BIND=0.0.0.0 ./hardh
 local mode signs anyone in without email, so do that only on a network you trust
 (HardHub's chat then won't use your Claude Code).
 
-On Apple Silicon the KiCad engine runs under Rosetta (KiCad publishes Intel
-Linux images only): turn on Docker Desktop → Settings → General → "Use Rosetta
-for x86_64/amd64 emulation".
+The KiCad engine runs natively on Apple Silicon (arm64) and on Intel (amd64):
+one recipe, built from the KiCad team's own Ubuntu packages, so nothing needs
+Rosetta. Cloudflare gets the amd64 build of the same recipe.
 
 ## Put it on Cloudflare
 
@@ -93,7 +95,7 @@ to ship an update.
 | `apps/web` | the web app: React, Vite, three.js; works from phone to desktop |
 | `apps/api` | Cloudflare Worker, a Durable Object per project, D1, R2, the AI agent loop, and the MCP server with its OAuth sign-in |
 | `packages/protocol` | the shared contract: the design document, events, REST, engine |
-| `engine` | KiCad 10 + Freerouting in Docker: design → placed, routed, checked board → fab files |
+| `engine` | KiCad 10 + Freerouting in Docker (arm64 and amd64): design → placed, routed, checked board → fab files |
 | `bridge` | the helper that runs your own Claude Code for HardHub's chat (local only) |
 | `e2e` | end-to-end tests and the scripted stand-in for Claude |
 | `docs/PLAN.md` | the plan of record and the decisions behind it |

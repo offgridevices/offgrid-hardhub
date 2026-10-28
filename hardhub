@@ -10,6 +10,7 @@
 #   ./hardhub deploy     put HardHub on Cloudflare (needs Node.js 22+ and Docker)
 set -euo pipefail
 cd "$(dirname "$0")"
+. scripts/compose.sh
 
 URL=http://localhost:5173
 STATE=.hardhub              # local state: the Claude Code bridge's token, pid and log
@@ -75,28 +76,18 @@ need_docker() {
   fi
   if ! docker info >/dev/null 2>&1; then
     if [ "$(uname)" = Darwin ]; then
-      say "Starting Docker Desktop…"
-      open -a Docker || true
+      # whichever Docker this Mac has: Docker Desktop, or Colima
+      if [ -d /Applications/Docker.app ] || ! command -v colima >/dev/null 2>&1; then
+        say "Starting Docker Desktop…"
+        open -a Docker || true
+      else
+        say "Starting Colima…"
+        colima start || true
+      fi
       for _ in $(seq 1 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
     fi
-    docker info >/dev/null 2>&1 || { say "Docker is not running. Start Docker Desktop and try again."; exit 1; }
+    docker info >/dev/null 2>&1 || { say "Docker is not running. Start Docker Desktop (or Colima) and try again."; exit 1; }
   fi
-  check_rosetta
-}
-
-# The KiCad engine is an Intel (amd64) image: on Apple Silicon it needs Docker
-# Desktop's Rosetta, or it runs under much slower emulation
-check_rosetta() {
-  [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] || return 0
-  local f
-  for f in "$HOME/Library/Group Containers/group.com.docker/settings-store.json" \
-           "$HOME/Library/Group Containers/group.com.docker/settings.json"; do
-    if [ -f "$f" ] && grep -iEq '"usevirtualizationframeworkrosetta"[[:space:]]*:[[:space:]]*false' "$f"; then
-      say "Rosetta is off in Docker Desktop, so the KiCad engine will be very slow."
-      say "Turn it on: Docker Desktop → Settings → General → \"Use Rosetta for x86_64/amd64 emulation\", Apply & restart."
-      return 0
-    fi
-  done
 }
 
 wait_up() {
@@ -115,13 +106,13 @@ case "${1:-start}" in
     need_docker
     start_bridge
     say "Building and starting HardHub (the first run downloads KiCad, about 1 GB; later runs take seconds)…"
-    docker compose up --build --detach --wait --wait-timeout 900 || { docker compose ps || true; say "Something failed to start. See: ./hardhub logs (if a port is busy, close the app using 5173, 8787 or 8080)"; exit 1; }
+    compose up --build --detach --wait --wait-timeout 900 || { compose ps || true; say "Something failed to start. See: ./hardhub logs (if a port is busy, close the app using 5173, 8787 or 8080)"; exit 1; }
     wait_up
     say "HardHub is running at $URL"
     if [ "$(uname)" = Darwin ]; then open "$URL"; elif command -v xdg-open >/dev/null; then xdg-open "$URL" >/dev/null 2>&1 || true; fi
     ;;
-  stop|down) stop_bridge; docker compose down ;;
-  logs) docker compose logs --follow --tail 200 ;;
+  stop|down) stop_bridge; compose down ;;
+  logs) compose logs --follow --tail 200 ;;
   test) need_docker; exec ./e2e/run.sh ;;
   ollama)
     # optional: a small local model, so HardHub runs with no API key at all
@@ -129,7 +120,7 @@ case "${1:-start}" in
     ollama pull "${OLLAMA_MODEL:-qwen3.5:0.8b}"
     say "Done. In HardHub: Settings → AI provider → Ollama on this computer."
     ;;
-  reset) stop_bridge; docker compose down --volumes ;;
+  reset) stop_bridge; compose down --volumes ;;
   deploy)
     need_docker
     command -v node >/dev/null || { say "Install Node.js 22 or newer: https://nodejs.org"; exit 1; }

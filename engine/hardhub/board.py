@@ -5,6 +5,8 @@ Routing, the outer ground pours and the checks come after (pipeline.py).
 
 Generalised from offgrid-hardware print-hub/v1/src/board.py and pcb.py.
 """
+import os
+
 import pcbnew
 
 from . import design as D, footprints, kicad as K, place, rules, silk
@@ -154,7 +156,15 @@ def build(d, path):
     n = bd['layers']
     K.set_board(bd['width'], bd['height'])
     pcbnew.KIID.SeedGenerator(7)                 # same design, same file
-    b = pcbnew.BOARD()
+    # a board with its project: the fab limits and net classes live in the
+    # .kicad_pro, and from KiCad 10.0.7 saving a bare BOARD() no longer writes
+    # one.  A project left by an earlier build here would carry its settings
+    # over, so start from KiCad's defaults as a bare board does.
+    base = os.path.splitext(os.path.abspath(path))[0]
+    for ext in ('.kicad_pro', '.kicad_prl'):
+        if os.path.exists(base + ext):
+            os.remove(base + ext)
+    b = pcbnew.NewBoard(base + '.kicad_pcb')
     b.SetCopperLayerCount(n)
     rules.apply_limits(b, n)
     K.outline(b, bd['corner_radius'])
