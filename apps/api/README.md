@@ -99,6 +99,7 @@ pnpm --filter @hardhub/api run deploy
 US jurisdiction if they are missing (all named `offgrid-hardhub*`),
 applies migrations, creates `KEY_ENCRYPTION_KEY`, and deploys the Worker,
 both Durable Objects (created in the US jurisdiction by the code) and the
-engine container (`constraints.jurisdiction = "us"`), on the custom domain in
+engine container (its Durable Object in the US; Cloudflare places the container
+itself), on the custom domain in
 `wrangler.jsonc`. It is safe to run again.
 

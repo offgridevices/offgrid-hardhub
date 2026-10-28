@@ -89,7 +89,10 @@ prints a Cloudflare sign-in link to open. Then:
 
 It signs you in to Cloudflare, creates the database and file storage in the US
 jurisdiction, and deploys one Worker that serves the app and the API, with the
-KiCad engine as a Cloudflare Container (US placement). The Worker answers on
+KiCad engine as a Cloudflare Container. Everything stored (accounts, files,
+every board's history) stays in the US; Cloudflare places the engine's
+container itself and does not offer a US-only setting for it, so KiCad's
+work on a board may run elsewhere. The Worker answers on
 the custom domain in `apps/api/wrangler.jsonc` (OffGrid's is
 `hardhub.offgridevices.com`; a fork puts its own, on a domain in the same
 Cloudflare account). Cloudflare adds that hostname's DNS record and

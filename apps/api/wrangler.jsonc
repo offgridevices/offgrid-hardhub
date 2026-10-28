@@ -63,7 +63,7 @@
         "run_worker_first": ["/api/*", "/mcp", "/oauth/*", "/.well-known/*"]
       },
       // ./hardhub deploy creates both in the US jurisdiction and writes the id here
-      "d1_databases": [{ "binding": "DB", "database_name": "offgrid-hardhub-db", "database_id": "REPLACE_WITH_D1_ID", "migrations_dir": "migrations" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "offgrid-hardhub-db", "database_id": "cdb7ed6b-b79c-44ab-9eb6-dbff4efa37f5", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "offgrid-hardhub-files", "jurisdiction": "us" }],
       "durable_objects": {
         "bindings": [
@@ -73,13 +73,16 @@
       },
       "containers": [
         {
+          // Durable Object-managed (the only kind this account may create):
+          // the size (standard-3) and start-up are in src/engine.ts. Cloudflare
+          // places the container itself; this policy has no US-only setting,
+          // so KiCad may run outside the US. Every stored thing (database,
+          // files, each board's history, the engine's Durable Object) is US-only.
           "name": "offgrid-hardhub-engine",
           "class_name": "EngineContainer",
-          "image": "../../engine/Dockerfile",
-          "instance_type": "standard-3",
-          "max_instances": 4,
-          // US-only placement (ENAM/WNAM)
-          "constraints": { "jurisdiction": "us" }
+          "scheduling_policy": "durable_object",
+          "images": { "engine": { "dockerfile": "../../engine/Dockerfile" } },
+          "observability": { "logs": { "enabled": true } }
         }
       ]
     }
