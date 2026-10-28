@@ -48,7 +48,7 @@ export const CheckResult = z.object({
 export type CheckResult = z.infer<typeof CheckResult>;
 
 export const Artifact = z.object({
-  kind: z.enum(["board-svg", "board-png", "glb", "gerbers", "bom", "cpl", "netlist", "step", "firmware", "report"]),
+  kind: z.enum(["board-svg", "board-png", "glb", "gerbers", "bom", "cpl", "netlist", "step", "kicad", "firmware", "report"]),
   name: z.string(),
   url: z.string(), // relative to the API: /projects/:id/files/:name
   bytes: z.number().int().nonnegative().optional(),

@@ -5,9 +5,16 @@
 //   POST /parts/get      { lcsc: string[] }    -> { parts: CatalogPart[] }
 //   POST /check          { design }            -> { results: CheckResult[] }
 //   POST /quote          { design, qty[] }     -> { quotes: Quote[] }
-//   POST /build          { design, job, stop_after? }
+//   POST /build          { design, job, stop_after?, outputs? }
 //        -> application/x-ndjson stream of JobLine, last line { done: true, ... }
+//        outputs: extras to make, ["svg", "glb"] by default; "png", "step" on request
+//        429 { error, retryable: true } while the engine is at its build limit
 //   GET  /jobs/:job/files/:name                -> an output file
+//   DELETE /jobs/:job                          -> 204, the job's files forgotten
+//
+// Artifact urls in a JobLine are the engine's own (/jobs/:job/files/:name);
+// the API stores the files and rewrites them to /projects/:id/files/:name.
+// JobLine stats carry each step's time in seconds as t_<step>.
 //
 // The engine is stateless between jobs apart from its cache of fetched
 // footprints and finished job outputs (which the API copies to R2).
@@ -40,7 +47,9 @@ export const Quote = z.object({
 });
 export type Quote = z.infer<typeof Quote>;
 
-export const BuildSteps = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "fab", "render"] as const;
+export const BuildOutputs = z.array(z.enum(["svg", "glb", "png", "step"]));
+
+export const BuildSteps =["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "fab", "render"] as const;
 
 export const JobLine = z.union([
   z.object({ step: z.enum(BuildSteps), progress: z.number(), message: z.string() }),
