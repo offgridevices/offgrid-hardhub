@@ -20,6 +20,24 @@ const COOKIE = "hh_session";
 
 export const app = new Hono<Ctx>();
 
+// Local HardHub signs anyone in without email, so it answers only to this
+// computer's names and IP addresses: a web page that rebinds its own domain
+// to 127.0.0.1 gets nothing (DNS rebinding). Cloudflare has real sign-in.
+const LOCAL_NAMES = new Set(["localhost", "api", "web", "host.docker.internal"]);
+app.use("*", async (c, next) => {
+  if (isDev(c.env)) {
+    const host = new URL(c.req.url).hostname.replace(/^\[|\]$/g, "");
+    const ok =
+      LOCAL_NAMES.has(host) ||
+      host.endsWith(".localhost") ||
+      /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
+      host.includes(":") ||
+      (c.env.DEV_HOSTS ?? "").split(",").map((h) => h.trim()).includes(host);
+    if (!ok) return c.json({ error: `this local HardHub does not answer to ${host}` }, 421);
+  }
+  await next();
+});
+
 // MCP and the agent sign-in endpoints answer any origin (agents call them
 // from their own servers and apps) and never read cookies. The rest of the
 // API answers only the web app's origins.

@@ -87,7 +87,12 @@ export class ProjectRoom extends DurableObject<Env> {
   /** One tool call from a connected agent. A build starts in the background. */
   async agentTool(name: string, input: unknown, fromChat = false) {
     const r = await this.core.agentTool(name, input, fromChat);
-    if (name === "build_board" && !r.isError) await this.ctx.storage.setAlarm(Date.now());
+    if (name === "build_board" && !r.isError) {
+      // a chat turn is itself running in this room's alarm, and a second alarm
+      // waits for the first to finish: its build starts right away instead
+      if (fromChat) this.ctx.waitUntil(this.core.runAgentBuild());
+      else await this.ctx.storage.setAlarm(Date.now());
+    }
     return r;
   }
 
@@ -103,8 +108,8 @@ export class ProjectRoom extends DurableObject<Env> {
     return this.core.agentRequest(text);
   }
 
-  agentNote(text: string) {
-    return this.core.agentNote(text);
+  agentNote(text: string, fromChat = false) {
+    return this.core.agentNote(text, fromChat);
   }
 
   agentResults() {

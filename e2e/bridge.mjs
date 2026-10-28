@@ -60,6 +60,13 @@ try {
   await page.getByTestId("submit-answers").click();
   await page.getByText("Noted: powered by USB-C.").first().waitFor({ timeout: 60000 });
   check(true, "the answer goes back to the same Claude Code conversation");
+  // a KiCad build started inside a chat turn runs then, not after the turn
+  await page.getByTestId("chat-input").fill("Load the sensor circuit and build it");
+  await page.getByTestId("chat-input").press("Enter");
+  const built = page.getByText(/^Built it: Checks: \d+ pass, 0 fail/).first();
+  const notBuilt = page.getByText(/The build did not finish/).first();
+  await built.or(notBuilt).waitFor({ timeout: 15 * 60_000 });
+  check(await built.isVisible(), "a board build started in a chat turn finishes within that turn", (await built.or(notBuilt).textContent())?.slice(0, 90));
   await page.waitForTimeout(500);
   const input = page.getByTestId("chat-input").or(page.locator("textarea")).first();
   check(!(await input.getAttribute("placeholder"))?.includes("working"), "the chat is idle again after the turn");

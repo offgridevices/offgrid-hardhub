@@ -58,7 +58,15 @@ export function bridgeFor(env: Env): Bridge | null {
       const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
       let buf = "";
       for (;;) {
-        const { value, done } = await reader.read();
+        let value: string | undefined;
+        let done: boolean;
+        try {
+          ({ value, done } = await reader.read());
+        } catch (e) {
+          // Stop aborts the request mid-stream: that is a stop, not a failure
+          if (signal.aborted) return yield { type: "done", ok: false, stopped: true };
+          throw new BridgeError(`The connection to Claude Code broke: ${e instanceof Error ? e.message : String(e)}`);
+        }
         if (value) buf += value;
         let nl: number;
         while ((nl = buf.indexOf("\n")) >= 0) {

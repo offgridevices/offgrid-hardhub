@@ -91,6 +91,9 @@ export class RoomCore {
         this.emit({ type: "turn_end", reason: "error" });
       }
     }
+    // a chat turn on Claude Code cut off the same way
+    this.setMeta("chat_turn", null);
+    this.setMeta("chat_asked", null);
     // the same for an agent's build: queued ones still run from the alarm
     const b = this.agentBuild();
     if (b?.state === "running") {
@@ -476,36 +479,47 @@ export class RoomCore {
   private async chatTurn(chat: ChatRunner, input: TurnInput, signal: AbortSignal): Promise<TurnEnd> {
     this.setMeta("chat_turn", "1");
     this.setMeta("chat_asked", null);
-    let textId = "";
     try {
       const prompt = input.answers ? `${input.text}\n\nMy answers:\n${this.describeAnswers(input.answers)}` : input.text;
-      const session = this.meta("claude_session") ?? undefined;
-      for await (const e of chat.run({ prompt, system: chatSystemPrompt(this.projectId), ...(session ? { session } : {}) }, signal)) {
-        if (e.type === "session") this.setMeta("claude_session", e.id);
-        else if (e.type === "text_delta") {
-          textId ||= shortId("t");
-          this.sendDelta(textId, e.text);
-        } else if (e.type === "text") {
-          this.emit({ type: "assistant_text", id: textId || shortId("t"), text: e.text, done: true });
-          textId = "";
-        } else if (e.type === "done") {
-          if (e.session) this.setMeta("claude_session", e.session);
-          if (e.stopped) return "stopped";
-          if (!e.ok) {
-            this.emit({ type: "error", message: `Claude Code: ${e.error ?? "the turn failed"}`, retryable: true });
-            return "error";
-          }
-          return this.meta("chat_asked") ? "waiting_for_user" : "done";
-        }
-      }
-      return "done";
+      return await this.chatRun(chat, prompt, signal);
     } catch (e) {
+      if (signal.aborted) return "stopped";
       this.emit({ type: "error", message: e instanceof Error ? e.message : String(e), retryable: true });
       return "error";
     } finally {
       this.flushDelta();
       this.setMeta("chat_turn", null);
     }
+  }
+
+  private async chatRun(chat: ChatRunner, prompt: string, signal: AbortSignal, fresh = false): Promise<TurnEnd> {
+    const session = fresh ? undefined : (this.meta("claude_session") ?? undefined);
+    let textId = "";
+    for await (const e of chat.run({ prompt, system: chatSystemPrompt(this.projectId), ...(session ? { session } : {}) }, signal)) {
+      if (e.type === "session") this.setMeta("claude_session", e.id);
+      else if (e.type === "text_delta") {
+        textId ||= shortId("t");
+        this.sendDelta(textId, e.text);
+      } else if (e.type === "text") {
+        this.emit({ type: "assistant_text", id: textId || shortId("t"), text: e.text, done: true });
+        textId = "";
+      } else if (e.type === "done") {
+        if (e.stopped) return "stopped";
+        if (!e.ok && session && /no conversation found/i.test(e.error ?? "")) {
+          // Claude Code no longer has this project's conversation (it clears old
+          // ones): start a new one; the design itself holds what was decided
+          this.setMeta("claude_session", null);
+          return this.chatRun(chat, prompt, signal, true);
+        }
+        if (e.session) this.setMeta("claude_session", e.session);
+        if (!e.ok) {
+          this.emit({ type: "error", message: `Claude Code: ${e.error ?? "the turn failed"}`, retryable: true });
+          return "error";
+        }
+        return this.meta("chat_asked") ? "waiting_for_user" : "done";
+      }
+    }
+    return "done";
   }
 
   /** answers as words, from the questions that were asked */
@@ -536,8 +550,8 @@ export class RoomCore {
   }
 
   /** A short message from the agent, shown in the project's conversation. */
-  agentNote(text: string): AgentResult | null {
-    const refused = this.agentRefusal();
+  agentNote(text: string, fromChat = false): AgentResult | null {
+    const refused = this.agentRefusal(fromChat);
     if (refused) return refused;
     this.emit({ type: "assistant_text", id: shortId("t"), text, done: true });
     this.agentDone();

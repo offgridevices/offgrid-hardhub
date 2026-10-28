@@ -11,6 +11,8 @@ export interface Env {
 
   /** "1" in local development: sign-in links are returned, dev overrides apply */
   DEV: string;
+  /** local development: extra host names the API answers to (comma-separated) */
+  DEV_HOSTS?: string;
   /** the web app's origin, for sign-in links; empty: the request's own origin */
   APP_URL: string;
   /** the MCP address shown in Settings; empty: <the app's address>/mcp */

@@ -62,6 +62,11 @@ Your Claude or ChatGPT login stays there: HardHub only sees the tool calls.
 | `./hardhub reset` | stop and delete local data |
 | `./hardhub deploy` | put it on Cloudflare (below) |
 
+HardHub on your computer answers only to this computer. To open it from a phone
+or another computer on your network, start it with `HARDHUB_BIND=0.0.0.0 ./hardhub`:
+local mode signs anyone in without email, so do that only on a network you trust
+(HardHub's chat then won't use your Claude Code).
+
 On Apple Silicon the KiCad engine runs under Rosetta (KiCad publishes Intel
 Linux images only): turn on Docker Desktop → Settings → General → "Use Rosetta
 for x86_64/amd64 emulation".

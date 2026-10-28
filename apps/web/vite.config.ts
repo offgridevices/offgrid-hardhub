@@ -33,13 +33,14 @@ const apiProxy = process.env.API_PROXY
 export default defineConfig({
   plugins: [react(), preloadFonts(["instrument-sans-latin-400-normal", "instrument-sans-latin-500-normal"])],
   server: { host: "0.0.0.0", port: 5173 },
-  // any host name: the container is reached as "web", and a phone on the same
-  // Wi-Fi reaches it by the computer's address
-  // no site may frame HardHub (the connect page's Allow button); Cloudflare gets the same from public/_headers
+  // host names it answers to: localhost and any IP address (Vite's default),
+  // and "web", the container's name; anything else is refused, so a web page
+  // cannot reach a local HardHub through a rebound DNS name.
+  // No site may frame HardHub (the connect page's Allow button); Cloudflare gets the same from public/_headers
   preview: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: true,
+    allowedHosts: ["web"],
     headers: { "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin" },
     ...(apiProxy ? { proxy: apiProxy } : {}),
   },

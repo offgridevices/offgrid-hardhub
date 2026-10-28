@@ -6,6 +6,8 @@
 //
 // Turn 1 ("design ..."): reads the design, names the board, asks a question.
 // Turn 2 (the answers): records them as a requirement and says so.
+// Turn 3 ("build it"): loads the sensor circuit, builds it in KiCad and
+// waits for the result, all inside the one chat turn.
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
   console.log("2.1.300 (Claude Code)");
@@ -15,11 +17,12 @@ if (args[0] === "auth") {
   console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }));
   process.exit(0);
 }
+import { readFileSync } from "node:fs";
 const flag = (f) => args[args.indexOf(f) + 1];
-const prompt = flag("-p");
+const prompt = readFileSync(0, "utf8"); // the message comes on stdin
 const system = args.includes("--append-system-prompt") ? flag("--append-system-prompt") : "";
 const project = /pass project "([^"]+)"/.exec(system)?.[1];
-const { url, headers } = JSON.parse(flag("--mcp-config")).mcpServers.hardhub;
+const { url, headers } = JSON.parse(readFileSync(flag("--mcp-config"), "utf8")).mcpServers.hardhub;
 const session = args.includes("--resume") ? flag("--resume") : "0b7f7a52-3c1e-4e7a-9f61-2d3c4b5a6978";
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
 
@@ -48,7 +51,15 @@ const say = (text) => {
 try {
   out({ type: "system", subtype: "init", session_id: session, mcp_servers: [{ name: "hardhub", status: "connected" }] });
   await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "2.1.300" } });
-  if (!prompt.includes("My answers")) {
+  if (prompt.includes("build it")) {
+    const fixture = JSON.parse(readFileSync(new URL("../../engine/tests/fixtures/esp32c3-sensor.json", import.meta.url), "utf8"));
+    const patch = ["blocks", "parts", "components", "nets", "placement"].map((k) => ({ op: "replace", path: `/${k}`, value: fixture[k] }));
+    patch.push({ op: "add", path: "/board", value: fixture.board });
+    await tool("update_design", { summary: "The sensor circuit and a 50 x 40 mm board", patch });
+    let r = await tool("build_board", {});
+    for (let i = 0; i < 40 && r.startsWith("Still building"); i++) r = await tool("wait_for_build", {});
+    say(r.startsWith("Build finished") ? `Built it: ${r.split("\n").find((l) => l.startsWith("Checks:"))}` : `The build did not finish: ${r.slice(0, 200)}`);
+  } else if (!prompt.includes("My answers")) {
     say("Hello from your own Claude Code. Let me look at the design.");
     await tool("get_design", { sections: ["name"] });
     await tool("update_design", { summary: "Named the board", patch: [{ op: "replace", path: "/name", value: "Bridge sensor" }] });

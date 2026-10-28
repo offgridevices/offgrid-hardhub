@@ -75,6 +75,14 @@ describe("auth", () => {
     expect(body.dev_link).toBeUndefined();
   });
 
+  it("answers only to this computer's names when local (no DNS rebinding)", async () => {
+    expect((await app.request("http://evil.example/health", {}, asEnv(env))).status).toBe(421);
+    for (const host of ["localhost:8787", "127.0.0.1:8787", "192.168.1.20:5173", "api:8787", "[::1]:8787"])
+      expect((await app.request(`http://${host}/health`, {}, asEnv(env))).status).toBe(200);
+    // Cloudflare has real sign-in: any host
+    expect((await app.request("http://hardhub.example.com/health", {}, asEnv({ ...env, DEV: "0" } as TestEnv))).status).toBe(200);
+  });
+
   it("serves the API under /api too (one Worker on Cloudflare)", async () => {
     const ctx = { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
     expect((await worker.fetch(new Request("http://x/api/health"), asEnv(env), ctx)).status).toBe(200);
