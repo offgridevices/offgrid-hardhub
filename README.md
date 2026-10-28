@@ -63,6 +63,7 @@ to ship an update.
 | `engine` | KiCad 10 + Freerouting in Docker: design → placed, routed, checked board → fab files |
 | `e2e` | end-to-end tests and the scripted stand-in for Claude |
 | `docs/PLAN.md` | the plan of record and the decisions behind it |
+| `docs/STATUS.md` | what is verified, how, and what is not yet |
 
 Every iOS or Android app later talks to the same API as the web app.
 
