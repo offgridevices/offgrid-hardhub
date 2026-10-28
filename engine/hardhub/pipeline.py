@@ -180,8 +180,10 @@ class Job:
                 self.s_miter()
 
     def s_drc(self):
-        from . import kicad as K, rules
+        from . import kicad as K, rules, silk
         bd = self.d['board']
+        # silkscreen last, on the finished copper, so the DRC below checks it too
+        self.check(silk.apply(self.routed, self.d))
         rules.write_rules(self.routed)
         rules.set_stackup(self.routed, bd['layers'], mask=bd['mask_color'], finish=bd['finish'],
                           thickness=bd['thickness'], oz_outer=bd['copper_oz']['outer'], oz_inner=bd['copper_oz']['inner'])

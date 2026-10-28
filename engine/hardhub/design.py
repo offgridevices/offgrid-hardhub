@@ -42,6 +42,10 @@ def normalize(d):
         b.setdefault('holes', [])
         b.setdefault('layer_roles', [])
         b.setdefault('keepouts', [])
+        b['silkscreen'] = dict(b.get('silkscreen') or {})
+        b['silkscreen'].setdefault('outlines', False)
+        b['silkscreen'].setdefault('refs', False)
+        b['silkscreen'].setdefault('texts', [])
         for h in b['holes']:
             h.setdefault('d', 3.2)
         for k in b['keepouts']:

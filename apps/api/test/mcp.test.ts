@@ -461,4 +461,55 @@ describe("designing over MCP", () => {
     expect(textOf(r)).toContain("wait_for_build");
     expect((await client.callTool({ name: "get_design", arguments: { project: id, sections: ["name"] } })).isError).toBeFalsy();
   });
+
+  it("lets an agent see its board from every side, read it as data, and move parts", async () => {
+    const { client } = await connect();
+    const id = /project (p_[\w-]+)/.exec(textOf(await client.callTool({ name: "create_project", arguments: { name: "Look" } })))![1]!;
+    const none = await client.callTool({ name: "view_board", arguments: { project: id } });
+    expect(none.isError).toBe(true);
+    expect(textOf(none)).toContain("build_board first");
+
+    const patch = [
+      { op: "replace", path: "/blocks", value: SENSOR.blocks },
+      { op: "replace", path: "/parts", value: SENSOR.parts },
+      { op: "replace", path: "/components", value: SENSOR.components },
+      { op: "add", path: "/board", value: { width: 30, height: 20, layers: 2, silkscreen: { refs: true, texts: [{ text: "v1", x: 0, y: 8 }] } } },
+    ];
+    expect((await client.callTool({ name: "update_design", arguments: { project: id, summary: "Circuit, board and silkscreen", patch } })).isError).toBeFalsy();
+    await client.callTool({ name: "build_board", arguments: { project: id } });
+
+    const engine = env.ROOMS.engine;
+    const flat = await client.callTool({ name: "view_board", arguments: { project: id, layers: ["F.Cu", "F.Silkscreen", "Edge.Cuts"], net: "SENSE", parts: ["R1"], region: [-5, -5, 5, 5] } });
+    expect(flat.isError).toBeFalsy();
+    expect((flat.content as { type: string }[]).some((c) => c.type === "image")).toBe(true);
+    expect(textOf(flat)).toContain("net SENSE highlighted");
+    expect(engine.views.at(-1)!.opts).toMatchObject({ mode: "2d", layers: ["F.Cu", "F.Silkscreen", "Edge.Cuts"], net: "SENSE", refs: ["R1"], region: [-5, -5, 5, 5] });
+    // the engine's own job name for this project's build, never another project's
+    expect(engine.views.at(-1)!.job).toBe(`${id}-b1`);
+
+    await client.callTool({ name: "view_board", arguments: { project: id, mode: "3d", rotate: [-45, 0, 45], zoom: 1.5 } });
+    expect(engine.views.at(-1)!.opts).toMatchObject({ mode: "3d", rotate: [-45, 0, 45], zoom: 1.5 });
+
+    // a mistake comes back as the engine's plain reason
+    const bad = await client.callTool({ name: "view_board", arguments: { project: id, net: "NOPE" } });
+    expect(bad.isError).toBe(true);
+    expect(textOf(bad)).toBe("no net NOPE on the board");
+    expect((await client.callTool({ name: "view_board", arguments: { project: id, layers: ["F.Nope"] } })).isError).toBe(true);
+
+    // a restarted engine has lost the build: the board goes back to it from the file store
+    engine.lost = true;
+    expect((await client.callTool({ name: "view_board", arguments: { project: id } })).isError).toBeFalsy();
+    expect(engine.views.at(-1)!.zip).toBe(true);
+    const info = JSON.parse(textOf(await client.callTool({ name: "inspect_board", arguments: { project: id, what: ["parts", "drc"] } })));
+    expect(info).toMatchObject({ asked: ["parts", "drc"], parts: [{ ref: "U1" }] });
+    engine.lost = false;
+
+    const moved = await client.callTool({ name: "move_parts", arguments: { project: id, summary: "R1 beside R2, turned", moves: [{ ref: "R1", x: -3, y: 2, rot: 90, locked: true }] } });
+    expect(moved.isError).toBeFalsy();
+    const d = env.ROOMS.core(id).design().design;
+    expect(d.placement.R1).toEqual({ x: -3, y: 2, rot: 90, side: "top", locked: true });
+    expect(d.board!.silkscreen).toEqual({ outlines: false, refs: true, texts: [{ text: "v1", x: 0, y: 8, size: 1.2, side: "top", rot: 0 }] });
+    expect(textOf(await client.callTool({ name: "move_parts", arguments: { project: id, summary: "Off the board", moves: [{ ref: "R1", x: 40, y: 0 }] } }))).toContain("off the");
+    expect(textOf(await client.callTool({ name: "move_parts", arguments: { project: id, summary: "Ghost", moves: [{ ref: "Q9", x: 0, y: 0 }] } }))).toContain("No part Q9");
+  });
 });

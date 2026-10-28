@@ -7,7 +7,7 @@ Generalised from offgrid-hardware print-hub/v1/src/board.py and pcb.py.
 """
 import pcbnew
 
-from . import design as D, footprints, kicad as K, place, rules
+from . import design as D, footprints, kicad as K, place, rules, silk
 
 MM = pcbnew.FromMM
 
@@ -108,12 +108,13 @@ def load_parts(b, d):
                 fld.SetVisible(False)
                 fld.SetLayer(pcbnew.F_Fab)
         fp.Value().SetLayer(pcbnew.F_Fab); fp.Value().SetVisible(False)
-        # references and outlines go on the assembly drawing (fab layer):
-        # silkscreen over pads and parts is a DRC warning and a fab nuisance
+        # the reference starts on the assembly drawing (fab layer), and the
+        # footprint's own silkscreen waits on a spare layer: silk.apply() puts
+        # on the silkscreen what the design asks for, clear of pads and parts
         fp.Reference().SetLayer(pcbnew.F_Fab)
         for it in fp.GraphicalItems():
             if it.GetLayer() == pcbnew.F_SilkS:
-                it.SetLayer(pcbnew.F_Fab)
+                it.SetLayer(silk.PARKED)
         thermal_vias(fp)
         open_keepouts(fp)
         if not p.get('assembled', True):

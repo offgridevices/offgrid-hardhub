@@ -17,7 +17,10 @@ that would make it invalid is refused with the reasons; fix and resend.
 - `nets`: only for nets that need more than a name: `kind` (power, ground),
   `voltage`, `current` (sets track width), `width`, `diff_pair`.
 - `board`: `width`, `height`, `layers`, `holes`, `layer_roles` (which inner
-  layers are planes, and of which net), `keepouts` (antenna area), fab options.
+  layers are planes, and of which net), `keepouts` (antenna area), fab options.,
+  `silkscreen`: `outlines` (each part's outline and pin-1 mark), `refs` (each
+  part's name beside it), `texts` (board name, revision, connector labels:
+  `text`, `x`, `y`, `size` in mm, `side`, `rot`).
 - `placement`: ref -> `x`, `y`, `rot`, `side`, `locked`. Parts you leave out
   are placed automatically by `build_board`.
 - `firmware`: `platform`, `mcu`, `pins` (name, gpio, net, dir), `files`.

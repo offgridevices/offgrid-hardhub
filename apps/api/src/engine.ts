@@ -39,6 +39,34 @@ export class EngineContainer extends DurableObject<Env> {
   }
 }
 
+/** How to look at a built board (engine POST /view). Board mm from its centre. */
+export interface ViewOptions {
+  mode?: "2d" | "3d";
+  layers?: string[];
+  side?: string;
+  region?: [number, number, number, number];
+  net?: string;
+  refs?: string[];
+  labels?: boolean;
+  rotate?: [number, number, number];
+  zoom?: number;
+  pan?: [number, number, number];
+  perspective?: boolean;
+  quality?: "basic" | "high";
+  width?: number;
+  height?: number;
+}
+
+export interface InspectOptions {
+  what?: ("parts" | "nets" | "drc")[];
+  refs?: string[];
+  nets?: string[];
+}
+
+/** the engine no longer has the job's board (a restarted container): send it back */
+export const NEED_BOARD = { needBoard: true } as const;
+export type NeedBoard = typeof NEED_BOARD;
+
 export interface Engine {
   searchParts(query: string, limit?: number): Promise<CatalogPart[]>;
   getParts(lcsc: string[]): Promise<CatalogPart[]>;
@@ -46,6 +74,8 @@ export interface Engine {
   quote(design: Design, qty: number[]): Promise<Quote[]>;
   build(design: Design, job: string, signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine>;
   file(job: string, name: string): Promise<Response>;
+  view(job: string, opts: ViewOptions, kicadZip?: ArrayBuffer): Promise<ArrayBuffer | NeedBoard>;
+  inspect(job: string, opts: InspectOptions, kicadZip?: ArrayBuffer): Promise<Record<string, unknown> | NeedBoard>;
 }
 
 type Fetch = (path: string, init?: RequestInit) => Promise<Response>;
@@ -111,6 +141,41 @@ export class HttpEngine implements Engine {
   file(job: string, name: string) {
     return this.fetch(`/jobs/${encodeURIComponent(job)}/files/${encodeURIComponent(name)}`);
   }
+
+  private async look(path: "/view" | "/inspect", job: string, opts: object, kicadZip?: ArrayBuffer): Promise<Response | NeedBoard> {
+    const r = await this.fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...opts, job, ...(kicadZip ? { kicad_zip: base64(kicadZip) } : {}) }),
+    });
+    if (r.status === 404) {
+      const j = (await r.json().catch(() => ({}))) as { need_board?: boolean };
+      if (j.need_board) return NEED_BOARD;
+    }
+    if (!r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      // a 400 is a mistake in the request (an unknown layer or net): say it plainly
+      throw new EngineError(r.status === 400 && j.error ? j.error : `engine ${path}: ${r.status} ${j.error ?? ""}`.trim());
+    }
+    return r;
+  }
+
+  async view(job: string, opts: ViewOptions, kicadZip?: ArrayBuffer) {
+    const r = await this.look("/view", job, opts, kicadZip);
+    return r instanceof Response ? r.arrayBuffer() : r;
+  }
+
+  async inspect(job: string, opts: InspectOptions, kicadZip?: ArrayBuffer) {
+    const r = await this.look("/inspect", job, opts, kicadZip);
+    return r instanceof Response ? ((await r.json()) as Record<string, unknown>) : r;
+  }
+}
+
+function base64(buf: ArrayBuffer): string {
+  const u = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 export function engineFor(env: Env): Engine {

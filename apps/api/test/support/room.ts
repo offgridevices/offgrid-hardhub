@@ -3,7 +3,7 @@
 import type { CheckResult, Design, JobLine, ServerEvent } from "@hardhub/protocol";
 import { CONVERTERS } from "../../src/agent/llm";
 import type { Llm } from "../../src/agent/llm/types";
-import type { Engine } from "../../src/engine";
+import { type Engine, type InspectOptions, NEED_BOARD, type ViewOptions } from "../../src/engine";
 import { RoomCore } from "../../src/room/core";
 import { doSql } from "./sqlite";
 
@@ -35,10 +35,24 @@ export class FakeEngine implements Engine {
       artifacts: [
         { kind: "board-png", name: "top.png", url: `/jobs/${job}/files/top.png` },
         { kind: "glb", name: "board.glb", url: `/jobs/${job}/files/board.glb` },
+        { kind: "kicad", name: "board-kicad.zip", url: `/jobs/${job}/files/board-kicad.zip` },
       ],
       stats: { tracks: 120, vias: 30 },
       placement: { U1: { x: 1, y: 2, rot: 0, side: "top" } },
     };
+  }
+  /** views asked for, and whether the engine has "lost" its jobs (a restarted container) */
+  views: { job: string; opts: ViewOptions; zip: boolean }[] = [];
+  lost = false;
+  async view(job: string, opts: ViewOptions, zip?: ArrayBuffer) {
+    if (this.lost && !zip) return NEED_BOARD;
+    if (opts.net === "NOPE") throw new (await import("../../src/engine")).EngineError("no net NOPE on the board");
+    this.views.push({ job, opts, zip: !!zip });
+    return PNG.slice().buffer as ArrayBuffer;
+  }
+  async inspect(job: string, opts: InspectOptions, zip?: ArrayBuffer) {
+    if (this.lost && !zip) return NEED_BOARD;
+    return { board: { width: 30, height: 20 }, parts: [{ ref: "U1", x: 1, y: 2, rot: 0, side: "top" }], asked: opts.what ?? [], job };
   }
   async file(_job: string, name: string) {
     return new Response(name.endsWith(".png") ? PNG : new Uint8Array([1, 2, 3]), { headers: { "content-type": name.endsWith(".png") ? "image/png" : "model/gltf-binary" } });

@@ -84,7 +84,7 @@ describe.each(providers)("full design turn via %s", (kind, make) => {
     // the build: progress, checks, files copied into the project's store
     expect(all.filter((e) => e.type === "job").map((e) => e.type === "job" && e.step)).toEqual(["place", "route", "done"]);
     const arts = all.find((e) => e.type === "artifacts");
-    expect(arts?.type === "artifacts" && arts.artifacts.map((a) => a.url)).toEqual(["/projects/p_test/files/b1-top.png", "/projects/p_test/files/b1-board.glb"]);
+    expect(arts?.type === "artifacts" && arts.artifacts.map((a) => a.url)).toEqual(["/projects/p_test/files/b1-top.png", "/projects/p_test/files/b1-board.glb", "/projects/p_test/files/b1-board-kicad.zip"]);
     expect(room.files.has("projects/p_test/b1-top.png")).toBe(true);
     expect(all.filter((e) => e.type === "checks")).toHaveLength(1);
     expect(all.filter((e) => e.type === "usage").length).toBe(5);

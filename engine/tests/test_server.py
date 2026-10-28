@@ -84,3 +84,52 @@ def test_one_build_at_a_time(url, c3):
         assert code == 429 and 'busy' in json.loads(body)['error']
     finally:
         server._builds.release()
+
+
+@kicad
+def test_view_and_inspect(url, c3):
+    """An AI looks at its own board: layers, a net, a part, a region, 3D, and the data behind them."""
+    code, _, body = call(url, '/build', dict(design=c3, job='looktest', outputs=['svg']))
+    done = json.loads(body.splitlines()[-1])
+    assert code == 200 and done['ok']
+    kzip = next(a for a in done['artifacts'] if a['kind'] == 'kicad')
+
+    def png(req):
+        code, ctype, data = call(url, '/view', dict(job='looktest', **req))
+        assert code == 200, data[:300]
+        assert ctype == 'image/png' and data[:8] == b'\x89PNG\r\n\x1a\n'
+        return data
+
+    top = png({})
+    png(dict(layers=['F.Cu', 'B.Cu', 'Edge.Cuts'], net='GND'))
+    png(dict(layers=['F.Fab', 'Edge.Cuts'], refs=['U1'], region=[-10, -10, 10, 10]))
+    png(dict(side='bottom'))
+    iso = png(dict(mode='3d', rotate=[-45, 0, 45], width=600, height=450))
+    assert len(top) > 20000 and len(iso) > 10000
+
+    # a mistake comes back as a plain reason
+    code, _, data = call(url, '/view', dict(job='looktest', layers=['F.Nope']))
+    assert code == 400 and 'unknown layer' in json.loads(data)['error']
+    code, _, data = call(url, '/view', dict(job='looktest', net='NOPE'))
+    assert code == 400 and 'no net' in json.loads(data)['error']
+
+    code, _, data = call(url, '/inspect', dict(job='looktest'))
+    info = json.loads(data)
+    assert code == 200 and info['board']['copper_layers'] == 2
+    u1 = next(p for p in info['parts'] if p['ref'] == 'U1')
+    assert u1['side'] == 'top' and ':' in u1['footprint']
+    gnd = next(n for n in info['nets'] if n['name'] == 'GND')
+    assert len(gnd['pads']) > 3 and any('pour' in l for l in gnd['layers'])
+    assert info['drc']['errors'] == 0 and info['drc']['unconnected'] == 0
+
+    # a restarted engine has lost the job: it asks for the board, then works from it
+    import base64
+    code, _, zdata = call(url, kzip['url'])
+    assert code == 200
+    assert call(url, '/jobs/looktest', method='DELETE')[0] == 204
+    code, _, data = call(url, '/view', dict(job='looktest'))
+    assert code == 404 and json.loads(data)['need_board']
+    code, ctype, data = call(url, '/view', dict(job='looktest', kicad_zip=base64.b64encode(zdata).decode()))
+    assert code == 200 and ctype == 'image/png'
+    code, _, data = call(url, '/inspect', dict(job='looktest', what=['parts']))
+    assert code == 200 and 'drc' not in json.loads(data)

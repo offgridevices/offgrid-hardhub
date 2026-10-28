@@ -121,7 +121,9 @@ try {
 
   const fixture = JSON.parse(fs.readFileSync(FIXTURE, "utf8"));
   const patch = ["requirements", "blocks", "parts", "components", "nets", "placement", "firmware"].map((k) => ({ op: "replace", path: `/${k}`, value: fixture[k] }));
-  patch.push({ op: "add", path: "/board", value: fixture.board }, { op: "replace", path: "/name", value: "Room sensor (MCP)" });
+  // silkscreen: part names, outlines, and the board's name where the antenna leaves bare board
+  const board = { ...fixture.board, silkscreen: { outlines: true, refs: true, texts: [{ text: "ROOM SENSOR v1", x: 0, y: -17, size: 1.5 }] } };
+  patch.push({ op: "add", path: "/board", value: board }, { op: "replace", path: "/name", value: "Room sensor (MCP)" });
   const saved = await client.callTool({ name: "update_design", arguments: { project, summary: "ESP32-C3 room sensor: circuit and a 50 x 40 mm board", patch } });
   check(!saved.isError, "update_design saves the circuit", textOf(saved).split("\n")[0]);
   const checks = textOf(await client.callTool({ name: "check_circuit", arguments: { project } }));
@@ -148,6 +150,28 @@ try {
   const images = (render.content ?? []).filter((c) => c.type === "image");
   check(images.length > 0, "render gives the agent the board as images", `${images.length} PNG`);
   if (SHOTS) images.forEach((img, i) => fs.writeFileSync(path.join(SHOTS, `mcp-render-${i}.png`), Buffer.from(img.data, "base64")));
+
+  // ---------------------------------------------------------------- looking at its own work
+  const look = async (name, args, label) => {
+    const r = await client.callTool({ name: "view_board", arguments: { project, ...args } });
+    const img = (r.content ?? []).find((c) => c.type === "image");
+    check(!r.isError && !!img && img.data.length > 20000, `view_board: ${label}`, r.isError ? textOf(r).slice(0, 160) : `${Math.round(img.data.length * 0.75 / 1024)} KB`);
+    if (SHOTS && img) fs.writeFileSync(path.join(SHOTS, `mcp-view-${name}.png`), Buffer.from(img.data, "base64"));
+  };
+  await look("top", { layers: ["F.Cu", "F.Silkscreen", "Edge.Cuts"] }, "top copper and silkscreen");
+  await look("gnd", { layers: ["F.Cu", "B.Cu", "Edge.Cuts"], net: "GND" }, "ground highlighted on both layers");
+  await look("silk", { layers: ["F.Silkscreen", "F.Fab", "Edge.Cuts"], parts: ["U1"], labels: false }, "silkscreen with U1 outlined");
+  await look("zoom", { layers: ["F.Cu", "F.Mask", "F.Silkscreen"], region: [-10, -2, 10, 12] }, "a region zoomed in");
+  await look("bottom", { side: "bottom" }, "the bottom, seen from below");
+  await look("iso", { mode: "3d", rotate: [-45, 0, 45], width: 1200 }, "3D, isometric");
+  await look("back", { mode: "3d", side: "bottom", width: 1000 }, "3D, from below");
+  const info = JSON.parse(textOf(await client.callTool({ name: "inspect_board", arguments: { project } })));
+  check(info.parts?.length >= 21 && info.drc?.errors === 0 && info.drc?.unconnected === 0, "inspect_board: parts, nets and a clean DRC", `${info.parts?.length} parts, ${info.nets?.length} nets, DRC ${info.drc?.errors}/${info.drc?.warnings}/${info.drc?.unconnected}`);
+  const silk = bt.split("\n").find((l) => /silkscreen/i.test(l));
+  log(`      silkscreen check: ${silk ?? "passed"}`);
+  const r8 = info.parts.find((p) => p.ref === "R8");
+  const moved = await client.callTool({ name: "move_parts", arguments: { project, summary: "Turn R8 to line up with D1", moves: [{ ref: "R8", x: r8.x, y: r8.y, rot: (r8.rot + 90) % 360, locked: true }] } });
+  check(!moved.isError, "move_parts saves a new position", textOf(moved).split(".")[0]);
 
   const files = textOf(await client.callTool({ name: "get_files", arguments: { project } }));
   const bomName = /- (\S*bom\S*\.csv)/i.exec(files)?.[1];

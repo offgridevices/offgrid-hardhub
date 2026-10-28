@@ -50,7 +50,7 @@ def ctx():
     if _ctx is None:
         _ctx = mp.get_context('forkserver')
         _ctx.set_forkserver_preload(['pcbnew', 'shapely', 'hardhub.pipeline', 'hardhub.board', 'hardhub.checks',
-                                     'hardhub.route', 'hardhub.fab', 'hardhub.place', 'hardhub.miter'])
+                                     'hardhub.route', 'hardhub.fab', 'hardhub.place', 'hardhub.miter', 'hardhub.view'])
     return _ctx
 
 
@@ -84,12 +84,58 @@ def _check(q, design):
     q.put(dict(results=checks.circuit(design)))
 
 
+def _board(job, kicad_zip_b64):
+    """The job's routed board file, from its own files or from a KiCad zip the caller sent."""
+    from . import view
+    import base64
+    import io
+    zf = io.BytesIO(base64.b64decode(kicad_zip_b64)) if kicad_zip_b64 else None
+    return view.board_path(os.path.join(JOBS, job), zf)
+
+
+def _view(q, job, kicad_zip_b64, opts):
+    import base64
+    from . import view
+    pcb = _board(job, kicad_zip_b64)
+    if pcb is None:
+        return q.put(dict(error='board not found', need_board=True))
+    if opts.get('mode') == '3d':
+        png = view.view_3d(pcb, side=opts.get('side', 'top'), rotate=opts.get('rotate'), zoom=opts.get('zoom', 1),
+                           pan=opts.get('pan'), perspective=bool(opts.get('perspective')),
+                           width=opts.get('width', 1200), height=opts.get('height', 900), quality=opts.get('quality', 'basic'))
+    else:
+        png = view.view_2d(pcb, layers=opts.get('layers'), side=opts.get('side', 'top'), region=opts.get('region'),
+                           net=opts.get('net'), refs=opts.get('refs'), labels=opts.get('labels'),
+                           width=opts.get('width', 1400))
+    q.put(dict(png=base64.b64encode(png).decode()))
+
+
+def _inspect(q, job, kicad_zip_b64, what, refs, nets):
+    from . import view
+    pcb = _board(job, kicad_zip_b64)
+    if pcb is None:
+        return q.put(dict(error='board not found', need_board=True))
+    q.put(dict(result=view.inspect(pcb, what=what, refs=refs, nets=nets)))
+
+
+def _plain_child(fn, args, q):
+    """Like _child, for calls whose failure is a plain error, not a build result."""
+    os.setsid()
+    try:
+        fn(q, *args)
+    except Exception as e:                                  # noqa: BLE001 -- reported to the client
+        q.put(dict(error='%s: %s' % (type(e).__name__, e), user_error=isinstance(e, ValueError)))
+    finally:
+        q.put(None)
+
+
 def run_child(fn, args, timeout, on_line):
     """Fork fn from the warm process; pass each line it emits to on_line.
     Returns the last line, or raises TimeoutError."""
     c = ctx()
     q = c.Queue()
-    p = c.Process(target=_child, args=(fn, args, q), daemon=True)
+    target = _plain_child if fn in (_view, _inspect) else _child
+    p = c.Process(target=target, args=(fn, args, q), daemon=True)
     p.start()
     last, deadline = None, time.time() + timeout
     try:
@@ -226,6 +272,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, res)
             if self.path == '/build':
                 return self.build(req)
+            if self.path in ('/view', '/inspect'):
+                return self.look(req)
         except KeyError as e:
             return self.send_json(400, dict(error='missing field %s' % e))
         except Exception as e:                              # noqa: BLE001 -- the caller must hear about it
@@ -233,6 +281,34 @@ class Handler(BaseHTTPRequestHandler):
             code = 502 if isinstance(e, CatalogError) else 500
             return self.send_json(code, dict(error='%s: %s' % (type(e).__name__, e)))
         self.send_json(404, dict(error='not found'))
+
+    def look(self, req):
+        """POST /view -> image/png; POST /inspect -> JSON. 404 with need_board when the
+        engine no longer has the job's board: send it back as kicad_zip (base64)."""
+        job = str(req.get('job', ''))
+        if not JOB_RE.match(job):
+            return self.send_json(400, dict(error='job must be 1-64 letters, digits, - or _'))
+        z = req.get('kicad_zip')
+        if self.path == '/view':
+            res = run_child(_view, (job, z, req), 300, lambda x: None)
+        else:
+            what = [w for w in (req.get('what') or ['parts', 'nets', 'drc']) if w in ('parts', 'nets', 'drc')]
+            res = run_child(_inspect, (job, z, what, req.get('refs'), req.get('nets')), 300, lambda x: None)
+        if not res:
+            return self.send_json(500, dict(error='the engine stopped without a result'))
+        if res.get('need_board'):
+            return self.send_json(404, dict(error=res['error'], need_board=True))
+        if 'error' in res:
+            return self.send_json(400 if res.get('user_error') else 500, dict(error=res['error']))
+        if self.path == '/inspect':
+            return self.send_json(200, res['result'])
+        import base64
+        png = base64.b64decode(res['png'])
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/png')
+        self.send_header('Content-Length', str(len(png)))
+        self.end_headers()
+        self.wfile.write(png)
 
     def build(self, req):
         job = str(req.get('job', ''))

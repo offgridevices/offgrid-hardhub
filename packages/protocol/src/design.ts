@@ -106,6 +106,25 @@ export const LayerRole = z.object({
 
 export const Rect = z.tuple([z.number(), z.number(), z.number(), z.number()]); // x0 y0 x1 y1
 
+// Words on the board: its name, version, connector labels. x, y: the text's
+// centre in board mm; size: letter height (fabs print 0.8 mm and up)
+export const SilkText = z.object({
+  text: z.string().min(1).max(60),
+  x: z.number(),
+  y: z.number(),
+  size: z.number().min(0.8).max(5).default(1.2),
+  side: z.enum(["top", "bottom"]).default("top"),
+  rot: z.number().default(0),
+});
+
+// What goes on the silkscreen. The engine keeps all of it clear of pads,
+// parts and the edge, and the "silkscreen" check says what did not fit.
+export const Silkscreen = z.object({
+  outlines: z.boolean().default(false), // each part's outline and pin-1 mark
+  refs: z.boolean().default(false), // each part's name (R1, U2) beside it
+  texts: z.array(SilkText).max(40).default([]),
+});
+
 export const Board = z.object({
   width: z.number().min(5).max(500),
   height: z.number().min(5).max(500),
@@ -124,6 +143,7 @@ export const Board = z.object({
   keepouts: z
     .array(z.object({ rect: Rect, layers: z.array(CopperLayer).default([]), reason: z.string() }))
     .default([]),
+  silkscreen: Silkscreen.default({ outlines: false, refs: false, texts: [] }),
 });
 export type Board = z.infer<typeof Board>;
 

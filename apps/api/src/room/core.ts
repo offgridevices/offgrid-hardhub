@@ -333,6 +333,8 @@ export class RoomCore {
       quote: (d, q) => e.quote(d, q),
       build: (d, job, signal, stopAfter) => e.build(d, scoped(job), signal, stopAfter),
       file: (job, name) => e.file(scoped(job), name),
+      view: (job, opts, zip) => e.view(scoped(job), opts, zip),
+      inspect: (job, opts, zip) => e.inspect(scoped(job), opts, zip),
     };
   }
 
@@ -355,6 +357,8 @@ export class RoomCore {
       },
       renders: () => JSON.parse(this.meta("renders") ?? "[]") as string[],
       setRenders: (names) => this.setMeta("renders", JSON.stringify(names)),
+      lastBuild: () => JSON.parse(this.meta("last_build") ?? "null") as { job: string; kicad: string } | null,
+      setLastBuild: (b) => this.setMeta("last_build", JSON.stringify(b)),
       vision,
     };
   }

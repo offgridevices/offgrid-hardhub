@@ -21,5 +21,17 @@
 - **Every track corner is 45 degrees or less** (the house rule; the engine
   enforces it). What actually keeps a board quiet is the unbroken ground plane,
   short return paths and small current loops.
-- After `build_board`, look at the `render`. If routing left connections
-  unrouted, move the parts that crowd them and rebuild rather than adding layers.
+- **Silkscreen:** turn on `refs` and `outlines`, and print the board's name and
+  revision (`texts`) where there is bare board. The engine keeps silkscreen off
+  pads, parts and the edge; the "silkscreen" check names what did not fit, so
+  move it and rebuild.
+- **Look at your work after every `build_board`.** `view_board` draws any
+  layers on a millimetre grid in board coordinates: the copper of each side,
+  one net highlighted (is ground continuous? does the supply take a short,
+  wide path?), the silkscreen (readable, nothing on a pad?), a region zoomed
+  in, the bottom seen from below, and 3D from any angle. `inspect_board` gives
+  the same board as data: each part's position, each net's length and vias,
+  and every DRC finding with its location.
+- **Fix by moving, then rebuild.** `move_parts` sets positions and rotations
+  (lock the ones you placed on purpose). If routing left connections unrouted,
+  move the parts that crowd them rather than adding layers.

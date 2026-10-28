@@ -36,13 +36,17 @@ You are connected to HardHub from the person's own AI app. The guide below was w
 - Every tool takes \`project\`: the id from \`create_project\` or \`list_projects\`.
 - \`build_board\` runs KiCad in the background. If it comes back before the build has finished, call \`wait_for_build\` until it has.
 - After each stage, \`note\` a few plain sentences into the project: what was decided and why. The person (or anyone they share it with) follows the project in the app.
+- Look at your own work after every build: \`view_board\` (any layers, a net highlighted, a region zoomed, the bottom, or 3D from any angle) and \`inspect_board\` (positions, nets, DRC findings with locations). Move parts with \`move_parts\` and rebuild.
 - \`get_files\` lists the order files of the last build; \`read_file\` reads the text ones (BOM, placement, checks).
 
 `;
 
 // the person's tools, as HardHub's own AI has them, minus asking (done in chat)
-const ROOM_TOOLS = ["get_design", "update_design", "search_parts", "get_part", "propose_options", "check_circuit", "build_board", "render", "quote", "set_stage", "write_firmware"] as const;
-const READ_ONLY = new Set(["get_design", "search_parts", "get_part", "render", "quote"]);
+const ROOM_TOOLS = [
+  "get_design", "update_design", "move_parts", "search_parts", "get_part", "propose_options", "check_circuit",
+  "build_board", "view_board", "inspect_board", "render", "quote", "set_stage", "write_firmware",
+] as const;
+const READ_ONLY = new Set(["get_design", "search_parts", "get_part", "render", "view_board", "inspect_board", "quote"]);
 
 const DESCRIPTIONS: Partial<Record<(typeof ROOM_TOOLS)[number], string>> = {
   propose_options:

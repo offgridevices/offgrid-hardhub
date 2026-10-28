@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from conftest import kicad
+from conftest import fixture, kicad
 
 pytestmark = kicad
 
@@ -70,6 +70,32 @@ def test_small_board_is_green(c3, tmp_path):
     assert any(l.get('step') == 'route' for l in lines)
     print('small board: %.0f s, %d vias, glb %d -> %d bytes' % (took, s['vias'], s.get('glb_raw_bytes', 0),
                                                                  s.get('glb_bytes', 0)))
+
+
+@kicad
+def test_silkscreen(c3, tmp_path):
+    """Part names, outlines and the design's own words on the silkscreen, with
+    the DRC still clean, and what did not fit said plainly."""
+    import pcbnew
+    from hardhub import view
+    c3['board']['silkscreen'] = dict(outlines=True, refs=True, texts=[
+        dict(text='ROOM SENSOR v1', x=0, y=-18.5, size=1.2),
+        dict(text='ON A PAD', x=-21, y=-3.2, size=1.0)])
+    final, _ = build(c3, tmp_path, outputs=())
+    st = {c['id']: c for c in final['checks']}
+    assert final['ok'] and st['drc-errors']['status'] == 'pass' and st['drc-warnings']['status'] == 'pass', st['drc-warnings']
+    silk = st['silkscreen']
+    assert silk['status'] == 'warn' and '"ON A PAD"' in silk['detail'] and 'part names on the silkscreen' in silk['detail']
+    b = pcbnew.LoadBoard(view.board_path(str(tmp_path)))
+    on_silk = [fp.GetReference() for fp in b.GetFootprints() if fp.Reference().GetLayer() == pcbnew.F_SilkS]
+    assert len(on_silk) >= 10
+    texts = [d.GetText() for d in b.GetDrawings() if d.GetLayer() == pcbnew.F_SilkS]
+    assert 'ROOM SENSOR v1' in texts, silk['detail']
+    # no silkscreen asked for: none made, as before
+    final, _ = build(fixture('esp32c3-sensor.json'), tmp_path / 'plain', outputs=())
+    b = pcbnew.LoadBoard(view.board_path(str(tmp_path / 'plain')))
+    assert [fp.GetReference() for fp in b.GetFootprints() if fp.Reference().GetLayer() == pcbnew.F_SilkS] == []
+    assert not any(g.GetLayer() in (pcbnew.F_SilkS, pcbnew.User_9) for fp in b.GetFootprints() for g in fp.GraphicalItems())
 
 
 def test_bad_design_stops_early(c3, tmp_path):

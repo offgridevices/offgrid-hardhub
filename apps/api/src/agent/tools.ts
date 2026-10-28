@@ -14,7 +14,7 @@ import {
 } from "@hardhub/protocol";
 import jsonpatch, { type Operation } from "fast-json-patch";
 import { z } from "zod";
-import type { Engine } from "../engine";
+import { type Engine, EngineError, type NeedBoard, type ViewOptions } from "../engine";
 import type { ToolCall, ToolImage, ToolOutcome, ToolSpec } from "./llm/types";
 import type { ToolRun } from "./loop";
 
@@ -35,6 +35,9 @@ export interface ToolContext {
   /** names of the board renders from the last build */
   renders(): string[];
   setRenders(names: string[]): void;
+  /** the last build that made files: its engine job and its KiCad zip in the file store */
+  lastBuild(): { job: string; kicad: string } | null;
+  setLastBuild(b: { job: string; kicad: string }): void;
   /** the model can look at images */
   vision: boolean;
 }
@@ -70,6 +73,40 @@ const UpdateInput = z.object({
 const BUILD_STEPS = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "fab", "render"] as const;
 
 const FIRMWARE_PATH = /^(?!.*\.\.)[\w][\w./-]{0,119}$/;
+
+const LAYER = z.string().regex(/^((F|B)\.(Cu|Silkscreen|Mask|Paste|Fab|Courtyard)|In\d{1,2}\.Cu|Edge\.Cuts)$/, "a KiCad layer name like F.Cu, In1.Cu, F.Silkscreen, B.Mask, Edge.Cuts");
+
+const ViewInput = z.object({
+  mode: z.enum(["2d", "3d"]).default("2d").describe("2d: a drawing of chosen layers with a millimetre grid; 3d: KiCad's render"),
+  layers: z.array(LAYER).min(1).max(12).optional().describe("2d: which layers, e.g. [\"F.Cu\", \"F.Silkscreen\", \"Edge.Cuts\"]; default the side's copper, silkscreen and outline"),
+  side: z.enum(["top", "bottom", "left", "right", "front", "back"]).default("top").describe("2d: top or bottom (bottom is seen from below, x mirrored). 3d: the camera's side"),
+  region: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional().describe("2d: zoom to [x0, y0, x1, y1], board mm from the centre"),
+  net: z.string().max(100).optional().describe("2d: highlight this net's copper"),
+  parts: z.array(z.string().regex(/^[A-Z]+\d+$/)).max(20).optional().describe("2d: outline these parts (refs)"),
+  labels: z.boolean().optional().describe("2d: write each part's ref at its centre (default: unless the silkscreen is shown)"),
+  rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("3d: rotate the board [x, y, z] degrees; [-45, 0, 45] is an isometric view"),
+  zoom: z.number().min(0.2).max(10).default(1).describe("3d: camera zoom"),
+  perspective: z.boolean().default(false).describe("3d: perspective instead of orthographic"),
+  quality: z.enum(["basic", "high"]).default("basic").describe("3d: high is ray-traced and slower"),
+  width: z.number().int().min(400).max(2000).default(1400).describe("image width in pixels"),
+});
+
+const MoveInput = z.object({
+  summary: z.string().min(3).max(200).describe("one plain sentence saying what moved and why"),
+  moves: z
+    .array(
+      z.object({
+        ref: z.string().regex(/^[A-Z]+\d+$/),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        rot: z.number().optional().describe("degrees, counter-clockwise"),
+        side: z.enum(["top", "bottom"]).optional(),
+        locked: z.boolean().optional().describe("true: the automatic placement must not move it"),
+      }),
+    )
+    .min(1)
+    .max(100),
+});
 
 // ------------------------------------------------------------------ tools
 
@@ -186,6 +223,8 @@ export const TOOLS = {
         if (stored.length) ctx.emit({ type: "artifacts", artifacts: stored });
         const renders = stored.filter((a) => a.kind === "board-png").map((a) => a.name);
         if (renders.length) ctx.setRenders(renders);
+        const kicad = stored.find((a) => a.kind === "kicad");
+        if (kicad) ctx.setLastBuild({ job, kicad: kicad.name });
         // keep the engine's placement for parts the design left unplaced
         const added = Object.entries(line.placement).filter(([ref]) => !(ref in design.placement));
         if (added.length) {
@@ -226,6 +265,88 @@ export const TOOLS = {
         if (buf) images.push({ mediaType: "image/png", data: base64(buf) });
       }
       return { content: `Renders: ${names.join(", ")}`, images };
+    },
+  }),
+
+  view_board: tool({
+    description:
+      "Look at the built board as an image, to check your own work: any layers (copper, silkscreen, solder mask, paste, fab drawing, courtyard, outline), top or bottom, zoomed into a region, with a net highlighted or parts outlined, on a millimetre grid in board coordinates (from the centre, x right, y down). Or a 3D render from any side and angle. Shows the last build_board result: rebuild after changes.",
+    schema: ViewInput,
+    label: (i) => (i.mode === "3d" ? "Looking at the board in 3D" : `Looking at ${i.layers?.join(", ") ?? `the ${i.side} side`}${i.net ? `, net ${i.net}` : ""}`),
+    async run(i, ctx) {
+      if (!ctx.vision) return { content: "This model cannot look at images; use inspect_board for the same facts as data.", isError: true };
+      const opts: ViewOptions =
+        i.mode === "3d"
+          ? { mode: "3d", side: i.side, zoom: i.zoom, perspective: i.perspective, quality: i.quality, width: Math.min(i.width, 1600), height: Math.round(Math.min(i.width, 1600) * 0.75), ...(i.rotate ? { rotate: i.rotate } : {}) }
+          : {
+              mode: "2d",
+              side: i.side === "bottom" ? "bottom" : "top",
+              width: i.width,
+              ...(i.labels !== undefined ? { labels: i.labels } : {}),
+              ...(i.layers ? { layers: i.layers } : {}),
+              ...(i.region ? { region: i.region } : {}),
+              ...(i.net ? { net: i.net } : {}),
+              ...(i.parts ? { refs: i.parts } : {}),
+            };
+      const png = await fromLastBuild(ctx, (job, zip) => ctx.engine.view(job, opts, zip));
+      if (typeof png === "string") return { content: png, isError: true };
+      const caption =
+        i.mode === "3d"
+          ? `3D view from ${i.side}${i.rotate ? `, rotated ${i.rotate.join(", ")} degrees` : ""}.`
+          : `2D view: ${i.side} side${i.layers ? `, layers ${i.layers.join(", ")}` : ""}${i.region ? `, region ${i.region.join(", ")} mm` : ""}${i.net ? `, net ${i.net} highlighted` : ""}${i.parts ? `, ${i.parts.join(", ")} outlined` : ""}. Grid in mm from the board centre.`;
+      return { content: caption, images: [{ mediaType: "image/png", data: base64(png) }] };
+    },
+  }),
+
+  inspect_board: tool({
+    description:
+      "The built board as data: every part's position, rotation, side and size; every net's pads, track length, vias and layers; and a fresh DRC with each finding's location (board mm from the centre). Use it to find what view_board shows, or to check a change. Shows the last build_board result.",
+    schema: z.object({
+      what: z.array(z.enum(["parts", "nets", "drc"])).min(1).default(["parts", "nets", "drc"]),
+      parts: z.array(z.string().regex(/^[A-Z]+\d+$/)).max(50).optional().describe("only these parts"),
+      nets: z.array(z.string().max(100)).max(50).optional().describe("only these nets"),
+    }),
+    label: (i) => `Inspecting the board (${i.what.join(", ")})`,
+    async run(i, ctx) {
+      const info = await fromLastBuild(ctx, (job, zip) =>
+        ctx.engine.inspect(job, { what: i.what, ...(i.parts ? { refs: i.parts } : {}), ...(i.nets ? { nets: i.nets } : {}) }, zip),
+      );
+      if (typeof info === "string") return { content: info, isError: true };
+      const text = JSON.stringify(info);
+      return { content: text.length > 60_000 ? `${text.slice(0, 60_000)}… (cut: ask for fewer parts or nets)` : text };
+    },
+  }),
+
+  move_parts: tool({
+    description:
+      "Move, rotate, flip or lock parts: sets their placement in the design (board mm from the centre, rotation in degrees). Parts you do not lock may still be nudged by automatic placement. Run build_board afterwards to lay out and route again, then view_board to look.",
+    schema: MoveInput,
+    label: (i) => i.summary,
+    async run(i, ctx) {
+      const { design } = ctx.design();
+      const known = new Set(design.components.map((c) => c.ref));
+      const unknown = i.moves.filter((m) => !known.has(m.ref)).map((m) => m.ref);
+      if (unknown.length) return { content: `No part ${unknown.join(", ")} in the design.`, isError: true };
+      const placement = { ...design.placement };
+      for (const m of i.moves) {
+        const cur = placement[m.ref];
+        if (!cur && (m.x === undefined || m.y === undefined))
+          return { content: `${m.ref} has no position yet: give x and y (inspect_board shows where the last build put it).`, isError: true };
+        placement[m.ref] = {
+          x: m.x ?? cur!.x,
+          y: m.y ?? cur!.y,
+          rot: m.rot ?? cur?.rot ?? 0,
+          side: m.side ?? cur?.side ?? "top",
+          locked: m.locked ?? cur?.locked ?? false,
+        };
+      }
+      const b = design.board;
+      const outside = b
+        ? i.moves.filter((m) => Math.abs(placement[m.ref]!.x) > b.width / 2 || Math.abs(placement[m.ref]!.y) > b.height / 2).map((m) => m.ref)
+        : [];
+      if (outside.length) return { content: `${outside.join(", ")} would be off the ${b!.width} x ${b!.height} mm board.`, isError: true };
+      const version = ctx.saveDesign({ ...design, placement }, i.summary);
+      return { content: `Saved as version ${version}. Run build_board to lay out and route the board again.` };
     },
   }),
 
@@ -356,6 +477,29 @@ export function contentType(name: string): string {
     }[ext] ?? "application/octet-stream"
   );
 }
+
+/** Runs a look at the last build; when the engine has lost that build (a
+ * restarted container), sends it the board from the file store and tries
+ * again. A string is a reason it could not. */
+async function fromLastBuild<T>(ctx: ToolContext, look: (job: string, zip?: ArrayBuffer) => Promise<T | NeedBoard>): Promise<T | string> {
+  const last = ctx.lastBuild();
+  if (!last) return "No built board yet: run build_board first.";
+  try {
+    let r = await look(last.job);
+    if (isNeedBoard(r)) {
+      const zip = await ctx.getFile(last.kicad);
+      if (!zip) return "The last build's board file is missing: run build_board again.";
+      r = await look(last.job, zip);
+      if (isNeedBoard(r)) return "The engine could not open the last build's board: run build_board again.";
+    }
+    return r;
+  } catch (e) {
+    if (e instanceof EngineError) return e.message;
+    throw e;
+  }
+}
+
+const isNeedBoard = (r: unknown): r is NeedBoard => !!r && typeof r === "object" && (r as { needBoard?: boolean }).needBoard === true;
 
 function base64(buf: ArrayBuffer): string {
   const u = new Uint8Array(buf);
