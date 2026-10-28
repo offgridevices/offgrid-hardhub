@@ -1,7 +1,8 @@
 # HardHub on one computer: `./hardhub` (or `docker compose up --build`).
 #
 #   web     http://localhost:5173   the app
-#   api     http://localhost:8787   Worker + Durable Objects + D1 + R2 (wrangler dev)
+#   api     http://localhost:8787   Worker + Durable Objects + D1 + R2 (wrangler dev);
+#                                   the app reaches it as /api on its own origin
 #   engine  http://localhost:8080   KiCad 10 + Freerouting, design -> board
 #
 # Projects, keys and build outputs live in the named volumes below and
@@ -54,8 +55,11 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      args: { VITE_API_URL: http://localhost:8787 }
+      args: { VITE_API_URL: /api }
     ports: ["5173:5173"]
+    environment:
+      # one origin, as on Cloudflare: the web server forwards /api to the API
+      API_PROXY: http://api:8787
     depends_on:
       api: { condition: service_healthy }
     healthcheck:
