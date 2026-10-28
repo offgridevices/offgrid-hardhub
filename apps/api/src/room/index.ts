@@ -74,11 +74,11 @@ export class ProjectRoom extends DurableObject<Env> {
   }
 
   agentRequest(text: string) {
-    this.core.agentRequest(text);
+    return this.core.agentRequest(text);
   }
 
   agentNote(text: string) {
-    this.core.agentNote(text);
+    return this.core.agentNote(text);
   }
 
   agentResults() {

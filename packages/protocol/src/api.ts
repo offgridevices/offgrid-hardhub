@@ -111,7 +111,8 @@ export const OAuthApprove = z.object({
 export type OAuthApprove = z.infer<typeof OAuthApprove>;
 
 // What the consent page shows: who is asking. GET /oauth/client?client_id=&redirect_uri=
-export const OAuthClientInfo = z.object({ client_id: z.string(), name: z.string(), redirect_host: z.string() });
+// client_host: for an app named by a metadata URL, that URL's host, which its chosen name cannot fake
+export const OAuthClientInfo = z.object({ client_id: z.string(), name: z.string(), redirect_host: z.string(), client_host: z.string().optional() });
 export type OAuthClientInfo = z.infer<typeof OAuthClientInfo>;
 
 export const OAuthRedirect = z.object({ redirect: z.string() });

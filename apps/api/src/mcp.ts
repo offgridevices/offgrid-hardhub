@@ -201,8 +201,8 @@ export function buildServer(deps: McpDeps): McpServer {
     },
     async ({ project, text: t }) => {
       if (!(await owned(project))) return noProject(project);
-      await deps.room(project).agentNote(t);
-      return text("Noted in the project.");
+      const refused = await deps.room(project).agentNote(t);
+      return refused ? toResult(refused) : text("Noted in the project.");
     },
   );
 

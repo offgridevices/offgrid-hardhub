@@ -81,11 +81,11 @@ export async function sessionUser(env: Env, token: string): Promise<string | nul
   return row?.user_id ?? null;
 }
 
-/** Any live token: an agent's access token (clientId set) or a browser session. */
-export async function tokenOwner(env: Env, token: string): Promise<{ userId: string; clientId: string | null } | null> {
-  const row = await env.DB.prepare("SELECT user_id, client_id FROM sessions WHERE token_hash = ? AND expires_at > ?")
+/** An agent's access token, issued by HardHub's sign-in for MCP (never a browser session). */
+export async function agentTokenOwner(env: Env, token: string): Promise<{ userId: string; clientId: string } | null> {
+  const row = await env.DB.prepare("SELECT user_id, client_id FROM sessions WHERE token_hash = ? AND expires_at > ? AND client_id IS NOT NULL")
     .bind(await sha256(token), now())
-    .first<{ user_id: string; client_id: string | null }>();
+    .first<{ user_id: string; client_id: string }>();
   return row ? { userId: row.user_id, clientId: row.client_id } : null;
 }
 

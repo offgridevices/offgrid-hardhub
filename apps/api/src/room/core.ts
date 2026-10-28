@@ -60,12 +60,17 @@ export interface AgentBuild {
   result?: AgentResult;
 }
 
+/** agent tools that change the design: not while an agent's build runs from it */
+const CHANGES_DESIGN = new Set(["update_design", "set_stage", "write_firmware"]);
+
 let counter = 0;
 const shortId = (p: string) => `${p}_${Date.now().toString(36)}${(counter++ % 1296).toString(36)}`;
 
 export class RoomCore {
   private abort: AbortController | null = null;
   private buildAbort: AbortController | null = null;
+  /** agent tool calls running now (MCP); the person's own chat waits for them */
+  private agentCalls = 0;
   private delta: { id: string; text: string; timer: ReturnType<typeof setTimeout> | null } | null = null;
 
   constructor(private readonly d: RoomDeps) {
@@ -284,8 +289,8 @@ export class RoomCore {
       this.d.broadcast(JSON.stringify({ type: "error", message: "HardHub is still working on the last message.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
       return false;
     }
-    if (this.buildingForAgent()) {
-      this.d.broadcast(JSON.stringify({ type: "error", message: "A connected AI is building this board. Send your message when the build has finished.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
+    if (this.buildingForAgent() || this.agentCalls > 0) {
+      this.d.broadcast(JSON.stringify({ type: "error", message: "A connected AI is working on this board. Send your message when it has finished.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
       return false;
     }
     this.queue(input);
@@ -360,18 +365,35 @@ export class RoomCore {
    * AI has, run here so every open client sees it happen. build_board starts a
    * background build instead (agentBuild tells how it is going). */
   async agentTool(name: string, input: unknown): Promise<AgentResult> {
-    if (this.busy || this.meta("queued"))
-      return { content: "HardHub's own AI is answering a message in this project. Try again when it has finished.", isError: true };
+    const refused = this.agentRefusal();
+    if (refused) return refused;
     if (name === "build_board") return this.startAgentBuild(input);
-    const r = await runTool({ id: shortId("x"), name, input }, this.toolContext(true), new AbortController().signal);
-    this.agentDone();
-    return { content: r.outcome.content, ...(r.outcome.images ? { images: r.outcome.images } : {}), ...(r.outcome.isError ? { isError: true } : {}) };
+    // the build works from the design as it was when it started
+    if (CHANGES_DESIGN.has(name) && this.buildingForAgent())
+      return { content: "A board build is running from the current design. Call wait_for_build, then make the change.", isError: true };
+    this.agentCalls++;
+    try {
+      const r = await runTool({ id: shortId("x"), name, input }, this.toolContext(true), new AbortController().signal);
+      return { content: r.outcome.content, ...(r.outcome.images ? { images: r.outcome.images } : {}), ...(r.outcome.isError ? { isError: true } : {}) };
+    } finally {
+      this.agentCalls--;
+      this.agentDone();
+    }
+  }
+
+  /** Agents wait while HardHub's own AI is answering in this project. */
+  private agentRefusal(): AgentResult | null {
+    return this.busy || this.meta("queued")
+      ? { content: "HardHub's own AI is answering a message in this project. Try again when it has finished.", isError: true }
+      : null;
   }
 
   /** Each agent action is a short turn of its own: clients show "working"
-   * while it runs and are idle again after, as with a reply. */
+   * while it runs and are idle again after, as with a reply. A question the
+   * built-in AI asked stays open (its turn ended waiting for the person). */
   private agentDone(reason: "done" | "error" | "stopped" = "done") {
-    this.emit({ type: "turn_end", reason });
+    if (this.agentCalls > 0 || this.buildingForAgent()) return; // still working
+    this.emit({ type: "turn_end", reason: this.meta("pending") ? "waiting_for_user" : reason });
   }
 
   agentBuild(): AgentBuild | null {
@@ -425,15 +447,21 @@ export class RoomCore {
   }
 
   /** What the person asked their agent for, shown as their message. */
-  agentRequest(text: string) {
+  agentRequest(text: string): AgentResult | null {
+    const refused = this.agentRefusal();
+    if (refused) return refused;
     this.emit({ type: "user_message", id: shortId("m"), text });
     this.agentDone();
+    return null;
   }
 
   /** A short message from the agent, shown in the project's conversation. */
-  agentNote(text: string) {
+  agentNote(text: string): AgentResult | null {
+    const refused = this.agentRefusal();
+    if (refused) return refused;
     this.emit({ type: "assistant_text", id: shortId("t"), text, done: true });
     this.agentDone();
+    return null;
   }
 
   /** The files of the last build that made any. */

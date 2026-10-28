@@ -92,6 +92,11 @@ export default function Connect() {
                 <p className="lead">
                   {name} will design boards with you in its own chat. It does the thinking on your own plan there: no API key, and HardHub never sees that account.
                 </p>
+                <p className="small muted" data-testid="connect-who">
+                  {client.client_host
+                    ? `Identified by ${client.client_host}.`
+                    : "The app chose this name itself. Allow it only if you just asked your AI app to connect to HardHub."}
+                </p>
               </div>
               <div className="panel" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
                 <strong className="small">It will be able to</strong>

@@ -10,7 +10,7 @@ import * as db from "./db";
 import { type Env, isDev } from "./env";
 import { mailer } from "./mail";
 import { appUrlFor, handleMcp } from "./mcp";
-import { checkRequest, createCode, listConnections, oauth, resourceMetadataUrl, revokeConnection, SCOPE } from "./oauth";
+import { checkRequest, createCode, listConnections, oauth, redirectLabel, resourceMetadataUrl, revokeConnection, SCOPE } from "./oauth";
 
 type Ctx = { Bindings: Env; Variables: { userId: string; token: string } };
 type C = Context<Ctx>;
@@ -55,7 +55,7 @@ app.route("/", oauth);
 
 app.all("/mcp", async (c) => {
   const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  const owner = token ? await db.tokenOwner(c.env, token) : null;
+  const owner = token ? await db.agentTokenOwner(c.env, token) : null;
   if (!owner) {
     // tells the agent where to sign in (RFC 9728)
     const challenge = `Bearer resource_metadata="${resourceMetadataUrl(c.req.raw)}", scope="${SCOPE}"${token ? ', error="invalid_token"' : ""}`;
@@ -139,13 +139,7 @@ app.delete("/connections/:client", auth, async (c) => {
 app.get("/oauth/client", auth, async (c) => {
   const r = await checkRequest(c.env, c.req.query("client_id") ?? "", c.req.query("redirect_uri") ?? "");
   if (typeof r === "string") return c.json({ error: r }, 400);
-  let host = "";
-  try {
-    host = new URL(c.req.query("redirect_uri")!).host || new URL(c.req.query("redirect_uri")!).protocol;
-  } catch {
-    /* checked above */
-  }
-  return c.json({ client_id: r.client_id, name: r.name, redirect_host: host });
+  return c.json({ client_id: r.client_id, name: r.name, redirect_host: redirectLabel(c.req.query("redirect_uri")!), ...(r.host ? { client_host: r.host } : {}) });
 });
 
 app.post("/oauth/approve", auth, async (c) => {

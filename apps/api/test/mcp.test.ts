@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { sha256 } from "../src/crypto";
 import { app } from "../src/http";
 import worker from "../src/index";
-import { redirectAllowed, redirectMatches } from "../src/oauth";
+import { getClient, redirectAllowed, redirectLabel, redirectMatches } from "../src/oauth";
 import { type TestEnv, asEnv, testEnv } from "./support/env";
 import { FakeEngine } from "./support/room";
 
@@ -166,6 +166,12 @@ describe("agent sign-in (OAuth 2.1)", () => {
     expect(redirectAllowed("http://127.0.0.1:5555/cb")).toBe(true);
     expect(redirectAllowed("http://localhost/cb")).toBe(true);
     expect(redirectAllowed("cursor://anysphere.cursor-retrieval/oauth/callback")).toBe(true);
+    expect(redirectAllowed("com.example.agent:/oauth")).toBe(true);
+    expect(redirectAllowed("mailto:a@example.com")).toBe(false);
+    expect(redirectAllowed("ms-settings:privacy")).toBe(false);
+    expect(redirectAllowed("x-app://claude.ai/cb")).toBe(false);
+    expect(redirectLabel("com.example.agent://claude.ai/cb")).toBe("com.example.agent://claude.ai");
+    expect(redirectLabel("https://claude.ai/api/mcp/auth_callback")).toBe("claude.ai");
     expect(redirectAllowed("http://evil.example/cb")).toBe(false);
     expect(redirectAllowed("javascript:alert(1)")).toBe(false);
     expect(redirectAllowed("https://x.example/cb#frag")).toBe(false);
@@ -182,11 +188,12 @@ describe("agent sign-in (OAuth 2.1)", () => {
     // unknown client or unregistered redirect: an error page, never a redirect
     expect((await call(`/oauth/authorize?client_id=nope&redirect_uri=${CALLBACK}`)).status).toBe(400);
     expect((await call(`/oauth/authorize?client_id=${reg.client_id}&redirect_uri=https://evil.example/cb`)).status).toBe(400);
-    // no PKCE: back to the agent with an error
+    // a bad request is shown, never bounced to the registered address
+    // (anyone can register one: that would make HardHub a phishing redirector)
     const noPkce = await call(`/oauth/authorize?response_type=code&client_id=${reg.client_id}&redirect_uri=${CALLBACK}&state=s1`);
-    expect(noPkce.status).toBe(302);
-    expect(noPkce.headers.get("location")).toContain("error=invalid_request");
-    expect(noPkce.headers.get("location")).toContain("state=s1");
+    expect(noPkce.status).toBe(400);
+    expect(noPkce.headers.get("location")).toBeNull();
+    expect((await call(`/oauth/authorize?client_id=${reg.client_id}`)).status).toBe(400);
   });
 
   it("checks PKCE, spends a code once, rotates refresh tokens, and keeps agent tokens off the rest of the API", async () => {
@@ -242,6 +249,98 @@ describe("agent sign-in (OAuth 2.1)", () => {
     expect(u.searchParams.get("error")).toBe("access_denied");
     expect(u.searchParams.get("code")).toBeNull();
     expect(u.searchParams.get("state")).toBe("xyz");
+  });
+});
+
+describe("ending connections", () => {
+  const verifier = "v".repeat(50);
+  async function setup() {
+    const reg = (await (await call("/oauth/register", { method: "POST", body: JSON.stringify({ client_name: "X", redirect_uris: [CALLBACK] }) })).json()) as { client_id: string };
+    const browser = await browserSession();
+    const challenge = await sha256(verifier);
+    const code = async () => {
+      const r = (await (await call("/oauth/approve", { method: "POST", token: browser, body: JSON.stringify({ client_id: reg.client_id, redirect_uri: CALLBACK, code_challenge: challenge, allow: true }) })).json()) as { redirect: string };
+      return new URL(r.redirect).searchParams.get("code")!;
+    };
+    const token = (p: Record<string, string>) =>
+      call("/oauth/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(p).toString() });
+    const redeem = (c: string) => token({ grant_type: "authorization_code", code: c, client_id: reg.client_id, redirect_uri: CALLBACK, code_verifier: verifier });
+    const init = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } };
+    const mcpStatus = async (t: string) => (await call("/mcp", { method: "POST", token: t, headers: { accept: "application/json, text/event-stream" }, body: JSON.stringify(init) })).status;
+    return { reg, browser, code, token, redeem, mcpStatus };
+  }
+
+  it("ends the connection made from a code that is used twice", async () => {
+    const { code, redeem, mcpStatus } = await setup();
+    const c = await code();
+    const t = (await (await redeem(c)).json()) as { access_token: string };
+    expect(await mcpStatus(t.access_token)).toBe(200);
+    expect((await redeem(c)).status).toBe(400);
+    expect(await mcpStatus(t.access_token)).toBe(401);
+  });
+
+  it("ends a connection whose old refresh token turns up again later, not a client racing itself", async () => {
+    const { reg, redeem, code, token, mcpStatus } = await setup();
+    const t1 = (await (await redeem(await code())).json()) as { access_token: string; refresh_token: string };
+    const t2 = (await (await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token, client_id: reg.client_id })).json()) as { access_token: string; refresh_token: string };
+    // the same old token again at once: refused, the connection lives on
+    expect((await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token })).status).toBe(400);
+    expect(await mcpStatus(t2.access_token)).toBe(200);
+    // the same old token after the grace period: someone else has a copy
+    await env.DB.prepare("UPDATE oauth_grants SET rotated_at = ?").bind(new Date(Date.now() - 120_000).toISOString()).run();
+    expect((await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token })).status).toBe(400);
+    expect(await mcpStatus(t2.access_token)).toBe(401);
+    expect((await token({ grant_type: "refresh_token", refresh_token: t2.refresh_token })).status).toBe(400);
+  });
+
+  it("refuses a refresh token sent by another client", async () => {
+    const { redeem, code, token } = await setup();
+    const t1 = (await (await redeem(await code())).json()) as { refresh_token: string };
+    expect((await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token, client_id: "c_someoneelse123" })).status).toBe(400);
+    expect((await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token })).status).toBe(200);
+  });
+
+  it("Disconnect also voids a code the app has not redeemed yet", async () => {
+    const { reg, browser, code, redeem } = await setup();
+    const c = await code();
+    expect((await call(`/connections/${reg.client_id}`, { method: "DELETE", token: browser })).status).toBe(204);
+    expect((await redeem(c)).status).toBe(400);
+  });
+
+  it("takes only agent tokens on MCP, never a browser session", async () => {
+    const { browser, mcpStatus } = await setup();
+    expect(await mcpStatus(browser)).toBe(401);
+  });
+});
+
+describe("apps named by a metadata URL", () => {
+  const URL_ID = "https://agent.example.com/oauth/client.json";
+  const doc = { client_id: URL_ID, client_name: "Claude", redirect_uris: ["https://agent.example.com/cb"] };
+  const serve = (body: string, headers: Record<string, string> = {}) => {
+    let calls = 0;
+    const f = (async () => {
+      calls++;
+      return new Response(body, { headers: { "content-type": "application/json", ...headers } });
+    }) as unknown as typeof fetch;
+    return { f, calls: () => calls };
+  };
+
+  it("fetches the description once a day and names the real host", async () => {
+    const s = serve(JSON.stringify(doc));
+    const c = await getClient(asEnv(env), URL_ID, s.f);
+    expect(c).toMatchObject({ name: "Claude", host: "agent.example.com", redirect_uris: doc.redirect_uris });
+    await getClient(asEnv(env), URL_ID, s.f);
+    expect(s.calls()).toBe(1);
+  });
+
+  it("never fetches this server's own network, and refuses oversized or mismatched descriptions", async () => {
+    for (const id of ["https://localhost/x.json", "https://localhost./x.json", "https://a.localhost/x.json", "https://10.0.0.1/x.json", "https://intranet/x.json", "https://box.internal/x.json", "https://agent.example.com:8443/x.json"]) {
+      const s = serve(JSON.stringify({ ...doc, client_id: id }));
+      expect(await getClient(asEnv(env), id, s.f)).toBeNull();
+      expect(s.calls()).toBe(0);
+    }
+    expect(await getClient(asEnv(env), URL_ID, serve(JSON.stringify({ ...doc, junk: "x".repeat(70_000) })).f)).toBeNull();
+    expect(await getClient(asEnv(env), URL_ID, serve(JSON.stringify({ ...doc, client_id: "https://other.example.com/c.json" })).f)).toBeNull();
   });
 });
 
@@ -343,5 +442,23 @@ describe("designing over MCP", () => {
     const r = await client.callTool({ name: "get_design", arguments: { project: id } });
     expect(r.isError).toBe(true);
     expect(textOf(r)).toContain("own AI");
+  });
+
+  it("leaves a question from HardHub's own AI open, and keeps the design still while a build runs", async () => {
+    const { client } = await connect();
+    const id = /project (p_[\w-]+)/.exec(textOf(await client.callTool({ name: "create_project", arguments: { name: "Mixed" } })))![1]!;
+    const core = env.ROOMS.core(id) as unknown as { setMeta(k: string, v: string | null): void; lastSeq(): number; events(a: number, l: number): { events: { type: string; reason?: string }[] } };
+    // the built-in AI asked the person something and is waiting
+    core.setMeta("pending", JSON.stringify({ toolId: "q1" }));
+    await client.callTool({ name: "note", arguments: { project: id, text: "Looking at parts." } });
+    const evs = core.events(-1, 1000).events;
+    expect(evs.at(-1)).toMatchObject({ type: "turn_end", reason: "waiting_for_user" });
+    core.setMeta("pending", null);
+    // a build running: design changes wait for it
+    core.setMeta("agent_build", JSON.stringify({ id: "x1", input: {}, state: "running", step: "route", progress: 0.5 }));
+    const r = await client.callTool({ name: "update_design", arguments: { project: id, summary: "Rename", patch: [{ op: "replace", path: "/name", value: "Other" }] } });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toContain("wait_for_build");
+    expect((await client.callTool({ name: "get_design", arguments: { project: id, sections: ["name"] } })).isError).toBeFalsy();
   });
 });
