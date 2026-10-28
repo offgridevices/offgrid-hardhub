@@ -44,6 +44,7 @@ export class MockBackend implements Backend {
     email: "you@example.com",
     keys: {},
     llm: { provider: "anthropic", model: "claude-opus-5-5" },
+    llm_ready: false,
   };
   private projects = new Map<string, MockProject>();
 
@@ -90,7 +91,10 @@ export class MockBackend implements Backend {
     this.tok = null;
   }
   async me() {
-    return structuredClone(this.meState);
+    const m = this.meState;
+    // the demo needs no key for Ollama or custom endpoints, like the server
+    m.llm_ready = !!m.keys[m.llm.provider] || m.llm.provider === "ollama" || m.llm.provider === "custom";
+    return structuredClone(m);
   }
   async setLlm(llm: LlmSettings) {
     this.meState = { ...this.meState, llm };

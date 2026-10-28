@@ -1,0 +1,29 @@
+{
+  "turns": [
+    [
+      { "thinking": "The person wants a small Wi-Fi sensor board. Before parts, I need power source and where it lives." },
+      { "text": "A small Wi-Fi sensor board is a good first build. Two quick questions so I pick the right parts." },
+      { "tool": "ask_user", "input": { "questions": [
+        { "id": "power", "header": "Power", "text": "How will the board be powered?", "multi": false, "options": [
+          { "id": "usbc", "label": "USB-C, 5 V", "detail": "Simplest: any phone charger. Recommended.", "recommended": true },
+          { "id": "battery", "label": "A rechargeable battery", "detail": "Needs a charger chip and a bigger board." }
+        ] },
+        { "id": "home", "header": "Smart home", "text": "Should it show up in Home Assistant by itself?", "multi": false, "options": [
+          { "id": "esphome", "label": "Yes, with ESPHome", "detail": "No code to write; Home Assistant finds it. Recommended.", "recommended": true },
+          { "id": "no", "label": "No", "detail": "Plain Wi-Fi; you write your own firmware." }
+        ] }
+      ] } }
+    ],
+    [
+      { "tool": "update_design", "input": { "summary": "Wrote the requirements from your answers", "patch": [
+        { "op": "replace", "path": "/name", "value": "Room sensor" },
+        { "op": "add", "path": "/requirements/-", "value": { "id": "R1", "text": "Powered from USB-C, 5 V", "check": "circuit check", "status": "open" } },
+        { "op": "add", "path": "/requirements/-", "value": { "id": "R2", "text": "Appears in Home Assistant through ESPHome", "check": "firmware pin map", "status": "open" } }
+      ] } },
+      { "tool": "set_stage", "input": { "stage": "parts" } }
+    ],
+    [
+      { "text": "Requirements are written down. Next I'll propose the parts." }
+    ]
+  ]
+}

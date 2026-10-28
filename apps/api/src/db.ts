@@ -1,6 +1,7 @@
 // D1 queries: users, sessions, sign-in links, projects, API keys.
 import type { LlmProvider, LlmSettings, Me, ProjectSummary, Stage } from "@hardhub/protocol";
-import type { Env } from "./env";
+import { isDev, type Env } from "./env";
+import { PRESETS } from "./agent/llm/presets";
 import { decryptSecret, encryptSecret, newId, randomToken, sha256 } from "./crypto";
 
 const SESSION_DAYS = 30;
@@ -21,7 +22,8 @@ export async function getMe(env: Env, userId: string): Promise<Me | null> {
   const keys: Me["keys"] = {};
   for (const k of results) keys[k.provider] = { last4: k.last4, added_at: k.added_at };
   const llm: LlmSettings = { provider: u.llm_provider, model: u.llm_model, ...(u.llm_base_url ? { base_url: u.llm_base_url } : {}) };
-  return { id: u.id, email: u.email, keys, llm };
+  const llm_ready = !!keys[llm.provider] || !PRESETS[llm.provider].needsKey || (isDev(env) && !!env.DEV_LLM_KEY);
+  return { id: u.id, email: u.email, keys, llm, llm_ready };
 }
 
 export async function setLlm(env: Env, userId: string, llm: LlmSettings) {

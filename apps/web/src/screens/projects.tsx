@@ -39,7 +39,7 @@ export default function Projects() {
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start();
   };
-  const noKey = me && me.llm.provider !== "ollama" && !me.keys[me.llm.provider];
+  const noKey = me && !me.llm_ready;
 
   return (
     <div className="screen">

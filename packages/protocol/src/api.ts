@@ -45,9 +45,15 @@ export const Me = z.object({
   email: z.string().email(),
   keys: z.partialRecord(LlmProvider, z.object({ last4: z.string(), added_at: z.string() })).default({}),
   llm: LlmSettings.default({ provider: "anthropic", model: "claude-opus-5-5" }),
+  // the server can run the chosen provider now: a stored key, a provider that
+  // needs none (Ollama), or a key the server itself supplies (local dev)
+  llm_ready: z.boolean().default(false),
 });
 export type Me = z.infer<typeof Me>;
 
+// Local dev only: the sign-in link instead of an email. `token` is the
+// one-time login token from that link (redeem it with POST /auth/verify),
+// not a session token.
 export const DevSignIn = z.object({ dev_link: z.string(), token: z.string() });
 export type DevSignIn = z.infer<typeof DevSignIn>;
 

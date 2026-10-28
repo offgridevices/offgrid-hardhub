@@ -100,11 +100,14 @@ export class RoomCore {
   }
 
   saveDesign(design: Design, summary: string): number {
-    const before = this.design().design.stage;
+    const before = this.design().design;
     const version = this.insertDesign(design, summary);
     this.emit({ type: "design", version, summary });
-    if (design.stage !== before) void this.d.touch(this.projectId, { stage: design.stage });
-    else void this.d.touch(this.projectId, {});
+    // the project list shows the design's name and stage
+    void this.d.touch(this.projectId, {
+      ...(design.stage !== before.stage ? { stage: design.stage } : {}),
+      ...(design.name !== before.name ? { name: design.name } : {}),
+    });
     return version;
   }
 

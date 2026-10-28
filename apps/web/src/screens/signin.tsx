@@ -16,10 +16,11 @@ export default function SignIn() {
     try {
       const r = await backend.authStart(email.trim());
       if (r.token) {
-        // local mode: no email to send, the server hands back a session
+        // local mode: no email to send; the server hands back the one-time
+        // sign-in token the email would have carried, redeemed here
         setLocal(true);
-        backend.adoptToken(r.token);
-        setMe(await backend.me());
+        const session = await backend.authVerify(r.token);
+        setMe(session.me);
         navigate("/", true);
         return;
       }

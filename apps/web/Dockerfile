@@ -4,7 +4,7 @@
 #   docker run --rm -p 5173:5173 hardhub-web
 # VITE_API_URL is fixed at build time; the default suits `docker compose up`
 # on one computer (the browser reaches the API at localhost:8787).
-FROM node:22.22.0-slim AS build
+FROM node:22.22.0-bookworm-slim AS build
 ARG VITE_API_URL=http://localhost:8787
 ARG VITE_MOCK=0
 ENV VITE_API_URL=$VITE_API_URL VITE_MOCK=$VITE_MOCK
@@ -18,7 +18,7 @@ COPY packages/protocol packages/protocol
 COPY apps/web apps/web
 RUN pnpm --filter @hardhub/web build
 
-FROM node:22.22.0-slim
+FROM node:22.22.0-bookworm-slim
 WORKDIR /src
 COPY --from=build /src /src
 WORKDIR /src/apps/web

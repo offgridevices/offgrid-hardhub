@@ -107,7 +107,7 @@ export default function Workspace({ id }: { id: string }) {
   const tab: Tab = (TABS.some((t) => t.id === tabParam) ? tabParam : stage ? STAGE_TAB[stage] : "overview") as Tab;
 
   const provider = me ? providerInfo(me.llm.provider) : null;
-  const noKey = !!me && !!provider?.needsKey && !me.keys[me.llm.provider];
+  const noKey = !!me && !me.llm_ready;
   const keyError = isKeyError(state.lastError) || (noKey && !!state.lastError);
   const keyLabel = me?.llm.provider === "anthropic" || !me ? "Add your Claude API key" : `Add your ${provider?.name} key`;
 
