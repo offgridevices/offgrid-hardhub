@@ -6,7 +6,7 @@
 //   node e2e/first-run.mjs [APP_URL] [SHOTS_DIR]
 import { createRequire } from "node:module";
 import path from "node:path";
-import { signUp } from "./signup.mjs";
+import { openOwnChat, signUp } from "./signup.mjs";
 const { chromium } = createRequire(import.meta.url)("playwright");
 
 const APP = process.argv[2] ?? "http://localhost:5173";
@@ -27,6 +27,7 @@ try {
 
   // Claude with a key that is not real
   await page.getByTestId("nav-settings").click();
+  await openOwnChat(page);
   await page.getByTestId("provider-anthropic").click();
   await page.getByTestId("key-input").fill("sk-ant-api03-not-a-real-key-000000000000");
   await page.getByTestId("save-key").click();
@@ -46,6 +47,7 @@ try {
 
   // Ollama, not running on this computer
   await page.getByTestId("nav-settings").click();
+  await openOwnChat(page);
   await page.getByTestId("provider-ollama").click();
   await page.getByTestId("save-llm").click();
   await page.getByTestId("settings-msg").waitFor({ timeout: 10000 });

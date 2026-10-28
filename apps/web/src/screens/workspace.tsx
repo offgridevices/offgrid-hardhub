@@ -1,6 +1,6 @@
 // One project: the conversation on one side, the board on the other. On a
 // phone they are two panes switched at the bottom of the screen.
-import { lazy, memo, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { STAGES, type Stage } from "@hardhub/protocol";
 import { TopBar } from "../components/topbar";
 import { ChatLog, Composer } from "../components/chat";
@@ -11,6 +11,7 @@ import { isKeyError } from "../lib/project-state";
 import { STAGE_LABEL, usd } from "../lib/format";
 import { providerInfo, modelLabel } from "../config/llm";
 import { centreIn, useEdgeFade } from "../lib/edge-fade";
+import { Icon3D, IconChecks, IconCircuit, IconLayout, IconOrder, IconParts, IconRequirements } from "../components/icons";
 
 // each tab is its own chunk; the light ones are fetched while the browser is
 // idle so switching tabs never waits on the network (3D waits until opened:
@@ -35,15 +36,17 @@ const Viewer3D = lazy(() => import("../panes/viewer3d"));
 const Checks = lazy(loaders.checks);
 const Order = lazy(loaders.order);
 
+// one menu: each view, with an icon, marked done or current as the design
+// moves through its stages (STAGE_TAB says which view shows which stage)
 const TABS = [
-  { id: "overview", label: "Requirements" },
-  { id: "parts", label: "Parts" },
-  { id: "circuit", label: "Circuit" },
-  { id: "board", label: "Layout" },
-  { id: "3d", label: "3D" },
-  { id: "checks", label: "Checks" },
-  { id: "order", label: "Order" },
-] as const;
+  { id: "overview", label: "Requirements", icon: <IconRequirements /> },
+  { id: "parts", label: "Parts", icon: <IconParts /> },
+  { id: "circuit", label: "Circuit", icon: <IconCircuit /> },
+  { id: "board", label: "Layout", icon: <IconLayout /> },
+  { id: "3d", label: "3D", icon: <Icon3D /> },
+  { id: "checks", label: "Checks", icon: <IconChecks /> },
+  { id: "order", label: "Order", icon: <IconOrder /> },
+] as const satisfies readonly { id: string; label: string; icon: ReactNode }[];
 type Tab = (typeof TABS)[number]["id"];
 
 // the tab that shows what a stage produced
@@ -58,31 +61,27 @@ const STAGE_TAB: Record<Stage, Tab> = {
   order: "order",
 };
 
-const Stepper = memo(function Stepper({ stage, onPick, shown }: { stage: Stage | null; onPick(s: Stage): void; shown: string }) {
-  const at = stage ? STAGES.indexOf(stage) : 0;
-  const nav = useRef<HTMLElement>(null);
-  useEdgeFade(nav);
-  // on a narrow screen, keep the current stage in view
-  useEffect(() => {
-    centreIn(nav.current, nav.current?.querySelector<HTMLElement>(".current") ?? null);
-  }, [at, shown]);
-  return (
-    <nav ref={nav} className="stepper" aria-label="Design stages" data-testid="stepper" data-stage={stage ?? "idea"}>
-      {STAGES.map((s, i) => (
-        <button
-          key={s}
-          className={`step${i < at ? " done" : i === at ? " current" : ""}`}
-          aria-current={i === at ? "step" : undefined}
-          onClick={() => onPick(s)}
-          data-testid={`step-${s}`}
-        >
-          <span className="node" />
-          {STAGE_LABEL[s]}
-        </button>
-      ))}
-    </nav>
-  );
-});
+/** where a view stands: done when every stage it shows is behind the current one */
+function tabProgress(tab: Tab, stage: Stage | null): "done" | "current" | "" {
+  if (!stage) return tab === "overview" ? "current" : "";
+  if (STAGE_TAB[stage] === tab) return "current";
+  const at = STAGES.indexOf(stage);
+  const mine = STAGES.filter((s) => STAGE_TAB[s] === tab).map((s) => STAGES.indexOf(s));
+  return mine.length && mine.every((i) => i < at) ? "done" : "";
+}
+
+// the chat column on a wide screen: dragged, or moved with the arrow keys
+const CHAT_KEY = "hh_chat_width";
+const CHAT_MIN = 300;
+const CHAT_DEFAULT = 400;
+const readChatWidth = () => {
+  try {
+    const n = Number(localStorage.getItem(CHAT_KEY));
+    return n >= CHAT_MIN ? n : CHAT_DEFAULT;
+  } catch {
+    return CHAT_DEFAULT;
+  }
+};
 
 export default function Workspace({ id }: { id: string }) {
   const { backend, me } = useApp();
@@ -101,6 +100,58 @@ export default function Workspace({ id }: { id: string }) {
     idle(() => Object.values(loaders).forEach((l) => l()));
   }, []);
   const [pane, setPane] = useState<"chat" | "board">("chat");
+  const ws = useRef<HTMLDivElement>(null);
+  const [chatWidth, setChatWidth] = useState(readChatWidth);
+  // the board keeps at least 420 px; the chat at most 60% of the window
+  const clampChat = useCallback((w: number) => {
+    const total = ws.current?.clientWidth ?? window.innerWidth;
+    return Math.round(Math.max(CHAT_MIN, Math.min(w, total - 420, total * 0.6)));
+  }, []);
+  const saveChat = useCallback((w: number) => {
+    try {
+      localStorage.setItem(CHAT_KEY, String(w));
+    } catch {
+      /* private mode: the width lasts this visit */
+    }
+  }, []);
+  const dragChat = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      const left = ws.current?.getBoundingClientRect().left ?? 0;
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
+      let w = chatWidth;
+      const move = (m: globalThis.PointerEvent) => setChatWidth((w = clampChat(m.clientX - left)));
+      const up = () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointercancel", up);
+        saveChat(w);
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointercancel", up);
+    },
+    [chatWidth, clampChat, saveChat],
+  );
+  const nudgeChat = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      const step = e.shiftKey ? 80 : 24;
+      const next = e.key === "ArrowLeft" ? chatWidth - step : e.key === "ArrowRight" ? chatWidth + step : e.key === "Home" ? CHAT_MIN : e.key === "End" ? Infinity : null;
+      if (next === null) return;
+      e.preventDefault();
+      const w = clampChat(next);
+      setChatWidth(w);
+      saveChat(w);
+    },
+    [chatWidth, clampChat, saveChat],
+  );
+  // a narrower window brings a wide chat back within bounds
+  useEffect(() => {
+    const fit = () => setChatWidth((w) => clampChat(w));
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [clampChat]);
   const tabRow = useRef<HTMLDivElement>(null);
   useEdgeFade(tabRow);
   const [seenArtifacts, setSeenArtifacts] = useState(0);
@@ -121,13 +172,6 @@ export default function Workspace({ id }: { id: string }) {
   const onSend = useCallback((text: string) => send({ type: "message", text }), [send]);
   const onStop = useCallback(() => send({ type: "stop" }), [send]);
   const onKeyHelp = useCallback(() => navigate("/settings"), []);
-  const pickStage = useCallback(
-    (s: Stage) => {
-      setTab(STAGE_TAB[s]);
-      setPane("board");
-    },
-    [setTab],
-  );
 
   // a phone user in the chat learns new results arrived on the board side
   const newResults = pane === "chat" && state.artifacts.length > seenArtifacts;
@@ -184,8 +228,25 @@ export default function Workspace({ id }: { id: string }) {
         </span>
         {link !== "open" && <span className="tag">{link === "connecting" ? "Connecting" : "Reconnecting"}</span>}
       </TopBar>
-      <div className="ws" data-pane={pane}>
+      <div className="ws" data-pane={pane} ref={ws} style={{ ["--chat-w" as string]: `${chatWidth}px` }}>
         <section className="ws-chat" aria-label="Conversation">
+          <div
+            className="ws-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the chat"
+            aria-valuemin={CHAT_MIN}
+            aria-valuenow={chatWidth}
+            tabIndex={0}
+            onPointerDown={dragChat}
+            onKeyDown={nudgeChat}
+            onDoubleClick={() => {
+              const w = clampChat(CHAT_DEFAULT);
+              setChatWidth(w);
+              saveChat(w);
+            }}
+            data-testid="chat-resize"
+          />
           {noKey && (
             <div className="note-bar" data-testid="no-key-bar">
               <span>To chat here, add an AI key, or keep designing from your connected Claude or ChatGPT.</span>
@@ -217,23 +278,37 @@ export default function Workspace({ id }: { id: string }) {
           />
         </section>
         <section className="ws-main" aria-label="Board">
-          <div className="ws-stepbar">
-            <Stepper stage={stage} onPick={pickStage} shown={pane} />
-          </div>
-          <div className="tabs" role="tablist" aria-label="Views" ref={tabRow}>
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                role="tab"
-                className="tab"
-                aria-selected={tab === t.id}
-                onClick={() => setTab(t.id)}
-                data-testid={`tab-${t.id}`}
-              >
-                {t.label}
-                {t.id === "checks" && state.checks.some((c) => c.status === "fail") && <span style={{ color: "var(--destructive)" }}> ·</span>}
-              </button>
-            ))}
+          <div
+            className="viewbar"
+            role="tablist"
+            aria-label={`Views · design stage: ${STAGE_LABEL[stage ?? "idea"]}, ${STAGES.indexOf(stage ?? "idea") + 1} of ${STAGES.length}`}
+            ref={tabRow}
+            data-testid="stepper"
+            data-stage={stage ?? "idea"}
+          >
+            {TABS.map((t) => {
+              const progress = tabProgress(t.id, stage);
+              const failing = t.id === "checks" && state.checks.some((c) => c.status === "fail");
+              return (
+                <button
+                  key={t.id}
+                  role="tab"
+                  className={`vtab${progress ? ` ${progress}` : ""}`}
+                  aria-selected={tab === t.id}
+                  onClick={() => setTab(t.id)}
+                  title={progress === "current" ? `${t.label}: the stage the design is at` : t.label}
+                  data-testid={`tab-${t.id}`}
+                >
+                  <span className="vtab-icon">
+                    {t.icon}
+                    {(progress || failing) && <span className={`vtab-mark${failing ? " fail" : ""}`} aria-hidden="true" />}
+                  </span>
+                  <span className="vtab-label">{t.label}</span>
+                  {failing && <span className="sr-only"> (a check failed)</span>}
+                  {progress === "current" && <span className="sr-only"> (current stage)</span>}
+                </button>
+              );
+            })}
           </div>
           <div className={fullBleed ? "viewer-wrap" : "pane"} style={fullBleed ? { flex: 1, minHeight: 0, display: "flex" } : undefined} role="tabpanel">
             <Suspense fallback={<div className="center-state"><div className="spinner-line" /></div>}>{main}</Suspense>

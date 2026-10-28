@@ -1,4 +1,5 @@
-// The sign-in page, as a person uses it: make a new account with a password.
+// Steps a person takes, shared by the tests. The sign-in page: make a new
+// account with a password.
 // The end-to-end stack sets ALLOW_SIGNUP=1, so every test can make its own.
 export const E2E_PASSWORD = "hardhub end-to-end password";
 
@@ -12,4 +13,11 @@ export async function signUp(page, email, password = E2E_PASSWORD) {
   await page.getByTestId("signin-password").fill(password);
   await page.getByTestId("signin-password-again").fill(password);
   await submit.click();
+}
+
+/** Settings folds HardHub's own chat away once it is set up: open it */
+export async function openOwnChat(page) {
+  const own = page.getByTestId("own-chat");
+  await own.waitFor({ timeout: 10000 });
+  if (!(await own.evaluate((d) => d.open))) await page.getByTestId("own-chat-toggle").click();
 }
