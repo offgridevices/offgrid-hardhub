@@ -27,9 +27,11 @@ never hides a trade-off: cost, availability, size, layers.
 | First build | **A simple board, fully real** (owner): chat → questions and part picks → circuit → real KiCad layout and routing on the server → checks → 3D → Gerber, BOM, CPL. |
 | Benchmark board | **Print Hub, from one prompt** (owner). `offgridevices/offgrid-hardware/print-hub/v1` is the answer key. |
 | Also in scope | **Firmware** (ESPHome / Arduino starter + pin-map check), **accounts and saved projects**, **open source** (owner). Enclosure later. |
-| AI access | **User pastes their own API key** (owner). Claude first; OpenAI later. Max-plan users can use the API credit their plan includes. |
+| AI access | **User pastes their own API key** (owner). Max-plan users can use the API credit their plan includes. |
+| AI providers | **Hot-swappable** (owner): Claude (recommended, native API), OpenRouter, OpenAI, Ollama on the user's own computer, or any OpenAI-compatible endpoint. One agent loop behind a provider interface; the person picks provider, model and key in Settings. |
+| Dependencies | **Stable releases only** (owner): no beta, preview or release-candidate packages or API features; exact pins, each at least two weeks old. |
 | Why not "log in with Claude/ChatGPT" | Anthropic does not allow third-party apps to use claude.ai subscription login. OpenAI's "Sign in with ChatGPT" is waitlist-only for hosted apps. Neither can be pinned to US servers. We apply to OpenAI's waitlist and revisit. |
-| US-only AI | Every Claude request sends `inference_geo: "us"`. OpenAI (later) uses `us.api.openai.com`, which needs a US-residency project on the user's side. |
+| US-only AI | Every Claude request sends `inference_geo: "us"`. OpenAI uses `us.api.openai.com`, which needs a US-residency project on the user's side. OpenRouter requests are pinned to a reviewed list of US-hosted providers with fallbacks off. Ollama runs on the person's own machine. |
 | License | **AGPL-3.0** (owner). Compatible with KiCad (GPL-3.0-or-later). Board designs users make are theirs. |
 | Hosting | **Cloudflare in the end, Docker on a Mac first** (owner). |
 
