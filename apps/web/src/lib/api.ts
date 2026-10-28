@@ -2,7 +2,11 @@
 // The session token goes in the Authorization header, so the API can live on
 // another origin (localhost:8787 in dev, its own hostname on Cloudflare).
 import {
+  Connections,
   DevSignIn,
+  OAuthClientInfo,
+  OAuthRedirect,
+  type OAuthApprove,
   Me,
   ProjectDetail,
   ProjectSummary,
@@ -151,6 +155,19 @@ export class ApiClient implements Backend {
   }
   deleteProject(id: string) {
     return this.req<void>("DELETE", `/projects/${encodeURIComponent(id)}`);
+  }
+  connections() {
+    return this.req("GET", "/connections", undefined, Connections);
+  }
+  disconnect(clientId: string) {
+    return this.req<void>("DELETE", `/connections/${encodeURIComponent(clientId)}`);
+  }
+  oauthClient(clientId: string, redirectUri: string) {
+    const q = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
+    return this.req("GET", `/oauth/client?${q}`, undefined, OAuthClientInfo);
+  }
+  oauthApprove(answer: OAuthApprove) {
+    return this.req("POST", "/oauth/approve", answer, OAuthRedirect);
   }
   fileUrl(_projectId: string, url: string) {
     // artifact urls are API-relative (/projects/:id/files/:name); <img> and

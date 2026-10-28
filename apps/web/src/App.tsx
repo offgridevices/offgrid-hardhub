@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useApp, API_URL } from "./lib/app";
-import { navigate, parse, usePath, onLink } from "./lib/router";
+import { navigate, parse, usePath, onLink, rememberNext } from "./lib/router";
 import { Lockup } from "./components/brand";
 
 // each screen is its own chunk: sign-in never downloads the workspace
@@ -9,6 +9,7 @@ const Verify = lazy(() => import("./screens/signin").then((m) => ({ default: m.V
 const Projects = lazy(() => import("./screens/projects"));
 const Workspace = lazy(() => import("./screens/workspace"));
 const Settings = lazy(() => import("./screens/settings"));
+const Connect = lazy(() => import("./screens/connect"));
 
 // the frame paints at once, before the server has answered
 function Loading() {
@@ -59,7 +60,11 @@ export default function App() {
   // signed-out people go to sign-in; signed-in people never see it
   useEffect(() => {
     if (!ready || reach !== "online") return;
-    if (!me && route.name !== "signin" && route.name !== "verify") navigate("/signin", true);
+    if (!me && route.name !== "signin" && route.name !== "verify") {
+      // an AI app's consent page comes back after sign-in
+      if (route.name === "connect") rememberNext(location.pathname + location.search);
+      navigate("/signin", true);
+    }
     if (me && route.name === "signin") navigate("/", true);
   }, [ready, reach, me, route.name]);
 
@@ -74,6 +79,7 @@ export default function App() {
       {route.name === "projects" && <Projects />}
       {route.name === "project" && <Workspace key={route.id} id={route.id} />}
       {route.name === "settings" && <Settings />}
+      {route.name === "connect" && <Connect />}
       {route.name === "notfound" && (
         <div className="center-state">
           <div>

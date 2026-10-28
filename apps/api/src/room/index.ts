@@ -60,6 +60,35 @@ export class ProjectRoom extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now());
   }
 
+  // ------------------------------------------------------------- agents over MCP
+
+  /** One tool call from a connected agent. A build starts in the background. */
+  async agentTool(name: string, input: unknown) {
+    const r = await this.core.agentTool(name, input);
+    if (name === "build_board" && !r.isError) await this.ctx.storage.setAlarm(Date.now());
+    return r;
+  }
+
+  agentBuild() {
+    return this.core.agentBuild();
+  }
+
+  agentRequest(text: string) {
+    this.core.agentRequest(text);
+  }
+
+  agentNote(text: string) {
+    this.core.agentNote(text);
+  }
+
+  agentResults() {
+    return { artifacts: this.core.latestArtifacts(), checks: this.core.latestChecks() };
+  }
+
+  agentFile(name: string) {
+    return this.core.file(name);
+  }
+
   async destroy() {
     for (const ws of this.ctx.getWebSockets()) ws.close(1000, "project deleted");
     await this.ctx.storage.deleteAlarm();
@@ -68,6 +97,7 @@ export class ProjectRoom extends DurableObject<Env> {
 
   override async alarm() {
     await this.core.runQueued();
+    await this.core.runAgentBuild();
   }
 
   // ------------------------------------------------------------- WebSocket

@@ -46,9 +46,9 @@ export default function Projects() {
       <TopBar />
       {noKey && (
         <div className="note-bar" data-testid="no-key-bar">
-          <span>Add your Claude API key so HardHub can design. Max plans include monthly API credit.</span>
+          <span>Connect the Claude or ChatGPT you already pay for, or add an API key, so HardHub can design.</span>
           <a className="btn btn-sm" href="/settings" onClick={onLink}>
-            Add key
+            Set up AI
           </a>
         </div>
       )}

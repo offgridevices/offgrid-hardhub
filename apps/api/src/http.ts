@@ -1,5 +1,5 @@
 // The REST API (packages/protocol/src/api.ts) and the WebSocket entry.
-import { LlmProvider, LlmSettings, type ProjectDetail } from "@hardhub/protocol";
+import { type Connections, LlmProvider, LlmSettings, OAuthApprove, type ProjectDetail } from "@hardhub/protocol";
 import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { cors } from "hono/cors";
@@ -9,6 +9,8 @@ import { contentType } from "./agent/tools";
 import * as db from "./db";
 import { type Env, isDev } from "./env";
 import { mailer } from "./mail";
+import { appUrlFor, handleMcp } from "./mcp";
+import { checkRequest, createCode, listConnections, oauth, resourceMetadataUrl, revokeConnection, SCOPE } from "./oauth";
 
 type Ctx = { Bindings: Env; Variables: { userId: string; token: string } };
 type C = Context<Ctx>;
@@ -17,7 +19,20 @@ const COOKIE = "hh_session";
 
 export const app = new Hono<Ctx>();
 
+// MCP and the agent sign-in endpoints answer any origin (agents call them
+// from their own servers and apps) and never read cookies. The rest of the
+// API answers only the web app's origins.
+const PUBLIC = /^\/(mcp$|oauth\/(register|token|authorize)$|\.well-known\/)/;
+const publicCors = cors({
+  origin: "*",
+  allowHeaders: ["authorization", "content-type", "mcp-protocol-version", "mcp-session-id", "last-event-id"],
+  exposeHeaders: ["mcp-session-id", "mcp-protocol-version", "www-authenticate"],
+  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+  maxAge: 600,
+});
+
 app.use("*", async (c, next) => {
+  if (PUBLIC.test(c.req.path)) return publicCors(c, next);
   const origins = c.env.WEB_ORIGINS.split(",").map((s) => s.trim());
   return cors({ origin: (o) => (origins.includes(o) ? o : null), credentials: true, maxAge: 600 })(c, next);
 });
@@ -33,6 +48,21 @@ app.onError((err, c) => {
 });
 
 app.get("/health", (c) => c.json({ ok: true }));
+
+// ------------------------------------------------------------------ MCP
+
+app.route("/", oauth);
+
+app.all("/mcp", async (c) => {
+  const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  const owner = token ? await db.tokenOwner(c.env, token) : null;
+  if (!owner) {
+    // tells the agent where to sign in (RFC 9728)
+    const challenge = `Bearer resource_metadata="${resourceMetadataUrl(c.req.raw)}", scope="${SCOPE}"${token ? ', error="invalid_token"' : ""}`;
+    return c.json({ error: "invalid_token", error_description: "Sign in to HardHub first." }, 401, { "WWW-Authenticate": challenge });
+  }
+  return handleMcp(c.req.raw, { env: c.env, userId: owner.userId, appUrl: appUrlFor(c.env, c.req.raw), room: (id) => room(c.env, id) });
+});
 
 // ------------------------------------------------------------------ auth
 
@@ -92,6 +122,46 @@ app.post("/auth/logout", auth, async (c) => {
 // ------------------------------------------------------------------ me
 
 app.get("/me", auth, async (c) => c.json(await db.getMe(c.env, c.get("userId"))));
+
+// ------------------------------------------------------------------ connected agents
+
+app.get("/connections", auth, async (c) => {
+  const mcp_url = c.env.MCP_URL || `${appUrlFor(c.env, c.req.raw)}/mcp`;
+  return c.json({ mcp_url, connections: await listConnections(c.env, c.get("userId")) } satisfies Connections);
+});
+
+app.delete("/connections/:client", auth, async (c) => {
+  await revokeConnection(c.env, c.get("userId"), c.req.param("client") ?? "");
+  return c.body(null, 204);
+});
+
+// the consent page: who is asking, then the person's answer
+app.get("/oauth/client", auth, async (c) => {
+  const r = await checkRequest(c.env, c.req.query("client_id") ?? "", c.req.query("redirect_uri") ?? "");
+  if (typeof r === "string") return c.json({ error: r }, 400);
+  let host = "";
+  try {
+    host = new URL(c.req.query("redirect_uri")!).host || new URL(c.req.query("redirect_uri")!).protocol;
+  } catch {
+    /* checked above */
+  }
+  return c.json({ client_id: r.client_id, name: r.name, redirect_host: host });
+});
+
+app.post("/oauth/approve", auth, async (c) => {
+  const a = OAuthApprove.parse(await c.req.json());
+  const r = await checkRequest(c.env, a.client_id, a.redirect_uri);
+  if (typeof r === "string") return c.json({ error: r }, 400);
+  if (!/^[A-Za-z0-9\-_]{43,128}$/.test(a.code_challenge)) return c.json({ error: "invalid code_challenge" }, 400);
+  const u = new URL(a.redirect_uri);
+  if (a.allow) u.searchParams.set("code", await createCode(c.env, c.get("userId"), r.client_id, a.redirect_uri, a.code_challenge));
+  else {
+    u.searchParams.set("error", "access_denied");
+    u.searchParams.set("error_description", "The person did not allow access.");
+  }
+  if (a.state) u.searchParams.set("state", a.state);
+  return c.json({ redirect: u.toString() });
+});
 
 app.put("/me/keys/:provider", auth, async (c) => {
   const provider = LlmProvider.parse(c.req.param("provider"));

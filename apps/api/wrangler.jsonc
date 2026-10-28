@@ -44,12 +44,13 @@
       // Secrets for sign-in email (optional until people other than you sign in):
       // RESEND_API_KEY, MAIL_FROM. ./hardhub deploy asks for them.
       // The web app (apps/web/dist, built with VITE_API_URL=/api) is served by
-      // this Worker; /api/* goes to the API, every other path to the app.
+      // this Worker; /api/* goes to the API, and so do /mcp and the agent
+      // sign-in paths (/oauth/*, /.well-known/*); every other path to the app.
       "assets": {
         "directory": "../web/dist",
         "binding": "ASSETS",
         "not_found_handling": "single-page-application",
-        "run_worker_first": ["/api/*"]
+        "run_worker_first": ["/api/*", "/mcp", "/oauth/*", "/.well-known/*"]
       },
       // Create with: wrangler d1 create hardhub --jurisdiction=us
       "d1_databases": [{ "binding": "DB", "database_name": "hardhub", "database_id": "REPLACE_WITH_D1_ID", "migrations_dir": "migrations" }],

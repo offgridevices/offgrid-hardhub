@@ -188,7 +188,7 @@ export default function Workspace({ id }: { id: string }) {
         <section className="ws-chat" aria-label="Conversation">
           {noKey && (
             <div className="note-bar" data-testid="no-key-bar">
-              <span>HardHub needs an AI key to design.</span>
+              <span>To chat here, add an AI key, or keep designing from your connected Claude or ChatGPT.</span>
               <a className="btn btn-sm" href="/settings" onClick={onLink} data-testid="add-key-bar">
                 {keyLabel}
               </a>

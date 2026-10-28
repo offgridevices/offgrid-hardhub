@@ -6,6 +6,7 @@
 //   PORT                                                8787
 //   ENGINE_URL          the engine service              http://localhost:8080
 //   APP_URL             the web app, for sign-in links  http://localhost:5173
+//   MCP_URL             the MCP address Settings shows  http://localhost:PORT/mcp
 //   WEB_ORIGINS         CORS origins                    APP_URL and 127.0.0.1:5173
 //   KEY_ENCRYPTION_KEY  encrypts stored API keys        generated once, kept in HH_STATE
 //   DEV_LLM_PROVIDER, DEV_LLM_MODEL, DEV_LLM_BASE_URL, DEV_LLM_KEY
@@ -27,6 +28,8 @@ const appUrl = e.APP_URL || "http://localhost:5173";
 const vars = {
   DEV: "1",
   APP_URL: appUrl,
+  // agents connect to the API's own port; Settings shows this address
+  MCP_URL: e.MCP_URL || `http://localhost:${e.PORT || "8787"}/mcp`,
   WEB_ORIGINS: e.WEB_ORIGINS || `${appUrl},http://127.0.0.1:5173`,
   ENGINE_URL: e.ENGINE_URL || "http://localhost:8080",
   US_ONLY: "0",

@@ -4,10 +4,10 @@
 // class has no Cloudflare dependency and is tested directly.
 import { Design, type EventPage, type ServerEvent, emptyDesign } from "@hardhub/protocol";
 import type { Engine } from "../engine";
-import { type Llm, LlmError, type StreamSink } from "../agent/llm/types";
+import { type Llm, LlmError, type StreamSink, type ToolImage } from "../agent/llm/types";
 import { type Pending, type TurnEnd, type TurnInput, runTurn } from "../agent/loop";
 import { SYSTEM_PROMPT } from "../agent/prompt";
-import { type EventInput, type ToolContext, runTool, toolSpecs } from "../agent/tools";
+import { type EventInput, type ToolContext, TOOLS, runTool, toolSpecs } from "../agent/tools";
 
 export interface SqlCursor {
   toArray(): Record<string, unknown>[];
@@ -42,11 +42,30 @@ const SCHEMA = [
 export const DELTA_MS = 50;
 export const PAGE = 200;
 
+/** what a tool call from a connected agent (MCP) gets back */
+export interface AgentResult {
+  content: string;
+  images?: ToolImage[];
+  isError?: boolean;
+}
+
+/** a board build an agent started; it runs from the room's alarm, so it
+ * outlives the request that asked for it */
+export interface AgentBuild {
+  id: string;
+  input: { stop_after?: string };
+  state: "queued" | "running" | "done";
+  step?: string;
+  progress?: number;
+  result?: AgentResult;
+}
+
 let counter = 0;
 const shortId = (p: string) => `${p}_${Date.now().toString(36)}${(counter++ % 1296).toString(36)}`;
 
 export class RoomCore {
   private abort: AbortController | null = null;
+  private buildAbort: AbortController | null = null;
   private delta: { id: string; text: string; timer: ReturnType<typeof setTimeout> | null } | null = null;
 
   constructor(private readonly d: RoomDeps) {
@@ -59,6 +78,13 @@ export class RoomCore {
         this.emit({ type: "error", message: "The last reply was interrupted (the server restarted). Send your message again to carry on.", retryable: true });
         this.emit({ type: "turn_end", reason: "error" });
       }
+    }
+    // the same for an agent's build: queued ones still run from the alarm
+    const b = this.agentBuild();
+    if (b?.state === "running") {
+      this.setAgentBuild({ ...b, state: "done", result: { content: "The build was interrupted (the server restarted). Call build_board again.", isError: true } });
+      this.emit({ type: "tool", id: b.id, name: "build_board", label: "Building the board", status: "error", detail: "interrupted by a server restart" });
+      this.emit({ type: "turn_end", reason: "error" });
     }
   }
 
@@ -217,7 +243,7 @@ export class RoomCore {
           sink: this.sink(),
           error: (message, retryable) => this.emit({ type: "error", message, retryable }),
           usage: (u) => this.emit({ type: "usage", input_tokens: u.input, output_tokens: u.output, cost_usd: Math.round(u.costUsd * 1e6) / 1e6 }),
-          runTool: (call, signal) => runTool(call, this.toolContext(llm), signal),
+          runTool: (call, signal) => runTool(call, this.toolContext(llm.vision), signal),
           getPending: () => {
             const p = this.meta("pending");
             return p ? (JSON.parse(p) as Pending) : null;
@@ -241,6 +267,7 @@ export class RoomCore {
 
   stop() {
     this.abort?.abort();
+    this.buildAbort?.abort();
   }
 
   /** queue a message to run later (the first prompt, run from an alarm) */
@@ -255,6 +282,10 @@ export class RoomCore {
   accept(input: TurnInput): boolean {
     if (this.busy || this.meta("queued")) {
       this.d.broadcast(JSON.stringify({ type: "error", message: "HardHub is still working on the last message.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
+      return false;
+    }
+    if (this.buildingForAgent()) {
+      this.d.broadcast(JSON.stringify({ type: "error", message: "A connected AI is building this board. Send your message when the build has finished.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
       return false;
     }
     this.queue(input);
@@ -300,7 +331,7 @@ export class RoomCore {
     };
   }
 
-  private toolContext(llm: Llm): ToolContext {
+  private toolContext(vision: boolean): ToolContext {
     const key = (name: string) => `projects/${this.projectId}/${name}`;
     return {
       projectId: this.projectId,
@@ -319,8 +350,109 @@ export class RoomCore {
       },
       renders: () => JSON.parse(this.meta("renders") ?? "[]") as string[],
       setRenders: (names) => this.setMeta("renders", JSON.stringify(names)),
-      vision: llm.vision,
+      vision,
     };
+  }
+
+  // ---------------------------------------------------------------- agents over MCP
+
+  /** A tool call from an agent connected over MCP: the same tools the built-in
+   * AI has, run here so every open client sees it happen. build_board starts a
+   * background build instead (agentBuild tells how it is going). */
+  async agentTool(name: string, input: unknown): Promise<AgentResult> {
+    if (this.busy || this.meta("queued"))
+      return { content: "HardHub's own AI is answering a message in this project. Try again when it has finished.", isError: true };
+    if (name === "build_board") return this.startAgentBuild(input);
+    const r = await runTool({ id: shortId("x"), name, input }, this.toolContext(true), new AbortController().signal);
+    this.agentDone();
+    return { content: r.outcome.content, ...(r.outcome.images ? { images: r.outcome.images } : {}), ...(r.outcome.isError ? { isError: true } : {}) };
+  }
+
+  /** Each agent action is a short turn of its own: clients show "working"
+   * while it runs and are idle again after, as with a reply. */
+  private agentDone(reason: "done" | "error" | "stopped" = "done") {
+    this.emit({ type: "turn_end", reason });
+  }
+
+  agentBuild(): AgentBuild | null {
+    const v = this.meta("agent_build");
+    return v ? (JSON.parse(v) as AgentBuild) : null;
+  }
+  private setAgentBuild(b: AgentBuild) {
+    this.setMeta("agent_build", JSON.stringify(b));
+  }
+  private buildingForAgent() {
+    const b = this.agentBuild();
+    return !!b && b.state !== "done";
+  }
+
+  /** Queues the build for the alarm; the caller sets the alarm. */
+  private startAgentBuild(input: unknown): AgentResult {
+    const cur = this.agentBuild();
+    if (cur && cur.state !== "done") return { content: `A build is already running (${cur.step ?? "starting"}). Call wait_for_build.`, isError: true };
+    const parsed = TOOLS.build_board.schema.safeParse(input ?? {});
+    if (!parsed.success) return { content: `Invalid input for build_board: ${parsed.error.issues.map((i) => i.message).join("; ")}`, isError: true };
+    if (!this.design().design.board) return { content: "The design has no board yet: set /board (size, layers) first.", isError: true };
+    this.setAgentBuild({ id: shortId("x"), input: parsed.data, state: "queued" });
+    return { content: "started" };
+  }
+
+  /** Runs a queued agent build (from the alarm). */
+  async runAgentBuild(): Promise<void> {
+    const b = this.agentBuild();
+    if (!b || b.state !== "queued") return;
+    this.setAgentBuild({ ...b, state: "running", step: "starting", progress: 0 });
+    const abort = (this.buildAbort = new AbortController());
+    const base = this.toolContext(true);
+    const ctx: ToolContext = {
+      ...base,
+      emit: (e) => {
+        if (e.type === "job" && !e.done) this.setAgentBuild({ ...b, state: "running", step: e.step, progress: e.progress });
+        base.emit(e);
+      },
+    };
+    let end: "done" | "error" | "stopped" = "error";
+    try {
+      const r = await runTool({ id: b.id, name: "build_board", input: b.input }, ctx, abort.signal);
+      this.setAgentBuild({ ...b, state: "done", progress: 1, result: { content: r.outcome.content, ...(r.outcome.isError ? { isError: true } : {}) } });
+      end = abort.signal.aborted ? "stopped" : r.outcome.isError ? "error" : "done";
+    } catch (e) {
+      this.setAgentBuild({ ...b, state: "done", result: { content: `build_board failed: ${e instanceof Error ? e.message : String(e)}`, isError: true } });
+    } finally {
+      this.buildAbort = null;
+      this.agentDone(end);
+    }
+  }
+
+  /** What the person asked their agent for, shown as their message. */
+  agentRequest(text: string) {
+    this.emit({ type: "user_message", id: shortId("m"), text });
+    this.agentDone();
+  }
+
+  /** A short message from the agent, shown in the project's conversation. */
+  agentNote(text: string) {
+    this.emit({ type: "assistant_text", id: shortId("t"), text, done: true });
+    this.agentDone();
+  }
+
+  /** The files of the last build that made any. */
+  latestArtifacts(): { kind: string; name: string; url: string; bytes?: number }[] {
+    const row = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"artifacts"%' ORDER BY seq DESC LIMIT 1`).toArray()[0];
+    if (!row) return [];
+    const ev = JSON.parse(row.json as string) as ServerEvent;
+    return ev.type === "artifacts" ? ev.artifacts : [];
+  }
+
+  /** The latest circuit or board checks. */
+  latestChecks() {
+    const row = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"checks"%' ORDER BY seq DESC LIMIT 1`).toArray()[0];
+    const ev = row ? (JSON.parse(row.json as string) as ServerEvent) : null;
+    return ev?.type === "checks" ? ev.results : [];
+  }
+
+  file(name: string): Promise<ArrayBuffer | null> {
+    return this.d.getFile(`projects/${this.projectId}/${name}`);
   }
 }
 

@@ -35,7 +35,14 @@ export default defineConfig({
   server: { host: "0.0.0.0", port: 5173 },
   // any host name: the container is reached as "web", and a phone on the same
   // Wi-Fi reaches it by the computer's address
-  preview: { host: "0.0.0.0", port: 5173, allowedHosts: true, ...(apiProxy ? { proxy: apiProxy } : {}) },
+  // no site may frame HardHub (the connect page's Allow button); Cloudflare gets the same from public/_headers
+  preview: {
+    host: "0.0.0.0",
+    port: 5173,
+    allowedHosts: true,
+    headers: { "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin" },
+    ...(apiProxy ? { proxy: apiProxy } : {}),
+  },
   worker: { format: "es" },
   build: {
     target: "es2022",

@@ -14,6 +14,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",
     "@hardhub/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "fast-json-patch": "3.1.1",
     "hono": "4.13.13",
     "openai": "7.32.0",

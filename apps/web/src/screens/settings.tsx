@@ -6,6 +6,7 @@ import { navigate } from "../lib/router";
 import { PROVIDERS, providerInfo } from "../config/llm";
 import { getTheme, setTheme, type ThemeChoice } from "../lib/theme";
 import { date } from "../lib/format";
+import { ConnectAi } from "./connect-ai";
 
 export default function Settings() {
   const { backend, me, setMe } = useApp();
@@ -76,11 +77,13 @@ export default function Settings() {
             <p className="secondary">Signed in as {me.email}</p>
           </div>
 
+          <ConnectAi />
+
           <section className="setting" aria-labelledby="ai-h">
             <div>
-              <h2 id="ai-h" className="d4">AI</h2>
+              <h2 id="ai-h" className="d4">Or chat here, with an API key</h2>
               <p className="secondary" style={{ marginTop: 8 }}>
-                HardHub uses your own AI account: you pay the provider directly for what you use, and HardHub never marks it up.
+                HardHub's own chat runs on an AI account you choose: you pay the provider directly for what you use, and HardHub never marks it up.
               </p>
             </div>
 

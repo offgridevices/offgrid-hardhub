@@ -13,6 +13,8 @@ export interface Env {
   DEV: string;
   /** the web app's origin, for sign-in links; empty: the request's own origin */
   APP_URL: string;
+  /** the MCP address shown in Settings; empty: <the app's address>/mcp */
+  MCP_URL?: string;
   /** comma-separated origins allowed by CORS */
   WEB_ORIGINS: string;
   /** engine base URL; empty means use the ENGINE container binding */

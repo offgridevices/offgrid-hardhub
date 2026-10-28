@@ -73,11 +73,20 @@ export async function createSession(env: Env, userId: string): Promise<string> {
   return token;
 }
 
+/** The person signed in with a browser session (not an agent's access token). */
 export async function sessionUser(env: Env, token: string): Promise<string | null> {
-  const row = await env.DB.prepare("SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?")
+  const row = await env.DB.prepare("SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ? AND client_id IS NULL")
     .bind(await sha256(token), now())
     .first<{ user_id: string }>();
   return row?.user_id ?? null;
+}
+
+/** Any live token: an agent's access token (clientId set) or a browser session. */
+export async function tokenOwner(env: Env, token: string): Promise<{ userId: string; clientId: string | null } | null> {
+  const row = await env.DB.prepare("SELECT user_id, client_id FROM sessions WHERE token_hash = ? AND expires_at > ?")
+    .bind(await sha256(token), now())
+    .first<{ user_id: string; client_id: string | null }>();
+  return row ? { userId: row.user_id, clientId: row.client_id } : null;
 }
 
 export async function deleteSession(env: Env, token: string) {

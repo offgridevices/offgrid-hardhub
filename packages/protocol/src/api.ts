@@ -83,3 +83,36 @@ export type ProjectDetail = z.infer<typeof ProjectDetail>;
 
 export const ApiError = z.object({ error: z.string(), detail: z.string().optional() });
 export type ApiError = z.infer<typeof ApiError>;
+
+// Agents connected over MCP (Claude, ChatGPT, Codex...): the address to give
+// them, and the ones this account has allowed. Settings lists and revokes them.
+export const Connection = z.object({
+  client_id: z.string(),
+  name: z.string(),
+  connected_at: z.string(),
+  renewed_at: z.string(), // when its token was last issued or refreshed
+});
+export type Connection = z.infer<typeof Connection>;
+
+export const Connections = z.object({ mcp_url: z.string(), connections: z.array(Connection) });
+export type Connections = z.infer<typeof Connections>;
+
+// The consent page (/connect) sends back what the agent asked for, after the
+// person allowed or refused it. The server checks it all again.
+export const OAuthApprove = z.object({
+  client_id: z.string().min(1).max(2000),
+  redirect_uri: z.string().min(1).max(2000),
+  code_challenge: z.string().min(43).max(128),
+  state: z.string().max(2000).optional(),
+  resource: z.string().max(2000).optional(),
+  scope: z.string().max(500).optional(),
+  allow: z.boolean(),
+});
+export type OAuthApprove = z.infer<typeof OAuthApprove>;
+
+// What the consent page shows: who is asking. GET /oauth/client?client_id=&redirect_uri=
+export const OAuthClientInfo = z.object({ client_id: z.string(), name: z.string(), redirect_host: z.string() });
+export type OAuthClientInfo = z.infer<typeof OAuthClientInfo>;
+
+export const OAuthRedirect = z.object({ redirect: z.string() });
+export type OAuthRedirect = z.infer<typeof OAuthRedirect>;

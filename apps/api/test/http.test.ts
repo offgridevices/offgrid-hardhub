@@ -1,92 +1,16 @@
 // The REST API over a real schema (D1 on sql.js) with in-memory rooms and files.
 import { Me, ProjectDetail, ProjectSummary } from "@hardhub/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { CONVERTERS } from "../src/agent/llm";
 import { b64, decryptSecret, encryptSecret, sha256 } from "../src/crypto";
 import type { Env } from "../src/env";
 import { app } from "../src/http";
 import worker from "../src/index";
-import { RoomCore } from "../src/room/core";
-import { FakeEngine } from "./support/room";
-import { d1, doSql } from "./support/sqlite";
+import { KEK, type TestEnv, asEnv, testEnv } from "./support/env";
 
-const KEK = b64(new Uint8Array(32).fill(7));
-
-function fakeR2() {
-  const objs = new Map<string, { bytes: Uint8Array; type: string }>();
-  return {
-    objs,
-    async put(key: string, body: ArrayBuffer | string, opts?: { httpMetadata?: { contentType?: string } }) {
-      objs.set(key, { bytes: new Uint8Array(typeof body === "string" ? new TextEncoder().encode(body) : body), type: opts?.httpMetadata?.contentType ?? "" });
-    },
-    async get(key: string) {
-      const o = objs.get(key);
-      if (!o) return null;
-      return { body: new Blob([o.bytes]).stream(), httpMetadata: { contentType: o.type }, httpEtag: '"e"', arrayBuffer: async () => o.bytes.buffer };
-    },
-    async list({ prefix }: { prefix: string }) {
-      return { objects: [...objs.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false };
-    },
-    async delete(keys: string[]) {
-      for (const k of keys) objs.delete(k);
-    },
-  };
-}
-
-function fakeRooms(env: Env) {
-  const rooms = new Map<string, RoomCore>();
-  const core = (id: string) => {
-    let r = rooms.get(id);
-    if (!r)
-      rooms.set(
-        id,
-        (r = new RoomCore({
-          sql: doSql(),
-          broadcast: () => {},
-          llm: async () => {
-            throw new Error("no llm in http tests");
-          },
-          converters: CONVERTERS,
-          engine: new FakeEngine(),
-          putFile: async () => {},
-          getFile: async () => null,
-          touch: async () => {},
-        })),
-      );
-    return r;
-  };
-  void env;
-  return {
-    rooms,
-    idFromName: (n: string) => n,
-    get: (id: string) => ({
-      init: async (p: string, o: string, n: string) => core(id).init(p, o, n),
-      detail: async () => {
-        const { design, version } = core(id).design();
-        return { design, design_version: version, last_seq: core(id).lastSeq(), busy: core(id).busy };
-      },
-      events: async (after: number, limit: number) => core(id).events(after, limit),
-      start: async (input: { text: string }) => core(id).queue(input),
-      destroy: async () => void rooms.delete(id),
-    }),
-  };
-}
-
-let env: Env & { FILES: ReturnType<typeof fakeR2> };
+let env: TestEnv;
 
 beforeEach(() => {
-  env = {
-    DB: d1(),
-    FILES: fakeR2(),
-    DEV: "1",
-    APP_URL: "http://localhost:5173",
-    WEB_ORIGINS: "http://localhost:5173",
-    ENGINE_URL: "http://engine:8080",
-    US_ONLY: "0",
-    KEY_ENCRYPTION_KEY: KEK,
-    DEV_LLM_PROVIDER: "ollama",
-  } as unknown as typeof env;
-  (env as unknown as { ROOMS: unknown }).ROOMS = fakeRooms(env);
+  env = testEnv();
 });
 
 const call = (path: string, init: RequestInit & { token?: string } = {}) => {
@@ -153,10 +77,10 @@ describe("auth", () => {
 
   it("serves the API under /api too (one Worker on Cloudflare)", async () => {
     const ctx = { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
-    expect((await worker.fetch(new Request("http://x/api/health"), env, ctx)).status).toBe(200);
+    expect((await worker.fetch(new Request("http://x/api/health"), asEnv(env), ctx)).status).toBe(200);
     // with the web app bound, everything outside /api is the web app
     const assets = { fetch: async () => new Response("<!doctype html>app") } as unknown as Fetcher;
-    const page = await worker.fetch(new Request("http://x/p/abc"), { ...env, ASSETS: assets }, ctx);
+    const page = await worker.fetch(new Request("http://x/p/abc"), { ...asEnv(env), ASSETS: assets }, ctx);
     expect(await page.text()).toContain("app");
   });
 

@@ -1511,3 +1511,42 @@ svg {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* a button that reads as a link, inside a sentence */
+.btn-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* settings: an address to copy, and a command to paste */
+.copy-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 0;
+}
+.copy-row code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-b3);
+  padding: 10px 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--hairline);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.conn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+}

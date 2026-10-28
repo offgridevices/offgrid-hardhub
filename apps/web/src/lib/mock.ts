@@ -2,7 +2,8 @@
 import {
   Design,
   emptyDesign,
-
+  type Connections,
+  type OAuthApprove,
   type LlmProvider,
   type LlmSettings,
   type Me,
@@ -109,6 +110,25 @@ export class MockBackend implements Backend {
     delete keys[provider];
     this.meState.keys = keys;
     return this.me();
+  }
+  // demo mode shows the connect screens with a made-up app, and connects nothing
+  private conns: Connections = {
+    mcp_url: "https://hardhub.example.com/mcp",
+    connections: [{ client_id: "demo-claude", name: "Claude", connected_at: "2026-10-26T10:00:00Z", renewed_at: "2026-10-28T08:00:00Z" }],
+  };
+  async connections() {
+    return structuredClone(this.conns);
+  }
+  async disconnect(clientId: string) {
+    this.conns.connections = this.conns.connections.filter((c) => c.client_id !== clientId);
+  }
+  async oauthClient(clientId: string, redirectUri: string) {
+    return { client_id: clientId, name: "Claude", redirect_host: new URL(redirectUri).host };
+  }
+  async oauthApprove(a: OAuthApprove) {
+    const u = new URL(a.redirect_uri);
+    u.searchParams.set(a.allow ? "code" : "error", a.allow ? "demo-code" : "access_denied");
+    return { redirect: u.toString() };
   }
   async listProjects() {
     return [...this.projects.values()].map((p) => p.summary).sort((a, b) => b.updated_at.localeCompare(a.updated_at));

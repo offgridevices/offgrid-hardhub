@@ -61,5 +61,18 @@ export function d1(): D1Database {
     };
     return stmt;
   };
-  return { prepare } as unknown as D1Database;
+  // D1 runs a batch as one transaction
+  const batch = async (stmts: { run(): Promise<unknown> }[]) => {
+    db.exec("BEGIN");
+    try {
+      const out = [];
+      for (const st of stmts) out.push(await st.run());
+      db.exec("COMMIT");
+      return out;
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  };
+  return { prepare, batch } as unknown as D1Database;
 }

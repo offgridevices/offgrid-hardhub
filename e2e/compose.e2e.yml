@@ -20,6 +20,9 @@ services:
       DEV_LLM_MODEL: claude-opus-5-5
       DEV_LLM_KEY: sk-e2e-not-a-real-key
       ANTHROPIC_BASE_URL: http://fake-anthropic:8788
+      # the test browser reaches the app as "web": the MCP consent page lives there
+      APP_URL: http://web:5173
+      MCP_URL: http://api:8787/mcp
     depends_on:
       fake-anthropic: { condition: service_healthy }
   web:
@@ -33,7 +36,17 @@ services:
     environment:
       FAKE_URL: http://fake-anthropic:8788
       API_URL: http://api:8787
-    # the image has the browsers; the matching playwright package is fetched once
-    command: ["bash", "-c", "set -e; [ -d \"$$(npm root -g)/playwright\" ] || npm install -g --no-audit --no-fund playwright@1.63.0; NODE_PATH=$$(npm root -g) node e2e/full.mjs http://web:5173 /shots"]
+    # the image has the browsers; the matching playwright package and the MCP
+    # client (for e2e/mcp.mjs) are fetched once
+    command:
+      - bash
+      - -c
+      - >-
+        set -e; G=$$(npm root -g);
+        [ -d "$$G/playwright" ] || npm install -g --no-audit --no-fund playwright@1.63.0;
+        [ -d "$$G/@modelcontextprotocol/sdk" ] || npm install -g --no-audit --no-fund @modelcontextprotocol/sdk@1.32.1;
+        export NODE_PATH=$$G;
+        node e2e/full.mjs http://web:5173 /shots;
+        node e2e/mcp.mjs http://web:5173 /shots
     depends_on:
       web: { condition: service_healthy }

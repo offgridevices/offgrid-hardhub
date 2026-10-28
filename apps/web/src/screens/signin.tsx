@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Lockup } from "../components/brand";
 import { useApp } from "../lib/app";
-import { navigate } from "../lib/router";
+import { navigate, takeNext } from "../lib/router";
 
 export default function SignIn() {
   const { backend, setMe } = useApp();
@@ -21,7 +21,7 @@ export default function SignIn() {
         setLocal(true);
         const session = await backend.authVerify(r.token);
         setMe(session.me);
-        navigate("/", true);
+        navigate(takeNext(), true);
         return;
       }
       setState("sent");
@@ -102,7 +102,7 @@ export function Verify() {
       (s) => {
         if (!live) return;
         setMe(s.me);
-        navigate("/", true);
+        navigate(takeNext(), true);
       },
       (e: Error) => live && setError(e.message || "This sign-in link is invalid or already used."),
     );

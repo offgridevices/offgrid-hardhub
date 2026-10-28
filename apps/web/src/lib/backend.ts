@@ -1,8 +1,10 @@
 // What the interface needs from a server. The real client (api.ts) and the
 // demo data (mock.ts) both implement it, so every screen runs on either.
 import type {
-
   ClientMessage,
+  Connections,
+  OAuthApprove,
+  OAuthClientInfo,
   LlmProvider,
   LlmSettings,
   Me,
@@ -44,6 +46,12 @@ export interface Backend {
   getProject(id: string): Promise<ProjectDetail>;
   renameProject(id: string, name: string): Promise<ProjectSummary>;
   deleteProject(id: string): Promise<void>;
+  /** AI apps connected over MCP, and the address to connect more */
+  connections(): Promise<Connections>;
+  disconnect(clientId: string): Promise<void>;
+  /** the consent page: who is asking, then the person's answer (where to send the browser) */
+  oauthClient(clientId: string, redirectUri: string): Promise<OAuthClientInfo>;
+  oauthApprove(answer: OAuthApprove): Promise<{ redirect: string }>;
   /** URL a browser element (<img>, fetch, download link) can load. */
   fileUrl(projectId: string, url: string): string;
   connect(

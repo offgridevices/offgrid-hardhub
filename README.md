@@ -25,6 +25,24 @@ with any email (local mode needs no email), open **Settings**, and pick the AI:
 | Ollama on your computer | [Ollama](https://ollama.com/download), then `./hardhub ollama` to fetch the small model. Nothing leaves your computer; fine for trying HardHub, too small for real boards. |
 | OpenRouter, OpenAI, any OpenAI-compatible API | that provider's key |
 
+### Or use the Claude or ChatGPT you already pay for
+
+HardHub is also an MCP server: connect your own AI app and it designs boards
+on your own plan, with no API key. HardHub does the parts, the checks and the
+KiCad builds, and the project shows up live in the HardHub app. Settings →
+"Use your own Claude or ChatGPT" has the address and the steps; on your Mac:
+
+```bash
+claude mcp add --transport http hardhub http://localhost:8787/mcp   # Claude Code
+codex mcp add hardhub --url http://localhost:8787/mcp               # Codex, then: codex mcp login hardhub
+```
+
+The first time, a HardHub page opens and asks you to allow it. Claude (website,
+desktop, phone) and ChatGPT connect from their own servers, so they need
+HardHub on Cloudflare: add `https://<your HardHub>/mcp` as a custom connector
+(Claude: Settings → Connectors; ChatGPT: Settings → Apps → Developer mode).
+Your Claude or ChatGPT login stays there: HardHub only sees the tool calls.
+
 | Command | Does |
 |---|---|
 | `./hardhub` | start, and open the app |
@@ -58,7 +76,7 @@ to ship an update.
 | Folder | What |
 |---|---|
 | `apps/web` | the web app: React, Vite, three.js; works from phone to desktop |
-| `apps/api` | Cloudflare Worker, a Durable Object per project, D1, R2, and the AI agent loop |
+| `apps/api` | Cloudflare Worker, a Durable Object per project, D1, R2, the AI agent loop, and the MCP server with its OAuth sign-in |
 | `packages/protocol` | the shared contract: the design document, events, REST, engine |
 | `engine` | KiCad 10 + Freerouting in Docker: design → placed, routed, checked board → fab files |
 | `e2e` | end-to-end tests and the scripted stand-in for Claude |
