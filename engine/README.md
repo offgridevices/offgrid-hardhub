@@ -21,7 +21,7 @@ validate -> footprints -> place -> route -> miter -> pour -> drc -> verify -> fa
 | drc | KiCad DRC: errors, warnings and unconnected items must all be 0 |
 | verify | copper equals the design pad for pad; corners; every part on the board |
 | fab | Gerber zip, JLCPCB BOM + CPL, PCBWay BOM, netlist CSV, IPC-D-356, the KiCad files |
-| render | per-layer SVG, a meshopt-compressed GLB; PNG and STEP when asked |
+| render | per-layer SVG (board area only); a GLB in metres, centred on the origin, meshopt-compressed (the viewer needs meshopt's decoder); PNG and STEP when asked |
 
 The code generalises offgrid-hardware's Print Hub v1 library (`pcb.py`,
 `route.py`, `miter.py`, `stitch.py`, `fab.py`, `footprints.py`, the power

@@ -125,9 +125,18 @@ def health():
         except (OSError, subprocess.TimeoutExpired):
             v = ''
         from . import route
-        fr2 = os.access(route.FR2, os.X_OK)
+        fr2 = None
+        if os.access(route.FR2, os.X_OK):
+            # start it for real: it must get as far as printing its version
+            try:
+                out = subprocess.run([route.FR2, '--gui.enabled=false', '--usage_and_diagnostic_data.disable_analytics=true',
+                                      '-de', '/nonexistent.dsn'], capture_output=True, text=True, timeout=90)
+                m = re.search(r'Freerouting v(\d+\.\d+\.\d+)', out.stdout + out.stderr)
+                fr2 = m.group(1) if m else None
+            except (OSError, subprocess.TimeoutExpired):
+                fr2 = None
         fr19 = os.path.exists(route.JAR) and shutil.which('java') is not None and shutil.which('xvfb-run') is not None
-        _health.update(kicad=v or None, freerouting='2.5.0' if fr2 else ('1.9.0' if fr19 else None),
+        _health.update(kicad=v or None, freerouting=fr2 or ('1.9.0' if fr19 else None),
                        freerouting_fallback=fr19,
                        gltf_transform=shutil.which(os.environ.get('GLTF_TRANSFORM', 'gltf-transform')) is not None)
     h = dict(_health)

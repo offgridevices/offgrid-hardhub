@@ -109,7 +109,12 @@ class Job:
         planes = self.fanout_nets()
         if planes:
             b = pcbnew.LoadBoard(self.placed)
-            done, failed = fanout.fanout(b, planes, self.d['board']['corner_radius'])
+            done, failed, in_pad = fanout.fanout(b, planes, self.d['board']['corner_radius'])
+            if in_pad:
+                self.check(dict(id='via-in-pad', group='fab', name='No vias in pads',
+                                why='a via in a pad wicks solder away unless the fab fills and caps it',
+                                status='warn', detail='in %s: order filled, capped vias (JLCPCB: POFV) or move parts'
+                                % ', '.join(in_pad[:10])))
             b.Save(self.placed)
             self.stats['fanout_vias'] = done
             # a pad with no room for its via is left to the repair route after
@@ -162,14 +167,17 @@ class Job:
             # in place, which Freerouting reads as copper areas of their net
             self.emit('pour', '%d connections left after the pours: routing them' % left, 0.5)
             repaired = self.routed + '.repair.kicad_pcb'
+            # one short run, no optimiser: the rest of the board is done
             n = route.route(self.routed, repaired, plane_layers=self.plane_layers(), drop=(),
-                            passes=int(os.environ.get('HARDHUB_PASSES', 20)), rounds=2,
+                            passes=max(5, int(os.environ.get('HARDHUB_PASSES', 20)) // 2), rounds=1, opt_passes=0,
                             progress=lambda m: self.emit('pour', 'repair ' + m, 0.7))
-            import shutil
-            shutil.move(repaired, self.routed)
-            route.cleanup(self.routed, rules.LIMITS[self.d['board']['layers']]['track'], keep=self.fanout_nets())
-            self.s_miter()
-            self.stats['unrouted_after_repair'] = n
+            after = route.unrouted(repaired)
+            self.stats['unrouted_after_repair'] = after
+            if after < left:                          # keep the repair only if it helped
+                import shutil
+                shutil.move(repaired, self.routed)
+                route.cleanup(self.routed, rules.LIMITS[self.d['board']['layers']]['track'], keep=self.fanout_nets())
+                self.s_miter()
 
     def s_drc(self):
         from . import kicad as K, rules
@@ -204,6 +212,7 @@ class Job:
                         why='house rule; no acid traps in the etch, and tidy copper',
                         status='pass' if not sharp else 'warn',
                         **({'detail': '%d left, first at %s' % (len(sharp), ', '.join('(%.1f, %.1f) %s' % (c[3], c[4], c[2]) for c in sharp[:3]))} if sharp else {})))
+        self.check_widths()
         for id_, group, name, why in (
                 ('sim-power', 'power', 'Supply transients and regulator stability simulated',
                  'a supply that rings or sags resets the board under load'),
@@ -220,6 +229,43 @@ class Job:
                         why='a part in the circuit but not on the board is missing from the build',
                         status='pass' if refs == want else 'fail',
                         **({'detail': 'missing %s; extra %s' % (sorted(want - refs)[:8], sorted(refs - want)[:8])} if refs != want else {})))
+
+    NECK = 0.5          # mm: a narrower stretch this short, into a pad, is a neck, not the track
+
+    def check_widths(self):
+        """Every track of a net that states its current is wide enough for
+        it (IPC-2221, 10 C rise).  The router narrows a track to get into a
+        fine-pitch pad, and on a crowded board may route a whole net narrow:
+        the first is fine, the second is a hot track."""
+        import pcbnew
+        from . import rules
+        b = pcbnew.LoadBoard(self.routed)
+        oz_out, oz_in = self.d['board']['copper_oz']['outer'], self.d['board']['copper_oz']['inner']
+        bad, thin = [], []
+        poured = set(self.fanout_nets())          # their current flows in the plane or pour, not the via stubs
+        for name, net in self.d['nets'].items():
+            if name in poured or (not net.get('current') and not net.get('width')):
+                continue
+            narrow = 0.0
+            need_min = None
+            for t in b.GetTracks():
+                if t.GetClass() != 'PCB_TRACK' or t.GetNetname() != name:
+                    continue
+                outer = t.GetLayer() in (pcbnew.F_Cu, pcbnew.B_Cu)
+                need = rules.track_width(net['current'], outer=outer, oz=oz_out if outer else oz_in, floor=0) \
+                    if net.get('current') else float(net['width'])
+                if t.GetWidth() / 1e6 < need - 0.005:
+                    narrow = max(narrow, t.GetLength() / 1e6)      # the longest narrow segment
+                    need_min = need
+            if narrow > self.NECK:
+                (bad if net.get('current') else thin).append('%s: a %.1f mm stretch under %.2f mm'
+                                                             % (name, narrow, need_min))
+        self.check(dict(id='current-width', group='power', name='Tracks wide enough for their current',
+                        why='a track too narrow for its current runs hot', status='fail' if bad else 'pass',
+                        **({'detail': '; '.join(bad[:6])} if bad else {})))
+        if thin:
+            self.check(dict(id='net-width', group='layout', name='Tracks at the width their net asks for',
+                            why='the design gave these nets a width', status='warn', detail='; '.join(thin[:6])))
 
     def s_fab(self):
         import csv

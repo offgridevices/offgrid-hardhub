@@ -21,7 +21,7 @@ import math
 
 import pcbnew
 from shapely import affinity
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -47,8 +47,15 @@ def _local(fp):
     for p in fp.Pads():
         if p.GetNumber():
             pads.setdefault(p.GetNumber(), K.xy(p.GetPosition()))
+    # the footprint's own keepouts: an RF module's antenna area
+    keep = []
+    for z in fp.Zones():
+        if z.GetIsRuleArea() and z.Outline().OutlineCount():
+            o = z.Outline().Outline(0)
+            if o.PointCount() >= 3:
+                keep.append(Polygon([K.xy(o.CPoint(k)) for k in range(o.PointCount())]).buffer(0))
     fp.SetPosition(pos); fp.SetOrientationDegrees(rot)
-    return cy, pads
+    return cy, pads, unary_union(keep) if keep else None
 
 
 def _rot(geom, deg):
@@ -58,7 +65,6 @@ def _rot(geom, deg):
 
 
 def _rotpt(p, deg):
-    a = math.radians(-deg)
     # y down: screen-counter-clockwise rotation by deg
     a = math.radians(deg)
     x, y = p
@@ -193,22 +199,45 @@ class Placer:
         return tot * 0.5
 
     # ------------------------------------------------------------ steps
-    def connectors(self, todo):
-        groups = {}
+    EDGES = {'top': (0, -1), 'bottom': (0, 1), 'left': (-1, 0), 'right': (1, 0)}
+
+    def pad_centre(self, ref):
+        pads = self.local[ref][1]
+        return (sum(p[0] for p in pads.values()) / len(pads), sum(p[1] for p in pads.values()) / len(pads)) \
+            if pads else (0.0, 0.0)
+
+    def antennas(self, todo):
+        """Modules whose footprint carries its own keepout (an antenna) go
+        to an edge first, the keepout outward: Espressif and every module
+        maker ask for the antenna at the board edge with nothing beside it."""
+        groups = []
         for ref in todo:
-            if self.kind(ref) == 'J':
-                groups.setdefault(self.comp[ref]['part'], []).append(ref)
-        if not groups:
-            return
+            keep = self.local[ref][2]
+            if keep is not None and self.kind(ref) in ('MOD', 'U'):
+                pc = self.pad_centre(ref)
+                groups.append(([ref], (keep.centroid.x - pc[0], keep.centroid.y - pc[1])))
+        self.to_edges(groups)
+
+    def connectors(self, todo):
+        """Connectors to the edges, mouth outward (the mouth is where the
+        courtyard reaches past the pads); identical connectors share an edge."""
+        by_part = {}
+        for ref in todo:
+            if self.kind(ref) == 'J' and ref not in self.pos:
+                by_part.setdefault(self.comp[ref]['part'], []).append(ref)
+        groups = []
+        for refs in by_part.values():
+            cy, pc = self.local[refs[0]][0], self.pad_centre(refs[0])
+            groups.append((refs, (cy.centroid.x - pc[0], cy.centroid.y - pc[1])))
+        self.to_edges(sorted(groups, key=lambda g: -len(g[0]) * self.local[g[0][0]][0].length))
+
+    def to_edges(self, groups):
         hx, hy = K.G.hx, K.G.hy
-        edges = {'bottom': (0, 1), 'top': (0, -1), 'left': (-1, 0), 'right': (1, 0)}
+        edges = self.EDGES
         length = {'bottom': K.G.w, 'top': K.G.w, 'left': K.G.h, 'right': K.G.h}
-        used = {e: 0.0 for e in edges}
-        for part, refs in sorted(groups.items(), key=lambda g: -len(g[1]) * self.local[g[1][0]][0].length):
-            cy, pads = self.local[refs[0]]
-            pc = (sum(p[0] for p in pads.values()) / len(pads), sum(p[1] for p in pads.values()) / len(pads)) \
-                if pads else (0, 0)
-            mouth = (cy.centroid.x - pc[0], cy.centroid.y - pc[1])
+        used = self.used = getattr(self, 'used', {e: 0.0 for e in edges})
+        for refs, mouth in groups:
+            cy = self.local[refs[0]][0]
             if math.hypot(*mouth) < 0.2:
                 mouth = (0, -1)
             for e in sorted(edges, key=lambda e: used[e] / length[e]):
@@ -269,6 +298,7 @@ class Placer:
 
     def run(self):
         todo = [r for r in self.fps if r not in self.pos]
+        self.antennas(todo)
         self.connectors(todo)
         todo = [r for r in todo if r not in self.pos]
         blocks = {}

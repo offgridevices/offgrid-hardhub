@@ -79,17 +79,20 @@ def write_rules(board_path, extra=''):
 
 
 # ---------------------------------------------------------------- width
-def track_width(current, outer=True, oz=1.0, rise=10.0):
+def track_width(current, outer=True, oz=1.0, rise=10.0, floor=TRACK):
     """IPC-2221 track width (mm) for `current` amps at `rise` C over ambient:
     I = k * dT^0.44 * A^0.725, A in square mils, k 0.048 outside, 0.024
-    inside.  Rounded up to 0.05 mm, never under the design default."""
+    inside.  Rounded up to 0.05 mm, never under `floor` (the design
+    default; 0 for the bare physical need)."""
     if not current:
-        return TRACK
+        return floor
     k = 0.048 if outer else 0.024
     area = (current / (k * rise ** 0.44)) ** (1 / 0.725)       # mil^2
     w_mil = area / (1.378 * oz)
     w = w_mil * 0.0254
-    return max(TRACK, round(-(-w // 0.05) * 0.05, 2))
+    if not floor:
+        return round(w, 3)
+    return max(floor, round(-(-w // 0.05) * 0.05, 2))
 
 
 # ---------------------------------------------------------------- stackups

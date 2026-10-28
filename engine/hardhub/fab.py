@@ -170,11 +170,15 @@ def glb(board, out_dir, name):
     raw_size = os.path.getsize(raw)
     if shutil.which(GLTF):
         try:
-            # meshopt: quantised, compressed geometry the web viewer decodes
-            # with meshopt's small WASM decoder; dedup/instance/weld first
-            run([GLTF, 'optimize', raw, out, '--compress', 'meshopt', '--texture-compress', 'false',
+            # centred on the origin (KiCad exports at its page position, 100 mm
+            # out), then meshopt: quantised, compressed geometry the viewer
+            # decodes with meshopt's small WASM decoder; dedup/instance/weld first
+            centred = raw[:-4] + '-c.glb'
+            run([GLTF, 'center', raw, centred, '--pivot', 'center'], timeout=300)
+            run([GLTF, 'optimize', centred, out, '--compress', 'meshopt', '--texture-compress', 'false',
                  '--simplify', 'false'], timeout=600)
             os.remove(raw)
+            os.remove(centred)
             return out, raw_size
         except (RuntimeError, subprocess.TimeoutExpired):
             pass

@@ -22,7 +22,7 @@ import time
 
 import pcbnew
 
-from . import kicad as K
+from . import kicad as K, rules
 
 JAR = os.environ.get('FREEROUTING_JAR', '/opt/freerouting-1.9.0.jar')
 FR2 = os.environ.get('FREEROUTING2', '/opt/freerouting-2.5.0-linux-x64/bin/freerouting')
@@ -71,19 +71,25 @@ def drop_nets(dsn_path, nets):
     open(dsn_path, 'w').write(txt)
 
 
-def freeroute(dsn_path, ses_path, passes=20, log=None, use_fr2=True):
+def freeroute(dsn_path, ses_path, passes=20, log=None, use_fr2=True, opt_passes=None):
+    """opt_passes: Freerouting optimiser passes (0 = off); $HARDHUB_FR_OPT_PASSES by default."""
     if use_fr2 and os.path.exists(FR2):
-        # no usage analytics leave the machine
-        # its escape-via stage (fanout) is off: it drops a via on most SMD
-        # pins whether the route needs one or not; HardHub's own fanout has
-        # already given plane and ground pads theirs
-        # no neck-down: 2.x narrows tracks to 75 % at pads, under the fab's
-        # minimum.  The optimiser (shorter tracks, fewer vias) runs only on a
-        # fully routed board and is capped: one pass on Print Hub takes ~2 min
+        # * no usage analytics leave the machine
+        # * its escape-via stage (fanout) is off: it drops a via on most SMD
+        #   pins whether the route needs one or not; HardHub's own fanout has
+        #   already given plane and ground pads theirs
+        # * neck-down stays on (fine-pitch pads need it: without it Print Hub
+        #   left 15 connections unrouted, with it none), at the fab's minimum
+        #   width; cleanup() widens anything still under it
+        # * the optimiser (shorter tracks, fewer vias) runs only on a fully
+        #   routed board and is capped: one pass on Print Hub takes about 2 min
+        opt = int(os.environ.get('HARDHUB_FR_OPT_PASSES', 2) if opt_passes is None else opt_passes)
         cmd = [FR2, '-de', dsn_path, '-do', ses_path, '--router.autorouter.max_passes=%d' % passes,
                '-mt', str(THREADS), '--router.fanout.enabled=%s' % os.environ.get('HARDHUB_FR_FANOUT', 'false'),
-               '--router.automatic_neckdown=false',
-               '--router.optimizer.max_passes=%s' % os.environ.get('HARDHUB_FR_OPT_PASSES', '2'),
+               '--router.neck_width_um=%d' % round(rules.LIMITS[2]['track'] * 1000 + 3),
+               # the fab's copper-to-edge rule, plus a margin for rounding
+               '--router.copper_to_edge_clearance_um=%d' % round((rules.EDGE + 0.05) * 1000),
+               ('--router.optimizer.max_passes=%d' % opt) if opt else '--router.optimizer.enabled=false',
                '--gui.enabled=false', '--usage_and_diagnostic_data.disable_analytics=true']
     else:
         cmd = ['xvfb-run', '-a', 'java', '-jar', JAR, '-de', dsn_path, '-do', ses_path, '-mp', str(passes)]
@@ -126,7 +132,7 @@ def unrouted(pcb_path):
     return b.GetConnectivity().GetUnconnectedCount(False)
 
 
-def route(pcb_in, pcb_out, plane_layers=(), drop=(), passes=20, rounds=4, progress=None):
+def route(pcb_in, pcb_out, plane_layers=(), drop=(), passes=20, rounds=4, progress=None, opt_passes=None):
     """Route, then keep re-routing the partly routed board (Freerouting
     carries the existing wiring over and works on what is left) until every
     connection is made or `rounds` runs out.  Returns the unrouted count."""
@@ -145,7 +151,7 @@ def route(pcb_in, pcb_out, plane_layers=(), drop=(), passes=20, rounds=4, progre
         export_dsn(src, dsn, plane_layers, drop)
         t = time.time()
         try:
-            freeroute(dsn, ses, passes=passes, log=os.path.join(work, 'freerouting%d.log' % r), use_fr2=use_fr2)
+            freeroute(dsn, ses, passes=passes, log=os.path.join(work, 'freerouting%d.log' % r), use_fr2=use_fr2, opt_passes=opt_passes)
         except RouteError:
             if not use_fr2 or not shutil.which('xvfb-run'):
                 raise

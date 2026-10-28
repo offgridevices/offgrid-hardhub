@@ -41,13 +41,13 @@ def rule_areas(b, layer=None):
 
 
 def fanout(b, nets, corner_radius=0.0):
-    """Returns (vias placed, pads that found no spot)."""
+    """Returns (vias placed, pads that found no spot, pads given a via in the pad)."""
     via_r = rules.VIA[0] / 2
-    done, failed = 0, []
+    done, failed, in_pad = 0, [], []
     for side in (pcbnew.F_Cu, pcbnew.B_Cu):
-        d, f = _fanout_side(b, set(nets), side, via_r, corner_radius)
-        done += d; failed += f
-    return done, failed
+        d, f, i = _fanout_side(b, set(nets), side, via_r, corner_radius)
+        done += d; failed += f; in_pad += i
+    return done, failed, in_pad
 
 
 def _fanout_side(b, nets, F, via_r, corner_radius):
@@ -100,7 +100,7 @@ def _fanout_side(b, nets, F, via_r, corner_radius):
             return False
         return True
 
-    failed, done = [], 0
+    failed, in_pad, done = [], [], 0
     for fp, p, poly in pads:
         net = p.GetNetname()
         if net not in nets or p.GetAttribute() != pcbnew.PAD_ATTRIB_SMD:
@@ -132,11 +132,23 @@ def _fanout_side(b, nets, F, via_r, corner_radius):
             if spot:
                 break
         if not spot:
-            failed.append('%s.%s' % (fp.GetReference(), p.GetNumber()))
+            # no room beside it (an inner ground pad of a QFN, between the
+            # switch-node pads): the via goes in the pad when the pad can
+            # hold it.  Vias in pads want filling and capping (JLCPCB's POFV
+            # option); the build reports each one
+            inner = poly.buffer(-(via_r + 0.05))
+            q = Point(cx, cy)
+            if not inner.is_empty and inner.contains(q) and clear((cx, cy), q, net, fp.GetReference(), False):
+                K.via(b, cx, cy, net, *rules.VIA)
+                vias.append((q, net))
+                in_pad.append('%s.%s' % (fp.GetReference(), p.GetNumber()))
+                done += 1
+            else:
+                failed.append('%s.%s' % (fp.GetReference(), p.GetNumber()))
             continue
         K.track(b, [(cx, cy), spot], w, F, net)
         K.via(b, spot[0], spot[1], net, *rules.VIA)
         vias.append((Point(spot), net))
         tracks.append((LineString([(cx, cy), spot]).buffer(w / 2), net))
         done += 1
-    return done, failed
+    return done, failed, in_pad
