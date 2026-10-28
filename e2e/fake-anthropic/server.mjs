@@ -31,8 +31,12 @@ function load(p) {
   const resolve = (v) => {
     if (Array.isArray(v)) return v.map(resolve);
     if (v && typeof v === "object") {
-      if (typeof v.$file === "string" && Object.keys(v).length === 1)
-        return JSON.parse(fs.readFileSync(path.resolve(dir, v.$file), "utf8"));
+      if (typeof v.$file === "string") {
+        // { "$file": "x.json", "$pointer": "/parts" } picks one part of the file
+        let doc = JSON.parse(fs.readFileSync(path.resolve(dir, v.$file), "utf8"));
+        for (const key of (v.$pointer ?? "").split("/").slice(1)) doc = doc[key.replace(/~1/g, "/").replace(/~0/g, "~")];
+        return doc;
+      }
       return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x)]));
     }
     return v;

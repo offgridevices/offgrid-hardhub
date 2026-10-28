@@ -1,0 +1,335 @@
+{
+ "turns": [
+  [
+   {
+    "thinking": "A Wi-Fi room sensor for Home Assistant. Power source and enclosure decide most of the board."
+   },
+   {
+    "text": "A Wi-Fi room sensor is a good first board. Two questions first, so the parts fit how you will use it."
+   },
+   {
+    "tool": "ask_user",
+    "input": {
+     "questions": [
+      {
+       "id": "power",
+       "header": "Power",
+       "text": "How will the board be powered?",
+       "multi": false,
+       "options": [
+        {
+         "id": "usbc",
+         "label": "USB-C, 5 V",
+         "detail": "Any phone charger. Simplest and cheapest.",
+         "recommended": true
+        },
+        {
+         "id": "battery",
+         "label": "A rechargeable battery",
+         "detail": "Needs a charger chip; bigger board."
+        }
+       ]
+      },
+      {
+       "id": "home",
+       "header": "Smart home",
+       "text": "Should it show up in Home Assistant by itself?",
+       "multi": false,
+       "options": [
+        {
+         "id": "esphome",
+         "label": "Yes, with ESPHome",
+         "detail": "No code to write; Home Assistant finds it.",
+         "recommended": true
+        },
+        {
+         "id": "no",
+         "label": "No",
+         "detail": "Plain Wi-Fi; you write the firmware."
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  [
+   {
+    "tool": "update_design",
+    "input": {
+     "summary": "Wrote the requirements from your answers",
+     "patch": [
+      {
+       "op": "replace",
+       "path": "/name",
+       "value": "Room sensor"
+      },
+      {
+       "op": "replace",
+       "path": "/summary",
+       "value": "Temperature and humidity on Wi-Fi, in Home Assistant through ESPHome, powered by USB-C."
+      },
+      {
+       "op": "add",
+       "path": "/requirements/-",
+       "value": {
+        "id": "R1",
+        "text": "Powered from USB-C, 5 V",
+        "check": "circuit check",
+        "status": "open"
+       }
+      },
+      {
+       "op": "add",
+       "path": "/requirements/-",
+       "value": {
+        "id": "R2",
+        "text": "Measures temperature and humidity",
+        "check": "parts and circuit",
+        "status": "open"
+       }
+      },
+      {
+       "op": "add",
+       "path": "/requirements/-",
+       "value": {
+        "id": "R3",
+        "text": "Appears in Home Assistant through ESPHome",
+        "check": "firmware pin map",
+        "status": "open"
+       }
+      },
+      {
+       "op": "add",
+       "path": "/requirements/-",
+       "value": {
+        "id": "R4",
+        "text": "Assembled by JLCPCB from stock parts",
+        "check": "BOM and CPL",
+        "status": "open"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "tool": "set_stage",
+    "input": {
+     "stage": "parts"
+    }
+   }
+  ],
+  [
+   {
+    "tool": "propose_options",
+    "input": {
+     "title": "The Wi-Fi chip",
+     "columns": [
+      "Chip",
+      "Price (1 pc)",
+      "Wi-Fi",
+      "Bluetooth",
+      "Status"
+     ],
+     "rows": [
+      {
+       "id": "c3",
+       "cells": [
+        "ESP32-C3-MINI-1",
+        "$1.90",
+        "2.4 GHz",
+        "BLE 5",
+        "Active"
+       ],
+       "recommended": true
+      },
+      {
+       "id": "s3",
+       "cells": [
+        "ESP32-S3-WROOM-1",
+        "$3.40",
+        "2.4 GHz",
+        "BLE 5",
+        "Active"
+       ]
+      },
+      {
+       "id": "8266",
+       "cells": [
+        "ESP8266 (ESP-12F)",
+        "$1.60",
+        "2.4 GHz",
+        "None",
+        "Not for new designs"
+       ],
+       "warning": "Not recommended for new designs"
+      }
+     ],
+     "note": "Scripted test data, not a live catalogue read."
+    }
+   },
+   {
+    "tool": "ask_user",
+    "input": {
+     "questions": [
+      {
+       "id": "chip",
+       "header": "Chip",
+       "text": "Which Wi-Fi chip?",
+       "multi": false,
+       "options": [
+        {
+         "id": "c3",
+         "label": "ESP32-C3",
+         "detail": "Cheapest current chip that does everything this needs.",
+         "recommended": true
+        },
+        {
+         "id": "s3",
+         "label": "ESP32-S3",
+         "detail": "More pins and speed than this board needs."
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  [
+   {
+    "text": "The ESP32-C3 it is. I've drawn the circuit: USB-C power, a 3.3 V regulator, the chip, the SHT40 sensor, a status light and a button."
+   },
+   {
+    "tool": "update_design",
+    "input": {
+     "summary": "Drew the circuit",
+     "patch": [
+      {
+       "op": "replace",
+       "path": "/blocks",
+       "value": {
+        "$file": "../../engine/tests/fixtures/esp32c3-sensor.json",
+        "$pointer": "/blocks"
+       }
+      },
+      {
+       "op": "replace",
+       "path": "/parts",
+       "value": {
+        "$file": "../../engine/tests/fixtures/esp32c3-sensor.json",
+        "$pointer": "/parts"
+       }
+      },
+      {
+       "op": "replace",
+       "path": "/nets",
+       "value": {
+        "$file": "../../engine/tests/fixtures/esp32c3-sensor.json",
+        "$pointer": "/nets"
+       }
+      },
+      {
+       "op": "replace",
+       "path": "/components",
+       "value": {
+        "$file": "../../engine/tests/fixtures/esp32c3-sensor.json",
+        "$pointer": "/components"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "tool": "check_circuit",
+    "input": {}
+   },
+   {
+    "tool": "set_stage",
+    "input": {
+     "stage": "circuit"
+    }
+   }
+  ],
+  [
+   {
+    "tool": "update_design",
+    "input": {
+     "summary": "Set the board: 50 x 40 mm, 2 layers, four M3 holes",
+     "patch": [
+      {
+       "op": "add",
+       "path": "/board",
+       "value": {
+        "$file": "../../engine/tests/fixtures/esp32c3-sensor.json",
+        "$pointer": "/board"
+       }
+      },
+      {
+       "op": "replace",
+       "path": "/placement",
+       "value": {
+        "$file": "../../engine/tests/fixtures/esp32c3-sensor.json",
+        "$pointer": "/placement"
+       }
+      },
+      {
+       "op": "replace",
+       "path": "/firmware",
+       "value": {
+        "$file": "../../engine/tests/fixtures/esp32c3-sensor.json",
+        "$pointer": "/firmware"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "tool": "quote",
+    "input": {
+     "qty": [
+      5,
+      100
+     ]
+    }
+   },
+   {
+    "tool": "set_stage",
+    "input": {
+     "stage": "board"
+    }
+   }
+  ],
+  [
+   {
+    "text": "Laying out and routing the board now. This takes a minute or two."
+   },
+   {
+    "tool": "build_board",
+    "input": {}
+   }
+  ],
+  [
+   {
+    "tool": "render",
+    "input": {}
+   },
+   {
+    "tool": "set_stage",
+    "input": {
+     "stage": "checks"
+    }
+   }
+  ],
+  [
+   {
+    "tool": "set_stage",
+    "input": {
+     "stage": "order"
+    }
+   },
+   {
+    "text": "The board is routed and checked. The Checks tab lists every test and its result, the 3D tab shows the board, and Order has the Gerber, BOM and placement files for JLCPCB."
+   }
+  ]
+ ]
+}
