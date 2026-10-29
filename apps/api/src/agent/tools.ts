@@ -38,6 +38,8 @@ export interface ToolContext {
   /** the last build that made files: its engine job and its KiCad zip in the file store */
   lastBuild(): { job: string; kicad: string } | null;
   setLastBuild(b: { job: string; kicad: string }): void;
+  /** what the person changed by hand on the last built board (POST /projects/:id/board/edits), oldest first */
+  handEdits(): string[];
   /** the model can look at images */
   vision: boolean;
 }
@@ -205,12 +207,22 @@ export const TOOLS = {
 
   build_board: tool({
     description:
-      "Lay out, route and check the board in KiCad: place parts (yours, plus automatic placement for unplaced ones), route, 45-degree corners, ground pour, DRC with the fab's limits, net check, fab files, renders. Takes minutes. Needs design.board.",
-    schema: z.object({ stop_after: z.enum(BUILD_STEPS).optional().describe("stop early, e.g. after place to review placement") }),
+      "Lay out, route and check the board in KiCad: place parts (yours, plus automatic placement for unplaced ones), route, 45-degree corners, ground pour, DRC with the fab's limits, net check, fab files, renders. Takes minutes. Needs design.board. If the person has edited the board by hand, ask them before building again: a build re-routes the board and loses their edits.",
+    schema: z.object({
+      stop_after: z.enum(BUILD_STEPS).optional().describe("stop early, e.g. after place to review placement"),
+      discard_hand_edits: z
+        .boolean()
+        .optional()
+        .describe("true only once the person has agreed: they edited the board by hand, and a new build places and routes it again, losing their tracks and vias"),
+    }),
     label: (i) => (i.stop_after ? `Building the board (up to ${i.stop_after})` : "Building the board"),
     async run(i, ctx, _call, signal) {
       const { design } = ctx.design();
       if (!design.board) return { content: "The design has no board yet: set /board (size, layers) first.", isError: true };
+      // a build that stops before the fab files leaves the last board as it is
+      const replaces = !i.stop_after || BUILD_STEPS.indexOf(i.stop_after) >= BUILD_STEPS.indexOf("fab");
+      const refused = replaces ? handEditGuard(ctx, i.discard_hand_edits) : null;
+      if (refused) return { content: refused, isError: true };
       const job = ctx.nextJob();
       for await (const line of ctx.engine.build(design, job, signal, i.stop_after)) {
         if (!("done" in line)) {
@@ -437,7 +449,20 @@ function warnings(d: Design): string {
   return w.length ? `\nWarnings:\n${w.slice(0, 15).join("\n")}` : "";
 }
 
-function summarizeChecks(results: CheckResult[]): string {
+/** A build places and routes the board from the design again: what the person
+ * drew by hand on the last one is lost. Not without their say-so. */
+export function handEditGuard(ctx: Pick<ToolContext, "handEdits">, discard?: boolean): string | null {
+  const edits = ctx.handEdits();
+  if (!edits.length || discard) return null;
+  return [
+    "Not built: the person edited this board by hand since the last build:",
+    ...edits.slice(-8).map((e) => `- ${e}`),
+    "A new build places and routes the board again and loses those edits (parts they moved are kept: their positions are in design.placement, locked).",
+    "Ask the person first. If they agree, call build_board again with discard_hand_edits: true.",
+  ].join("\n");
+}
+
+export function summarizeChecks(results: CheckResult[]): string {
   if (!results.length) return "No checks ran.";
   const count = (s: CheckResult["status"]) => results.filter((r) => r.status === s).length;
   const notPass = results.filter((r) => r.status === "fail" || r.status === "warn");
@@ -447,7 +472,8 @@ function summarizeChecks(results: CheckResult[]): string {
   ].join("\n");
 }
 
-async function storeArtifacts(ctx: ToolContext, job: string, artifacts: Artifact[]): Promise<Artifact[]> {
+/** copies a job's files from the engine to the file store, under names no other job has */
+export async function storeArtifacts(ctx: Pick<ToolContext, "engine" | "putFile" | "projectId">, job: string, artifacts: Artifact[]): Promise<Artifact[]> {
   const out: Artifact[] = [];
   for (const a of artifacts) {
     const r = await ctx.engine.file(job, a.name);

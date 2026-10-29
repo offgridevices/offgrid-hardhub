@@ -15,6 +15,9 @@
 //   DELETE /projects/:id                                    -> 204
 //   GET    /projects/:id/events   ?after=SEQ&limit=N        -> EventPage (stored events, oldest first)
 //   GET    /projects/:id/files/:name                        -> the file
+//   POST   /projects/:id/board/edits  BoardEditRequest      -> BoardEditResult (board.ts; 409 while the AI,
+//                                                              an agent or a build works, or with no board yet;
+//                                                              422 an edit the board cannot take, nothing changed)
 //   GET    /projects/:id/ws       (WebSocket: ClientMessage up, ServerEvent down)
 //
 // Auth: "Authorization: Bearer <session token>" on every request; browsers

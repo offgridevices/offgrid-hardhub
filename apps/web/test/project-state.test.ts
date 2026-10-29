@@ -51,6 +51,13 @@ describe("project state", () => {
     expect(s.checks[0]!.status).toBe("pass");
   });
 
+  it("lets a newer build's files replace the older ones of the same name", () => {
+    const art = (name: string, seq: number) => ServerEvent.parse({ type: "artifacts", artifacts: [{ kind: "board-json", name, url: `/projects/p/files/${name}` }], seq, at });
+    let s = reduce(initialState, art("b1-hub-board.json", 0));
+    s = reduce(s, art("b2-hub-board.json", 1));
+    expect(s.artifacts.map((a) => a.name)).toEqual(["b2-hub-board.json"]);
+  });
+
   it("appends live deltas without advancing seq, then takes the stored whole text", () => {
     let s = reduce(initialState, ServerEvent.parse({ type: "stage", stage: "idea", seq: 0, at }));
     s = reduce(s, ServerEvent.parse({ type: "assistant_text", id: "a", text: "Hel", done: false, seq: 0, at }));

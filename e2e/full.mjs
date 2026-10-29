@@ -85,13 +85,15 @@ try {
   await shot("parts");
 
   await tab("circuit");
-  (await page.locator("svg").count()) > 2 ? ok("circuit drawn") : fail("circuit drawn", "no diagrams");
+  (await page.getByTestId("schematic").locator("[data-ref]").count()) > 2 ? ok("schematic drawn") : fail("schematic drawn", "no symbols");
   await shot("circuit");
 
   await tab("board");
   await page.getByTestId("board-2d").waitFor({ timeout: 20000 });
+  await page.getByRole("button", { name: "Layers" }).click();
   const layers = await page.locator('[data-testid^="layer-"]').count();
   layers >= 4 ? ok("board layers shown", `${layers} toggles`) : fail("board layers shown", `${layers} toggles`);
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(1500);
   await shot("board");
 
@@ -129,6 +131,44 @@ try {
   const drc = texts.find((t) => /DRC/i.test(t));
   drc && /pass/i.test(drc) ? ok("DRC passes", drc.replace(/\s+/g, " ").slice(0, 100)) : fail("DRC passes", drc ?? "no DRC row");
   await shot("checks");
+
+  await tab("board");
+  await page.getByTestId("board-2d").waitFor({ timeout: 20000 });
+  await page.waitForTimeout(1000);
+  // a hand edit, as in KiCad: pick a track, make it wider, save; KiCad applies
+  // it and every check runs again, and the chat says what was done
+  const hit = page.locator('[data-testid="board-2d"] path[data-hit]');
+  if (!(await hit.count())) fail("hand edit", "no track to pick (no board.json?)");
+  else {
+    // a real click on the middle of a straight, longish track
+    const box = await page.evaluate(() => {
+      const paths = [...document.querySelectorAll('[data-testid="board-2d"] path[data-hit]')];
+      const best = paths.map((p) => p.getBoundingClientRect()).filter((r) => r.width > 25 && r.height < 4).sort((a, b) => b.width - a.width)[0];
+      return best && { x: best.x + best.width / 2, y: best.y + best.height / 2 };
+    });
+    if (box) await page.mouse.click(box.x, box.y);
+    else await hit.first().click();
+    const width = page.getByLabel("Width in mm");
+    await width.waitFor({ timeout: 5000 });
+    // any width it does not have already (power tracks are 0.4 mm); a
+    // clearance problem it makes is for the checks to report, not a failure here
+    const want = (await width.inputValue()) === "0.40" ? "0.35" : "0.40";
+    await width.fill(want);
+    await width.press("Enter");
+    await page.getByTestId("save-edits").click();
+    const chip = page.getByTestId("board-edit").last();
+    await chip.waitFor({ timeout: 5 * 60_000 }).then(
+      async () => ok("hand edit saved and checked", (await chip.textContent())?.trim().slice(0, 100)),
+      () => fail("hand edit saved and checked", "no edit note in the chat"),
+    );
+    // the board KiCad saved comes back with the change in it, and the draft is gone
+    await page.waitForFunction((w) => document.querySelector('input[aria-label="Width in mm"]')?.value === w, want, { timeout: 30000 }).then(
+      () => ok("the edited board reloads with the new width"),
+      async () => fail("the edited board reloads with the new width", await page.getByLabel("Width in mm").inputValue().catch(() => "no panel")),
+    );
+    (await page.getByTestId("save-edits").count()) === 0 ? ok("no unsaved edits left after saving") : fail("no unsaved edits left after saving");
+    await shot("board-edited");
+  }
 
   await tab("order");
   const dl = page.getByTestId("download-gerbers");

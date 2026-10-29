@@ -43,7 +43,10 @@ def board_path(job_dir, kicad_zip=None):
         if not zips:
             return None
         src = zips[0]
-    tmp = tempfile.mkdtemp(dir=job_dir if os.path.isdir(job_dir) else None)
+    # unpacked beside its destination: a temporary folder elsewhere (/tmp) may
+    # be another file system, which os.rename cannot cross
+    os.makedirs(job_dir, exist_ok=True)
+    tmp = tempfile.mkdtemp(dir=job_dir)
     with zipfile.ZipFile(src) as z:
         for n in z.namelist():
             # only the board's own files, flat: nothing outside the folder
@@ -52,7 +55,6 @@ def board_path(job_dir, kicad_zip=None):
     if not glob.glob(os.path.join(tmp, '*.kicad_pcb')):
         shutil.rmtree(tmp, ignore_errors=True)
         return None
-    os.makedirs(job_dir, exist_ok=True)
     shutil.rmtree(dst, ignore_errors=True)
     os.rename(tmp, dst)
     return glob.glob(os.path.join(dst, '*.kicad_pcb'))[0]

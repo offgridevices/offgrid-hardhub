@@ -1,5 +1,6 @@
 """The HTTP service, started in-process on a free port."""
 import json
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -16,10 +17,25 @@ def url(tmp_path_factory):
     os.environ['HARDHUB_JOBS'] = str(tmp_path_factory.mktemp('jobs'))
     from hardhub import server
     server.JOBS = os.environ['HARDHUB_JOBS']
-    srv = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+    srv = server.Server(('127.0.0.1', 0), server.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield 'http://127.0.0.1:%d' % srv.server_address[1]
     srv.shutdown()
+
+
+def test_starts_where_the_host_name_is_too_long_for_dns(monkeypatch):
+    """A Cloudflare Container: socket.getfqdn() raises on its host name. The
+    standard server dies binding; the engine's must not."""
+    from hardhub import server
+
+    def too_long(*a):
+        raise UnicodeError('encoding with \'idna\' codec failed (UnicodeError: label too long)')
+    monkeypatch.setattr(socket, 'getfqdn', too_long)
+    with pytest.raises(UnicodeError):
+        ThreadingHTTPServer(('127.0.0.1', 0), server.Handler).server_close()
+    srv = server.Server(('127.0.0.1', 0), server.Handler)
+    assert srv.server_port > 0
+    srv.server_close()
 
 
 LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))     # never through an HTTP proxy
@@ -133,3 +149,40 @@ def test_view_and_inspect(url, c3):
     assert code == 200 and ctype == 'image/png'
     code, _, data = call(url, '/inspect', dict(job='looktest', what=['parts']))
     assert code == 200 and 'drc' not in json.loads(data)
+
+
+@kicad
+def test_edit_streams_like_a_build(url, c3):
+    """POST /edit: a built board's KiCad zip and the person's edits in; the
+    same progress lines and result as a build out, with the board's geometry."""
+    import base64
+    code, _, body = call(url, '/build', dict(design=c3, job='edsrc', outputs=['svg']))
+    done = json.loads(body.splitlines()[-1])
+    assert code == 200 and done['ok']
+    kzip = next(a for a in done['artifacts'] if a['kind'] == 'kicad')
+    geo = next(a for a in done['artifacts'] if a['kind'] == 'board-json')
+    g = json.loads(call(url, geo['url'])[2])
+    zdata = base64.b64encode(call(url, kzip['url'])[2]).decode()
+    via = g['vias'][0]
+    req = dict(design=c3, job='edtest', kicad_zip_b64=zdata, outputs=['svg'],
+               edits=[dict(op='set_via', id=via['id'], x=via['x'], y=via['y'])])
+    code, ctype, body = call(url, '/edit', req)
+    lines = [json.loads(l) for l in body.splitlines()]
+    assert code == 200 and ctype == 'application/x-ndjson'
+    assert lines[0]['step'] == 'validate' and {l['step'] for l in lines[:-1]} == {'validate', 'pour', 'drc', 'verify', 'fab', 'render'}
+    final = lines[-1]
+    assert final['done'] and final['ok'] and not final.get('rejected'), final.get('error')
+    kinds = {a['kind'] for a in final['artifacts']}
+    assert {'gerbers', 'kicad', 'board-svg', 'board-json', 'package'} <= kinds
+    assert all(a['url'].startswith('/jobs/edtest/files/') for a in final['artifacts'])
+    assert call(url, next(a['url'] for a in final['artifacts'] if a['kind'] == 'board-json'))[0] == 200
+
+    # an edit naming nothing on the board: refused, nothing made
+    code, _, body = call(url, '/edit', dict(req, job='edbad', edits=[dict(op='delete', id='nope')]))
+    final = json.loads(body.splitlines()[-1])
+    assert code == 200 and final['rejected'] and 'no track or via with id nope' in final['error'] and not final['artifacts']
+    # a request missing what it needs is a plain 400
+    assert call(url, '/edit', dict(req, edits=[]))[0] == 400
+    assert call(url, '/edit', dict(req, kicad_zip_b64=''))[0] == 400
+    assert call(url, '/edit', {k: v for k, v in req.items() if k != 'design'})[0] == 400
+    assert call(url, '/edit', dict(req, job='../x'))[0] == 400

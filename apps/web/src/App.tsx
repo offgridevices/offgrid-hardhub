@@ -2,6 +2,9 @@ import { lazy, Suspense, useEffect } from "react";
 import { useApp, API_URL } from "./lib/app";
 import { navigate, parse, usePath, onLink, rememberNext } from "./lib/router";
 import { Lockup } from "./components/brand";
+import { Screen } from "./components/topbar";
+import { Button } from "@/components/ui/button";
+import { Loader } from "@/components/ui/skeleton";
 
 // each screen is its own chunk: sign-in never downloads the workspace
 const SignIn = lazy(() => import("./screens/signin"));
@@ -13,41 +16,39 @@ const Connect = lazy(() => import("./screens/connect"));
 // the frame paints at once, before the server has answered
 function Loading() {
   return (
-    <div className="screen" aria-busy="true">
-      <header className="topbar">
+    <Screen>
+      <header className="flex min-h-14 items-center border-b px-4">
         <Lockup />
       </header>
-      <div className="center-state">
-        <div style={{ alignItems: "center" }}>
-          <div className="spinner-line" />
-        </div>
+      <div className="grid flex-1 place-items-center" aria-busy="true">
+        <Loader />
       </div>
-    </div>
+    </Screen>
   );
 }
 
 function Offline() {
   const { recheck } = useApp();
   return (
-    <div className="screen">
-      <header className="topbar">
+    <Screen>
+      <header className="flex min-h-14 items-center border-b px-4">
         <Lockup />
       </header>
-      <div className="center-state" data-testid="offline">
-        <div>
-          <h1 className="d3">Can't reach the HardHub server</h1>
-          <p className="secondary">
-            The app tried <span className="num">{API_URL}</span> and got no answer. If you are running HardHub on this computer, start it
-            with <span className="num">./hardhub</span> and try again.
+      <div className="grid flex-1 place-items-center px-4" data-testid="offline">
+        <div className="flex max-w-md flex-col gap-4">
+          <h1 className="text-2xl font-semibold tracking-tight">Can't reach the HardHub server</h1>
+          <p className="text-muted-foreground">
+            The app tried <span className="num text-foreground">{API_URL}</span> and got no answer. If you are running HardHub on this computer, start it
+            with <span className="num text-foreground">./hardhub</span> and try again.
           </p>
           <div>
-            <button className="btn btn-solid" onClick={recheck} data-testid="retry">
+            <Button onClick={recheck} data-testid="retry">
               Try again
-            </button>
+            </Button>
           </div>
         </div>
       </div>
-    </div>
+    </Screen>
   );
 }
 
@@ -79,14 +80,18 @@ export default function App() {
       {route.name === "settings" && <Settings />}
       {route.name === "connect" && <Connect />}
       {route.name === "notfound" && (
-        <div className="center-state">
-          <div>
-            <h1 className="d3">Nothing here</h1>
-            <a className="btn" href="/" onClick={onLink} style={{ alignSelf: "flex-start" }}>
-              All boards
-            </a>
+        <Screen>
+          <div className="grid flex-1 place-items-center px-4">
+            <div className="flex flex-col items-start gap-4">
+              <h1 className="text-2xl font-semibold tracking-tight">Nothing here</h1>
+              <Button variant="outline" asChild>
+                <a href="/" onClick={onLink}>
+                  All boards
+                </a>
+              </Button>
+            </div>
           </div>
-        </div>
+        </Screen>
       )}
     </Suspense>
   );

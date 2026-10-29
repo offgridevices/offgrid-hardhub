@@ -1,17 +1,23 @@
-// One project: the conversation on one side, the board on the other. On a
-// phone they are two panes switched at the bottom of the screen.
+// One project: the views of the board on the left and middle, the
+// conversation on the right. On a phone they are two panes switched at the
+// bottom of the screen.
 import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { STAGES, type Stage } from "@hardhub/protocol";
-import { TopBar } from "../components/topbar";
+import { STAGES, type BoardEditRequest, type Stage } from "@hardhub/protocol";
+import { BoxIcon, CircleCheckBigIcon, CpuIcon, DownloadIcon, LayoutDashboardIcon, ListChecksIcon, PackageIcon, WaypointsIcon } from "lucide-react";
+import { Screen, TopBar } from "../components/topbar";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Loader } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { ChatLog, Composer } from "../components/chat";
 import { useApp } from "../lib/app";
 import { navigate, onLink } from "../lib/router";
 import { useProject } from "../lib/use-project";
 import { isKeyError } from "../lib/project-state";
-import { STAGE_LABEL, usd } from "../lib/format";
+import { STAGE_LABEL, STAGE_TONE, usd } from "../lib/format";
 import { providerInfo, modelLabel } from "../config/llm";
-import { centreIn, useEdgeFade } from "../lib/edge-fade";
-import { Icon3D, IconChecks, IconCircuit, IconLayout, IconOrder, IconParts, IconRequirements } from "../components/icons";
+import { centreIn } from "../lib/edge-fade";
 
 // each tab is its own chunk; the light ones are fetched while the browser is
 // idle so switching tabs never waits on the network (3D waits until opened:
@@ -39,13 +45,13 @@ const Order = lazy(loaders.order);
 // one menu: each view, with an icon, marked done or current as the design
 // moves through its stages (STAGE_TAB says which view shows which stage)
 const TABS = [
-  { id: "overview", label: "Requirements", icon: <IconRequirements /> },
-  { id: "parts", label: "Parts", icon: <IconParts /> },
-  { id: "circuit", label: "Circuit", icon: <IconCircuit /> },
-  { id: "board", label: "Layout", icon: <IconLayout /> },
-  { id: "3d", label: "3D", icon: <Icon3D /> },
-  { id: "checks", label: "Checks", icon: <IconChecks /> },
-  { id: "order", label: "Order", icon: <IconOrder /> },
+  { id: "overview", label: "Requirements", icon: <ListChecksIcon /> },
+  { id: "parts", label: "Parts", icon: <CpuIcon /> },
+  { id: "circuit", label: "Schematic", icon: <WaypointsIcon /> },
+  { id: "board", label: "Layout", icon: <LayoutDashboardIcon /> },
+  { id: "3d", label: "3D", icon: <BoxIcon /> },
+  { id: "checks", label: "Checks", icon: <CircleCheckBigIcon /> },
+  { id: "order", label: "Order", icon: <PackageIcon /> },
 ] as const satisfies readonly { id: string; label: string; icon: ReactNode }[];
 type Tab = (typeof TABS)[number]["id"];
 
@@ -70,7 +76,8 @@ function tabProgress(tab: Tab, stage: Stage | null): "done" | "current" | "" {
   return mine.length && mine.every((i) => i < at) ? "done" : "";
 }
 
-// the chat column on a wide screen: dragged, or moved with the arrow keys
+// the chat column on a wide screen, on the right: dragged by its left edge,
+// or moved with the arrow keys
 const CHAT_KEY = "hh_chat_width";
 const CHAT_MIN = 300;
 const CHAT_DEFAULT = 400;
@@ -116,11 +123,11 @@ export default function Workspace({ id }: { id: string }) {
   }, []);
   const dragChat = useCallback(
     (e: PointerEvent<HTMLDivElement>) => {
-      const left = ws.current?.getBoundingClientRect().left ?? 0;
+      const right = ws.current?.getBoundingClientRect().right ?? window.innerWidth;
       const handle = e.currentTarget;
       handle.setPointerCapture(e.pointerId);
       let w = chatWidth;
-      const move = (m: globalThis.PointerEvent) => setChatWidth((w = clampChat(m.clientX - left)));
+      const move = (m: globalThis.PointerEvent) => setChatWidth((w = clampChat(right - m.clientX)));
       const up = () => {
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", up);
@@ -136,7 +143,8 @@ export default function Workspace({ id }: { id: string }) {
   const nudgeChat = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
       const step = e.shiftKey ? 80 : 24;
-      const next = e.key === "ArrowLeft" ? chatWidth - step : e.key === "ArrowRight" ? chatWidth + step : e.key === "Home" ? CHAT_MIN : e.key === "End" ? Infinity : null;
+      // the handle sits on the chat's left edge: left widens it, right narrows it
+      const next = e.key === "ArrowLeft" ? chatWidth + step : e.key === "ArrowRight" ? chatWidth - step : e.key === "Home" ? CHAT_MIN : e.key === "End" ? Infinity : null;
       if (next === null) return;
       e.preventDefault();
       const w = clampChat(next);
@@ -153,7 +161,6 @@ export default function Workspace({ id }: { id: string }) {
     return () => window.removeEventListener("resize", fit);
   }, [clampChat]);
   const tabRow = useRef<HTMLDivElement>(null);
-  useEdgeFade(tabRow);
   const [seenArtifacts, setSeenArtifacts] = useState(0);
 
   const stage = state.stage ?? detail?.stage ?? null;
@@ -180,10 +187,11 @@ export default function Workspace({ id }: { id: string }) {
   }, [pane, state.artifacts.length]);
 
   const fileUrl = useCallback((u: string) => backend.fileUrl(id, u), [backend, id]);
+  const saveEdits = useCallback((req: BoardEditRequest) => backend.editBoard(id, req), [backend, id]);
   const design = detail?.design;
 
   const main = useMemo(() => {
-    if (!design) return <div className="center-state"><div className="spinner-line" /></div>;
+    if (!design) return <Centre><Loader /></Centre>;
     switch (tab) {
       case "overview":
         return <Overview design={design} />;
@@ -192,7 +200,7 @@ export default function Workspace({ id }: { id: string }) {
       case "circuit":
         return <Circuit design={design} />;
       case "board":
-        return <Board2D design={design} artifacts={state.artifacts} fileUrl={fileUrl} />;
+        return <Board2D design={design} artifacts={state.artifacts} checks={state.checks} fileUrl={fileUrl} save={saveEdits} />;
       case "3d":
         return <Viewer3D design={design} artifacts={state.artifacts} fileUrl={fileUrl} />;
       case "checks":
@@ -200,38 +208,132 @@ export default function Workspace({ id }: { id: string }) {
       case "order":
         return <Order design={design} artifacts={state.artifacts} fileUrl={fileUrl} />;
     }
-  }, [tab, design, state.artifacts, state.checks, fileUrl]);
+  }, [tab, design, state.artifacts, state.checks, fileUrl, saveEdits]);
 
   if (error)
     return (
-      <div className="screen">
+      <Screen>
         <TopBar back />
-        <div className="center-state">
-          <div>
-            <h1 className="d4">This board could not be opened</h1>
-            <p className="secondary">{error}</p>
-            <a className="btn" href="/" onClick={onLink} style={{ alignSelf: "flex-start" }}>
-              All boards
-            </a>
+        <Centre>
+          <div className="flex max-w-md flex-col items-start gap-4">
+            <h1 className="text-2xl font-semibold tracking-tight">This board could not be opened</h1>
+            <p className="text-soft">{error}</p>
+            <Button variant="outline" asChild>
+              <a href="/" onClick={onLink}>
+                All boards
+              </a>
+            </Button>
           </div>
-        </div>
-      </div>
+        </Centre>
+      </Screen>
     );
 
-  const fullBleed = tab === "board" || tab === "3d";
+  const fullBleed = tab === "board" || tab === "3d" || tab === "circuit";
+  const failing = state.checks.some((c) => c.status === "fail");
+  const hasOrder = state.artifacts.some((a) => a.kind === "gerbers");
 
   return (
-    <div className="screen" style={{ height: "100dvh", overflow: "hidden" }}>
-      <TopBar back>
-        <span style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }} data-testid="project-name">
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <TopBar
+        back
+        actions={
+          hasOrder && tab !== "order" ? (
+            <Button size="sm" className="hidden sm:inline-flex" onClick={() => setTab("order")} data-testid="order-files">
+              <DownloadIcon />
+              Order files
+            </Button>
+          ) : null
+        }
+      >
+        <span className="min-w-0 truncate font-medium" data-testid="project-name">
           {detail?.name ?? "…"}
         </span>
-        {link !== "open" && <span className="tag">{link === "connecting" ? "Connecting" : "Reconnecting"}</span>}
+        {stage && (
+          <Badge tone={STAGE_TONE[stage]} className="hidden sm:inline-flex">
+            {STAGE_LABEL[stage]}
+          </Badge>
+        )}
+        {link !== "open" && <Badge tone="gold">{link === "connecting" ? "Connecting" : "Reconnecting"}</Badge>}
       </TopBar>
-      <div className="ws" data-pane={pane} ref={ws} style={{ ["--chat-w" as string]: `${chatWidth}px` }}>
-        <section className="ws-chat" aria-label="Conversation">
+      <div
+        className="ws flex min-h-0 flex-1 flex-col gap-2 p-2 min-[700px]:flex-row min-[700px]:gap-3 min-[700px]:p-3"
+        data-pane={pane}
+        ref={ws}
+        style={{ ["--chat-w" as string]: `${chatWidth}px` }}
+      >
+        <nav
+          className={cn(
+            "flex shrink-0 gap-1 overflow-x-auto min-[700px]:flex-col min-[700px]:overflow-visible [scrollbar-width:none]",
+            pane === "chat" && "max-[699px]:hidden",
+          )}
+          role="tablist"
+          aria-orientation="vertical"
+          aria-label={`Views · design stage: ${STAGE_LABEL[stage ?? "idea"]}, ${STAGES.indexOf(stage ?? "idea") + 1} of ${STAGES.length}`}
+          ref={tabRow}
+          data-testid="stepper"
+          data-stage={stage ?? "idea"}
+        >
+          {TABS.map((t) => {
+            const progress = tabProgress(t.id, stage);
+            const fail = t.id === "checks" && failing;
+            const selected = tab === t.id;
+            return (
+              <Tooltip key={t.id}>
+                <TooltipTrigger asChild>
+                  <button
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => setTab(t.id)}
+                    data-testid={`tab-${t.id}`}
+                    className={cn(
+                      "relative flex h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 min-[700px]:w-11 min-[700px]:justify-center min-[700px]:px-0 [&_svg]:size-5",
+                      selected && "bg-ember/15 text-ember-text hover:bg-ember/20 hover:text-ember-text",
+                    )}
+                  >
+                    {t.icon}
+                    <span className="min-[700px]:sr-only">{t.label}</span>
+                    {(progress || fail) && (
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "absolute right-1.5 top-1.5 size-1.5 rounded-full",
+                          fail ? "bg-clay" : progress === "done" ? "bg-moss" : "bg-ember",
+                        )}
+                      />
+                    )}
+                    {fail && <span className="sr-only"> (a check failed)</span>}
+                    {progress === "current" && <span className="sr-only"> (current stage)</span>}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-[699px]:hidden">
+                  {progress === "current" ? `${t.label} · where the design is now` : t.label}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </nav>
+
+        <section
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card",
+            pane === "chat" && "max-[699px]:hidden",
+          )}
+          aria-label="Board"
+        >
+          <div className={fullBleed ? "flex min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto"} role="tabpanel">
+            <Suspense fallback={<Centre><Loader /></Centre>}>{main}</Suspense>
+          </div>
+        </section>
+
+        <aside
+          className={cn(
+            "ws-chat relative flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card max-[699px]:flex-1 min-[700px]:w-(--chat-w) min-[700px]:shrink-0",
+            pane === "board" && "max-[699px]:hidden",
+          )}
+          aria-label="Conversation"
+        >
           <div
-            className="ws-resize"
+            className="absolute inset-y-0 left-0 z-10 hidden w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent after:transition-colors hover:after:bg-ember focus-visible:after:bg-ember min-[700px]:block"
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize the chat"
@@ -247,12 +349,22 @@ export default function Workspace({ id }: { id: string }) {
             }}
             data-testid="chat-resize"
           />
+          <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+            <span className="font-semibold">Chat</span>
+            {me?.llm_ready && (
+              <Badge tone="plum" className="min-w-0 truncate">
+                {modelLabel(me.llm.provider, me.llm.model)}
+              </Badge>
+            )}
+          </div>
           {noKey && (
-            <div className="note-bar" data-testid="no-key-bar">
+            <div className="flex flex-col gap-2 border-b bg-ember/10 px-4 py-3 text-sm text-ember-text" data-testid="no-key-bar">
               <span>To chat here, add an AI key, or keep designing from your connected Claude or ChatGPT.</span>
-              <a className="btn btn-sm" href="/settings" onClick={onLink} data-testid="add-key-bar">
-                {keyLabel}
-              </a>
+              <Button size="xs" variant="outline" className="self-start" asChild>
+                <a href="/settings" onClick={onLink} data-testid="add-key-bar">
+                  {keyLabel}
+                </a>
+              </Button>
             </div>
           )}
           <ChatLog
@@ -268,63 +380,24 @@ export default function Workspace({ id }: { id: string }) {
             busy={state.busy}
             onSend={onSend}
             onStop={onStop}
-            hint={
-              state.usage.cost > 0
-                ? `${me ? modelLabel(me.llm.provider, me.llm.model) : "AI"} · ${usd(state.usage.cost)} so far`
-                : me
-                  ? modelLabel(me.llm.provider, me.llm.model)
-                  : ""
-            }
+            hint={state.usage.cost > 0 ? `${usd(state.usage.cost)} so far` : ""}
           />
-        </section>
-        <section className="ws-main" aria-label="Board">
-          <div
-            className="viewbar"
-            role="tablist"
-            aria-label={`Views · design stage: ${STAGE_LABEL[stage ?? "idea"]}, ${STAGES.indexOf(stage ?? "idea") + 1} of ${STAGES.length}`}
-            ref={tabRow}
-            data-testid="stepper"
-            data-stage={stage ?? "idea"}
-          >
-            {TABS.map((t) => {
-              const progress = tabProgress(t.id, stage);
-              const failing = t.id === "checks" && state.checks.some((c) => c.status === "fail");
-              return (
-                <button
-                  key={t.id}
-                  role="tab"
-                  className={`vtab${progress ? ` ${progress}` : ""}`}
-                  aria-selected={tab === t.id}
-                  onClick={() => setTab(t.id)}
-                  title={progress === "current" ? `${t.label}: the stage the design is at` : t.label}
-                  data-testid={`tab-${t.id}`}
-                >
-                  <span className="vtab-icon">
-                    {t.icon}
-                    {(progress || failing) && <span className={`vtab-mark${failing ? " fail" : ""}`} aria-hidden="true" />}
-                  </span>
-                  <span className="vtab-label">{t.label}</span>
-                  {failing && <span className="sr-only"> (a check failed)</span>}
-                  {progress === "current" && <span className="sr-only"> (current stage)</span>}
-                </button>
-              );
-            })}
-          </div>
-          <div className={fullBleed ? "viewer-wrap" : "pane"} style={fullBleed ? { flex: 1, minHeight: 0, display: "flex" } : undefined} role="tabpanel">
-            <Suspense fallback={<div className="center-state"><div className="spinner-line" /></div>}>{main}</Suspense>
-          </div>
-        </section>
+        </aside>
       </div>
-      <nav className="segmented" aria-label="Show">
-        <button aria-pressed={pane === "chat"} onClick={() => setPane("chat")} data-testid="pane-chat">
+      <nav className="grid shrink-0 grid-cols-2 gap-1 border-t bg-card p-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] min-[700px]:hidden" aria-label="Show">
+        <Button variant={pane === "chat" ? "secondary" : "ghost"} aria-pressed={pane === "chat"} onClick={() => setPane("chat")} data-testid="pane-chat" className="relative">
           Chat
-          {state.openQuestions && pane !== "chat" && <span className="badge" aria-label="Questions waiting" />}
-        </button>
-        <button aria-pressed={pane === "board"} onClick={() => setPane("board")} data-testid="pane-board">
+          {state.openQuestions && pane !== "chat" && <span className="size-2 rounded-full bg-ember" aria-label="Questions waiting" />}
+        </Button>
+        <Button variant={pane === "board" ? "secondary" : "ghost"} aria-pressed={pane === "board"} onClick={() => setPane("board")} data-testid="pane-board" className="relative">
           Design
-          {newResults && <span className="badge" aria-label="New results" />}
-        </button>
+          {newResults && <span className="size-2 rounded-full bg-ember" aria-label="New results" />}
+        </Button>
       </nav>
     </div>
   );
+}
+
+function Centre({ children }: { children: ReactNode }) {
+  return <div className="grid min-h-60 flex-1 place-items-center p-6">{children}</div>;
 }

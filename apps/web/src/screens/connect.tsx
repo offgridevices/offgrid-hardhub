@@ -4,6 +4,11 @@
 import { useEffect, useState } from "react";
 import type { OAuthClientInfo } from "@hardhub/protocol";
 import { Lockup } from "../components/brand";
+import { CheckIcon, XIcon } from "lucide-react";
+import { Screen } from "../components/topbar";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Loader } from "@/components/ui/skeleton";
 import { useApp } from "../lib/app";
 import { navigate, rememberNext } from "../lib/router";
 
@@ -60,72 +65,80 @@ export default function Connect() {
   const name = client?.name ?? "This app";
 
   return (
-    <div className="screen">
-      <header className="topbar">
+    <Screen>
+      <header className="flex min-h-14 items-center border-b px-4">
         <Lockup />
       </header>
-      <main className="signin">
-        <div className="signin-box" data-testid="connect">
+      <main className="grid flex-1 place-items-center px-4 py-12">
+        <div className="flex w-full max-w-lg flex-col gap-6" data-testid="connect">
           {error ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }} role="alert">
-              <h1 className="d3">This connection didn't work</h1>
-              <p className="secondary">{error}</p>
-              <a className="btn" href="/" style={{ alignSelf: "flex-start" }}>
-                Your boards
-              </a>
+            <div className="flex flex-col gap-4" role="alert">
+              <h1 className="text-3xl font-semibold tracking-tight">This connection didn't work</h1>
+              <p className="text-soft">{error}</p>
+              <Button variant="outline" asChild className="self-start">
+                <a href="/">Your boards</a>
+              </Button>
             </div>
           ) : !client ? (
-            <div className="spinner-line" aria-busy="true" />
+            <Loader className="self-center" />
           ) : state === "done" || state === "refused" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }} role="status" data-testid="connect-done">
-              <h1 className="d3">{state === "done" ? `${name} is connected` : "Not connected"}</h1>
-              <p className="secondary">
+            <div className="flex flex-col gap-4" role="status" data-testid="connect-done">
+              <h1 className="text-3xl font-semibold tracking-tight">{state === "done" ? `${name} is connected` : "Not connected"}</h1>
+              <p className="text-soft">
                 {state === "done" ? `Going back to ${client.redirect_host}. If nothing happens, switch back to ${name} yourself; you can close this tab.` : `${name} was told no. You can close this tab.`}
               </p>
             </div>
           ) : (
             <>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <h1 className="d3" data-testid="connect-title">
+              <div className="flex flex-col gap-3">
+                <h1 className="text-3xl font-semibold tracking-tight text-balance" data-testid="connect-title">
                   Let {name} use HardHub?
                 </h1>
-                <p className="lead">
+                <p className="text-lg text-soft">
                   {name} will design boards with you in its own chat. It does the thinking on your own plan there: no API key, and HardHub never sees that account.
                 </p>
-                <p className="small muted" data-testid="connect-who">
+                <p className="text-sm text-muted-foreground" data-testid="connect-who">
                   {client.client_host
                     ? `Identified by ${client.client_host}.`
                     : "The app chose this name itself. Allow it only if you just asked your AI app to connect to HardHub."}
                 </p>
               </div>
-              <div className="panel" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-                <strong className="small">It will be able to</strong>
-                <ul className="steps-list">
-                  {CAN.map((c) => (
-                    <li key={c}>{c}</li>
-                  ))}
-                </ul>
-                <strong className="small" style={{ marginTop: 4 }}>
-                  It won't be able to
-                </strong>
-                <ul className="steps-list">
-                  {CANNOT.map((c) => (
-                    <li key={c}>{c}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className="key-row">
-                <button className="btn btn-primary btn-lg" onClick={() => answer(true)} disabled={state !== "ask"} data-testid="connect-allow">
+              <Card className="gap-4 px-5">
+                <div className="flex flex-col gap-2">
+                  <strong className="text-sm font-semibold">It will be able to</strong>
+                  <ul className="flex flex-col gap-1.5 text-sm text-soft">
+                    {CAN.map((c) => (
+                      <li key={c} className="flex gap-2">
+                        <CheckIcon className="mt-0.5 size-4 shrink-0 text-moss" aria-hidden="true" />
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <strong className="text-sm font-semibold">It won't be able to</strong>
+                  <ul className="flex flex-col gap-1.5 text-sm text-soft">
+                    {CANNOT.map((c) => (
+                      <li key={c} className="flex gap-2">
+                        <XIcon className="mt-0.5 size-4 shrink-0 text-clay" aria-hidden="true" />
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Card>
+              <div className="flex flex-wrap gap-2">
+                <Button size="lg" onClick={() => answer(true)} disabled={state !== "ask"} data-testid="connect-allow">
                   {state === "sending" ? "Connecting…" : "Allow"}
-                </button>
-                <button className="btn btn-lg" onClick={() => answer(false)} disabled={state !== "ask"} data-testid="connect-cancel">
+                </Button>
+                <Button size="lg" variant="outline" onClick={() => answer(false)} disabled={state !== "ask"} data-testid="connect-cancel">
                   Cancel
-                </button>
+                </Button>
               </div>
-              <p className="small muted">
+              <p className="text-sm text-muted-foreground">
                 Signed in as {me?.email}.{" "}
                 <button
-                  className="btn-link"
+                  className="text-ember-text underline-offset-4 hover:underline"
                   onClick={async () => {
                     // sign in as someone else, then come back here
                     rememberNext(location.pathname + location.search);
@@ -142,6 +155,6 @@ export default function Connect() {
           )}
         </div>
       </main>
-    </div>
+    </Screen>
   );
 }

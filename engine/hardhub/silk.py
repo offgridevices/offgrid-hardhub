@@ -87,6 +87,11 @@ def _board_area(b):
 def apply(path, d):
     """Place the silkscreen on the routed board at path; returns the check result."""
     b = pcbnew.LoadBoard(path)
+    # run again on a board it has done before (a hand-edited board is checked
+    # again): the design's own text is placed afresh, not twice
+    for t in list(b.GetDrawings()):
+        if t.GetClass() == 'PCB_TEXT' and t.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            K.remove(b, t)
     want = (d.get('board') or {}).get('silkscreen') or {}
     outlines, refs, texts = bool(want.get('outlines')), bool(want.get('refs')), list(want.get('texts') or [])
     area = _board_area(b)
@@ -118,7 +123,9 @@ def apply(path, d):
         side = side_of(fp)
         silk, fab = (pcbnew.B_SilkS, pcbnew.B_Fab) if side == 'bottom' else (pcbnew.F_SilkS, pcbnew.F_Fab)
         for it in fp.GraphicalItems():
-            if it.GetLayer() != PARKED:
+            # parked by board.load_parts, or on the silkscreen from a run
+            # before this one (a part since moved may now sit on a pad)
+            if it.GetLayer() not in (PARKED, silk):
                 continue
             it.SetLayer(silk)
             poly = _shape_poly(it, silk) if outlines else None

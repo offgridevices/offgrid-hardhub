@@ -1,78 +1,81 @@
 // Requirements and decisions: what the board must do, and every choice made.
 import type { Design } from "@hardhub/protocol";
 import { date, keepHyphens } from "../lib/format";
+import { Pane, PaneHead, Section } from "../components/pane";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-const STATUS: Record<string, string> = { open: "Open", met: "Met", unmet: "Not met", limit: "Limit" };
+const STATUS = {
+  open: { label: "Open", tone: "neutral" },
+  met: { label: "Met", tone: "moss" },
+  unmet: { label: "Not met", tone: "clay" },
+  limit: { label: "Limit", tone: "gold" },
+} as const;
 
 export default function Overview({ design }: { design: Design }) {
   const reqs = design.requirements;
   const decs = design.decisions;
   return (
-    <div className="pane-inner">
-      <div className="pane-head">
-        <h2 className="d4">{design.name}</h2>
-        {design.summary && <p className="secondary">{keepHyphens(design.summary)}</p>}
-      </div>
+    <Pane>
+      <PaneHead title={design.name}>{design.summary && keepHyphens(design.summary)}</PaneHead>
 
-      <section>
-        <h3 className="section-title">Requirements</h3>
+      <Section title="Requirements" aside={reqs.length ? `${reqs.filter((r) => r.status === "met").length} of ${reqs.length} met` : undefined}>
         {reqs.length === 0 ? (
-          <p className="muted small">None yet. They are written as the conversation settles what the board must do.</p>
+          <p className="text-sm text-muted-foreground">None yet. They are written as the conversation settles what the board must do.</p>
         ) : (
-          <div className="table-scroll">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th style={{ width: 44 }}>#</th>
-                  <th>Requirement</th>
-                  <th className="hide-sm">How it is checked</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead>Requirement</TableHead>
+                  <TableHead className="hidden md:table-cell">How it is checked</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {reqs.map((r) => (
-                  <tr key={r.id}>
-                    <td className="num muted">{r.id}</td>
-                    <td>
+                  <TableRow key={r.id}>
+                    <TableCell className="num align-top text-muted-foreground">{r.id}</TableCell>
+                    <TableCell className="align-top">
                       {keepHyphens(r.text)}
-                      {r.note && <div className="small muted" style={{ marginTop: 4 }}>{r.note}</div>}
-                    </td>
-                    <td className="hide-sm secondary">{r.check ?? "—"}</td>
-                    <td>
-                      <span className={`tag${r.status === "unmet" || r.status === "limit" ? " tag-warn" : ""}`}>{STATUS[r.status]}</span>
-                    </td>
-                  </tr>
+                      {r.note && <div className="mt-1 text-xs text-muted-foreground">{r.note}</div>}
+                    </TableCell>
+                    <TableCell className="hidden align-top text-soft md:table-cell">{r.check ?? "—"}</TableCell>
+                    <TableCell className="align-top">
+                      <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h3 className="section-title">Decisions</h3>
+      <Section title="Decisions">
         {decs.length === 0 ? (
-          <p className="muted small">Each choice you make is recorded here with the options and the reason.</p>
+          <p className="text-sm text-muted-foreground">Each choice you make is recorded here with the options and the reason.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <div className="grid gap-3 md:grid-cols-2">
             {decs.map((d) => {
               const chosen = d.options.find((o) => o.id === d.chosen);
               const others = d.options.filter((o) => o.id !== d.chosen);
               return (
-                <div key={d.id} style={{ padding: "16px 0", borderBottom: "1px solid var(--hairline)", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                    <span className="label">{d.question}</span>
-                    {d.at && <span className="small muted num">{date(d.at)}</span>}
+                <div key={d.id} className="flex flex-col gap-1.5 rounded-xl border bg-card p-4">
+                  <div className="flex flex-wrap justify-between gap-3">
+                    <span className="text-xs font-medium text-muted-foreground">{d.question}</span>
+                    {d.at && <span className="num text-xs text-muted-foreground">{date(d.at)}</span>}
                   </div>
-                  <div style={{ fontWeight: 500 }}>{chosen ? chosen.label : "Not decided yet"}</div>
-                  {d.why && <div className="small secondary">{d.why}</div>}
-                  {others.length > 0 && <div className="small muted">Also considered: {others.map((o) => o.label).join(", ")}</div>}
+                  <div className="font-medium">{chosen ? chosen.label : <span className="text-gold-text">Not decided yet</span>}</div>
+                  {d.why && <div className="text-sm text-soft">{d.why}</div>}
+                  {others.length > 0 && <div className="text-xs text-muted-foreground">Also considered: {others.map((o) => o.label).join(", ")}</div>}
                 </div>
               );
             })}
           </div>
         )}
-      </section>
-    </div>
+      </Section>
+    </Pane>
   );
 }

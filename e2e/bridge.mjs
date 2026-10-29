@@ -75,17 +75,18 @@ try {
   check(!(await input.getAttribute("placeholder"))?.includes("working"), "the chat is idle again after the turn");
   await shot("answered");
 
-  // the chat column is the person's to size: dragged, and with the arrow keys
+  // the chat column, on the right, is the person's to size: dragged by its
+  // left edge, and with the arrow keys
   const chatWidth = () => page.locator(".ws-chat").evaluate((e) => e.getBoundingClientRect().width);
   const before = await chatWidth();
   const handle = await page.getByTestId("chat-resize").boundingBox();
   await page.mouse.move(handle.x + handle.width / 2, handle.y + 200);
   await page.mouse.down();
-  await page.mouse.move(handle.x + 160, handle.y + 200, { steps: 8 });
+  await page.mouse.move(handle.x - 160, handle.y + 200, { steps: 8 });
   await page.mouse.up();
   const dragged = await chatWidth();
   await page.getByTestId("chat-resize").focus();
-  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
   const nudged = await chatWidth();
   await page.reload();
   await page.getByTestId("chat-log").waitFor({ timeout: 20000 });

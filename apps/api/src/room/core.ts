@@ -2,13 +2,13 @@
 // AI conversation, and the turn that is running. Storage is SQLite (the
 // Durable Object's own database in production, sql.js in tests), so this
 // class has no Cloudflare dependency and is tested directly.
-import { Design, type EventPage, type ServerEvent, emptyDesign } from "@hardhub/protocol";
+import { type BoardEditRequest, type CheckResult, Design, type EventPage, type ServerEvent, emptyDesign } from "@hardhub/protocol";
 import type { Engine } from "../engine";
 import { type Llm, LlmError, type StreamSink, type ToolImage } from "../agent/llm/types";
 import type { BridgeEvent } from "../bridge";
 import { type Pending, type TurnEnd, type TurnInput, runTurn } from "../agent/loop";
 import { SYSTEM_PROMPT, chatSystemPrompt } from "../agent/prompt";
-import { type EventInput, type ToolContext, TOOLS, runTool, toolSpecs } from "../agent/tools";
+import { type EventInput, type ToolContext, TOOLS, handEditGuard, runTool, storeArtifacts, toolSpecs } from "../agent/tools";
 
 export interface SqlCursor {
   toArray(): Record<string, unknown>[];
@@ -67,6 +67,14 @@ export interface AgentBuild {
   result?: AgentResult;
 }
 
+/** what a hand edit of the board answers (POST /projects/:id/board/edits) */
+export type BoardEditOutcome =
+  | { status: 200; body: { ok: boolean; summary: string; checks: CheckResult[] } }
+  | { status: 409 | 422 | 502; body: { error: string } };
+
+/** notes kept for the AI that has not heard them yet, at most this many */
+const NOTES = 20;
+
 /** agent tools that change the design: not while an agent's build runs from it */
 const CHANGES_DESIGN = new Set(["update_design", "set_stage", "write_firmware"]);
 
@@ -91,8 +99,9 @@ export class RoomCore {
         this.emit({ type: "turn_end", reason: "error" });
       }
     }
-    // a chat turn on Claude Code cut off the same way
+    // a chat turn on Claude Code cut off the same way, or a hand edit
     this.setMeta("chat_turn", null);
+    this.setMeta("editing", null);
     this.setMeta("chat_asked", null);
     // the same for an agent's build: queued ones still run from the alarm
     const b = this.agentBuild();
@@ -121,6 +130,10 @@ export class RoomCore {
   }
   get busy() {
     return this.meta("busy") === "1";
+  }
+  /** a hand edit of the board is being applied and checked */
+  get editing() {
+    return this.meta("editing") === "1";
   }
 
   init(projectId: string, ownerId: string, name: string) {
@@ -240,6 +253,9 @@ export class RoomCore {
     let end: TurnEnd = "error";
     try {
       this.emit({ type: "user_message", id: shortId("m"), text: input.text, ...(input.answers ? { answers: input.answers } : {}) });
+      // what the person did by hand since the AI last heard from them
+      const notes = this.takeNotes("notes_chat");
+      if (notes) input = { ...input, context: notes };
       const chat = await this.d.chat?.(this.ownerId);
       if (chat) return (end = await this.chatTurn(chat, input, abort.signal));
       let llm: Llm;
@@ -301,6 +317,10 @@ export class RoomCore {
       this.d.broadcast(JSON.stringify({ type: "error", message: "HardHub is still working on the last message.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
       return false;
     }
+    if (this.editing) {
+      this.d.broadcast(JSON.stringify({ type: "error", message: "HardHub is checking your edits to the board. Send your message when it has finished.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
+      return false;
+    }
     if (this.buildingForAgent() || this.agentCalls > 0) {
       this.d.broadcast(JSON.stringify({ type: "error", message: "A connected AI is working on this board. Send your message when it has finished.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
       return false;
@@ -344,6 +364,7 @@ export class RoomCore {
       check: (d) => e.check(d),
       quote: (d, q) => e.quote(d, q),
       build: (d, job, signal, stopAfter) => e.build(d, scoped(job), signal, stopAfter),
+      edit: (d, job, zip, edits, signal) => e.edit(d, scoped(job), zip, edits, signal),
       file: (job, name) => e.file(scoped(job), name),
       view: (job, opts, zip) => e.view(scoped(job), opts, zip),
       inspect: (job, opts, zip) => e.inspect(scoped(job), opts, zip),
@@ -370,7 +391,12 @@ export class RoomCore {
       renders: () => JSON.parse(this.meta("renders") ?? "[]") as string[],
       setRenders: (names) => this.setMeta("renders", JSON.stringify(names)),
       lastBuild: () => JSON.parse(this.meta("last_build") ?? "null") as { job: string; kicad: string } | null,
-      setLastBuild: (b) => this.setMeta("last_build", JSON.stringify(b)),
+      setLastBuild: (b) => {
+        this.setMeta("last_build", JSON.stringify(b));
+        // a new build placed and routed the board again: the hand edits are gone from it
+        this.setMeta("hand_edits", null);
+      },
+      handEdits: () => this.handEdits(),
       vision,
     };
   }
@@ -390,7 +416,10 @@ export class RoomCore {
     this.agentCalls++;
     try {
       const r = await runTool({ id: shortId("x"), name, input }, this.toolContext(true), new AbortController().signal);
-      return { content: r.outcome.content, ...(r.outcome.images ? { images: r.outcome.images } : {}), ...(r.outcome.isError ? { isError: true } : {}) };
+      // a connected agent hears of the person's hand edits on its next call
+      const notes = fromChat ? null : this.takeNotes("notes_agent");
+      const content = notes ? `${notes}\n\n${r.outcome.content}` : r.outcome.content;
+      return { content, ...(r.outcome.images ? { images: r.outcome.images } : {}), ...(r.outcome.isError ? { isError: true } : {}) };
     } finally {
       this.agentCalls--;
       this.agentDone();
@@ -401,6 +430,7 @@ export class RoomCore {
   private agentRefusal(fromChat = false): AgentResult | null {
     // the chat's own Claude Code works inside the turn that is running
     if (fromChat) return this.meta("chat_turn") ? null : { content: "This chat turn has ended.", isError: true };
+    if (this.editing) return { content: "The person is editing the board by hand and HardHub is checking it. Try again in a minute.", isError: true };
     return this.busy || this.meta("queued")
       ? { content: "HardHub's own AI is answering a message in this project. Try again when it has finished.", isError: true }
       : null;
@@ -433,6 +463,10 @@ export class RoomCore {
     const parsed = TOOLS.build_board.schema.safeParse(input ?? {});
     if (!parsed.success) return { content: `Invalid input for build_board: ${parsed.error.issues.map((i) => i.message).join("; ")}`, isError: true };
     if (!this.design().design.board) return { content: "The design has no board yet: set /board (size, layers) first.", isError: true };
+    // refused here, not after the build has queued: the agent asks the person first
+    const replaces = !parsed.data.stop_after || ["fab", "render"].includes(parsed.data.stop_after);
+    const refused = replaces ? handEditGuard({ handEdits: () => this.handEdits() }, parsed.data.discard_hand_edits) : null;
+    if (refused) return { content: refused, isError: true };
     this.setAgentBuild({ id: shortId("x"), input: parsed.data, state: "queued" });
     return { content: "started" };
   }
@@ -480,7 +514,8 @@ export class RoomCore {
     this.setMeta("chat_turn", "1");
     this.setMeta("chat_asked", null);
     try {
-      const prompt = input.answers ? `${input.text}\n\nMy answers:\n${this.describeAnswers(input.answers)}` : input.text;
+      const said = input.answers ? `${input.text}\n\nMy answers:\n${this.describeAnswers(input.answers)}` : input.text;
+      const prompt = input.context ? `${input.context}\n\n${said}` : said;
       return await this.chatRun(chat, prompt, signal);
     } catch (e) {
       if (signal.aborted) return "stopped";
@@ -558,6 +593,91 @@ export class RoomCore {
     return null;
   }
 
+  // ---------------------------------------------------------------- hand edits
+
+  private handEdits(): string[] {
+    return JSON.parse(this.meta("hand_edits") ?? "[]") as string[];
+  }
+
+  private addNote(key: "notes_chat" | "notes_agent" | "hand_edits", text: string) {
+    const list = JSON.parse(this.meta(key) ?? "[]") as string[];
+    this.setMeta(key, JSON.stringify([...list, text].slice(-NOTES)));
+  }
+
+  /** the notes the AI has not heard yet, as one block, and forget them */
+  private takeNotes(key: "notes_chat" | "notes_agent"): string | null {
+    const list = JSON.parse(this.meta(key) ?? "[]") as string[];
+    this.setMeta(key, null);
+    return list.length ? list.join("\n") : null;
+  }
+
+  /** The person's hand edits to the last built board: the engine applies them
+   * to its KiCad file, refills the zones, checks it again and makes every file
+   * again, without placing or routing. Stored like a build's results; parts
+   * moved go into the design's placement, locked, so a later build keeps them.
+   * Refused while the AI, a connected agent or a build is working here. */
+  async editBoard(req: BoardEditRequest): Promise<BoardEditOutcome> {
+    const conflict = (error: string): BoardEditOutcome => ({ status: 409, body: { error } });
+    if (this.editing) return conflict("Your last edits are still being checked.");
+    if (this.busy || this.meta("queued") || this.meta("chat_turn")) return conflict("HardHub's AI is working on this project. Edit the board when it has finished.");
+    if (this.buildingForAgent() || this.agentCalls > 0) return conflict("A connected AI is working on this board. Edit it when it has finished.");
+    const ctx = this.toolContext(false);
+    const last = ctx.lastBuild();
+    if (!last) return conflict("There is no routed board yet: build it first.");
+    const { design } = this.design();
+    if (!design.board) return conflict("The design has no board yet.");
+    this.setMeta("editing", "1");
+    const job = ctx.nextJob();
+    // the chat's card for this job says "checking your edits", not "building"
+    const card = `edit-${job}`;
+    try {
+      const zip = await ctx.getFile(last.kicad);
+      if (!zip) return conflict("The last build's board file is missing: build the board again.");
+      for await (const line of ctx.engine.edit(design, job, zip, req.edits)) {
+        if (!("done" in line)) {
+          this.emit({ type: "job", job: card, step: line.step, progress: line.progress, done: false });
+          continue;
+        }
+        const made = !line.rejected && line.artifacts.length > 0;
+        this.emit({ type: "job", job: card, step: "done", progress: 1, done: true, ok: made && line.ok });
+        if (line.rejected) return { status: 422, body: { error: line.error ?? "The edits could not be applied." } };
+        if (!made) return { status: 502, body: { error: `The engine could not check the edited board${line.error ? `: ${line.error}` : "."}` } };
+        if (line.checks.length) this.emit({ type: "checks", results: line.checks });
+        const stored = await storeArtifacts(ctx, job, line.artifacts);
+        if (stored.length) this.emit({ type: "artifacts", artifacts: stored });
+        const renders = stored.filter((a) => a.kind === "board-png").map((a) => a.name);
+        if (renders.length) ctx.setRenders(renders);
+        const kicad = stored.find((a) => a.kind === "kicad");
+        // the edited board is now the last build (and keeps its hand edits)
+        if (kicad) this.setMeta("last_build", JSON.stringify({ job, kicad: kicad.name }));
+        const what = describeEdits(line.stats, req.edits.length);
+        const summary = `You ${what} by hand · checks: ${problems(line.checks)}`;
+        const moved = Object.entries(line.placement);
+        if (moved.length) {
+          const cur = this.design().design;
+          const placement = { ...cur.placement };
+          // locked: a later build keeps them where the person put them
+          for (const [ref, p] of moved) placement[ref] = { ...p, locked: true };
+          this.saveDesign({ ...cur, placement }, `Moved ${moved.map(([r]) => r).join(", ")} by hand`);
+        }
+        this.emit({ type: "board_edit", id: shortId("e"), summary, edits: req.edits.length, ok: line.ok });
+        // the AI hears of it on its next turn (and a connected agent on its next call)
+        const said = req.note?.trim() ? ` They said: "${req.note.trim()}"` : "";
+        const note = `The person edited the board by hand: ${what} (checks after: ${problems(line.checks)}).${said} The board has their edits; do not re-route it without asking them.`;
+        this.addNote("notes_chat", note);
+        this.addNote("notes_agent", note);
+        this.addNote("hand_edits", `${what}${said}`);
+        return { status: 200, body: { ok: line.ok, summary, checks: line.checks } };
+      }
+      return { status: 502, body: { error: "The engine stopped without a result." } };
+    } catch (e) {
+      this.emit({ type: "job", job: card, step: "done", progress: 1, done: true, ok: false });
+      return { status: 502, body: { error: `The engine could not apply the edits: ${e instanceof Error ? e.message : String(e)}` } };
+    } finally {
+      this.setMeta("editing", null);
+    }
+  }
+
   /** The files of the last build that made any. */
   latestArtifacts(): { kind: string; name: string; url: string; bytes?: number }[] {
     const row = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"artifacts"%' ORDER BY seq DESC LIMIT 1`).toArray()[0];
@@ -578,3 +698,26 @@ export class RoomCore {
   }
 }
 
+
+/** "moved 2 tracks and 1 via, drew 1 track", from the engine's edit counts */
+export function describeEdits(stats: Record<string, number>, total: number): string {
+  const n = (k: string) => stats[`edits_${k}`] ?? 0;
+  const things = (parts: [number, string][]) =>
+    parts.filter(([c]) => c > 0).map(([c, w]) => `${c} ${w}${c === 1 ? "" : "s"}`);
+  const and = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : (xs[0] ?? ""));
+  const groups: [string, string[]][] = [
+    ["moved", things([[n("set_track"), "track"], [n("set_via"), "via"], [n("move_part"), "part"]])],
+    ["drew", things([[n("add_track"), "track"]])],
+    ["added", things([[n("add_via"), "via"]])],
+    ["deleted", things([[n("delete_track"), "track"], [n("delete_via"), "via"]])],
+  ];
+  const phrases = groups.filter(([, xs]) => xs.length).map(([verb, xs]) => `${verb} ${and(xs)}`);
+  return phrases.length ? and(phrases) : `made ${total} edit${total === 1 ? "" : "s"}`;
+}
+
+/** "0 problems", "1 problem, 2 warnings": failed checks, then warnings */
+function problems(checks: CheckResult[]): string {
+  const fail = checks.filter((c) => c.status === "fail").length;
+  const warn = checks.filter((c) => c.status === "warn").length;
+  return `${fail} problem${fail === 1 ? "" : "s"}${warn ? `, ${warn} warning${warn === 1 ? "" : "s"}` : ""}`;
+}

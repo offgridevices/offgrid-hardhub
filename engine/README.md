@@ -21,7 +21,13 @@ validate -> footprints -> place -> route -> miter -> pour -> drc -> verify -> fa
 | drc | KiCad DRC: errors, warnings and unconnected items must all be 0 |
 | verify | copper equals the design pad for pad; corners; every part on the board |
 | fab | Gerber zip, JLCPCB BOM + CPL, PCBWay BOM, netlist CSV, IPC-D-356, the KiCad files |
-| render | per-layer SVG (board area only); a GLB in metres, centred on the origin, meshopt-compressed (the viewer needs meshopt's decoder); PNG and STEP when asked |
+| render | per-layer SVG (board area only); `board.json`, the board as vector geometry in the SVGs' own frame (tracks, vias, parts and pads, filled zones: `geometry.py`); a GLB in metres, centred on the origin, meshopt-compressed (the viewer needs meshopt's decoder); PNG and STEP when asked; last, the order package: one zip with a README naming each file's upload slot at JLCPCB and PCBWay and the board settings to pick, the flat Gerber zip under `board/`, BOM + CPL under `assembly/jlcpcb/` and `assembly/pcbway/`, the IPC netlist, and the STEP model under `3d/` when made |
+
+A board edited by hand (`POST /edit`, `edits.py`) runs `validate -> pour ->
+drc -> verify -> fab -> render`: the edits applied to the built board's
+KiCad file in order (move a track's ends, draw a track, move, add or delete
+a via, move or flip a part), the zones refilled, then the same checks and
+files as a build, without placing or routing again.
 
 The code generalises offgrid-hardware's Print Hub v1 library (`pcb.py`,
 `route.py`, `miter.py`, `stitch.py`, `fab.py`, `footprints.py`, the power
@@ -59,6 +65,7 @@ The contract is `packages/protocol/src/engine.ts`.
 | `POST /check {design}` | circuit checks |
 | `POST /quote {design, qty: [5, 100]}` | estimated price for 2, 4, 6, 8 layers (and the design's own), dated basis |
 | `POST /build {design, job, stop_after?, outputs?}` | NDJSON stream: one line per step, then `{done, ok, checks, artifacts, stats, placement}` |
+| `POST /edit {design, job, kicad_zip_b64, edits, outputs?}` | a built board edited by hand (`BoardEdit`, `packages/protocol/src/board.ts`): streamed like `/build`; `placement` holds the parts moved, in the design's frame; an edit naming an item, layer or point the board lacks changes nothing (`rejected: true`, `error` says which) |
 | `GET /jobs/:job/files/:name` | an output file |
 | `DELETE /jobs/:job` | forget a job's files |
 
@@ -127,7 +134,12 @@ docker compose -f engine/docker-compose.yml run --rm -v /path/to/offgrid-hardwar
   mistakes; the 2-layer ESP32-C3 fixture built end to end and required fully
   green; Print Hub converted from offgrid-hardware and built (opt-in).
 * `test_server.py` — the HTTP service: health, quote, check, a streamed
-  build, file serving, the build limit.
+  build, file serving, the build limit, a streamed edit.
+* `test_edit.py` — `board.json` lines up with the SVGs (size, every via,
+  track end and mounting hole); the order package's layout and README;
+  every edit op; a bad edit (unknown id, layer, net, a point off the board,
+  a mounting hole) changes nothing; a track that would short two nets; the
+  DRC catching a clearance error drawn by hand; silkscreen placed once.
 
 ## Dependencies
 

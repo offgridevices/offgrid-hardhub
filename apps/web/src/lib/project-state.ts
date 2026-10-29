@@ -11,6 +11,7 @@ export type ChatItem =
   | { kind: "comparison"; id: string; comparison: Comparison }
   | { kind: "stage"; id: string; stage: Stage }
   | { kind: "job"; id: string; job: string; step: string; progress: number; done: boolean; ok?: boolean }
+  | { kind: "edit"; id: string; summary: string; ok: boolean }
   | { kind: "error"; id: string; message: string; retryable: boolean };
 
 export interface ProjectState {
@@ -107,8 +108,11 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
       break;
     }
     case "artifacts": {
-      const byName = new Map(s.artifacts.map((a) => [a.name, a]));
-      for (const a of e.artifacts) byName.set(a.name, a);
+      // each build or edit stores its files under a new prefix (b1-, b2-):
+      // a newer file replaces the older one of the same name
+      const key = (a: Artifact) => a.name.replace(/^b\d+-/, "");
+      const byName = new Map(s.artifacts.map((a) => [key(a), a]));
+      for (const a of e.artifacts) byName.set(key(a), a);
       n.artifacts = [...byName.values()];
       break;
     }
@@ -118,6 +122,9 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
         output: s.usage.output + e.output_tokens,
         cost: s.usage.cost + e.cost_usd,
       };
+      break;
+    case "board_edit":
+      n.items = upsert(s.items, { kind: "edit", id: e.id, summary: e.summary, ok: e.ok });
       break;
     case "error":
       n.items = [...s.items, { kind: "error", id: `err-${e.seq}`, message: e.message, retryable: e.retryable }];

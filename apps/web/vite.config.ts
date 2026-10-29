@@ -1,6 +1,8 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 
 // Preload the two body-text font files so the first paint already has them
 // and text does not shift when they arrive.
@@ -31,8 +33,9 @@ const apiProxy = process.env.API_PROXY
   : undefined;
 
 export default defineConfig({
-  plugins: [react(), preloadFonts(["instrument-sans-latin-400-normal", "instrument-sans-latin-500-normal"])],
-  server: { host: "0.0.0.0", port: 5173 },
+  plugins: [react(), tailwindcss(), preloadFonts(["geist-latin-wght-normal"])],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  server: { host: "0.0.0.0", port: 5173, ...(apiProxy ? { proxy: apiProxy } : {}) },
   // host names it answers to: localhost and any IP address (Vite's default),
   // and "web", the container's name; anything else is refused, so a web page
   // cannot reach a local HardHub through a rebound DNS name.

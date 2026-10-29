@@ -34,6 +34,22 @@ describe("HttpEngine", () => {
     expect(seen[0]).toMatchObject({ path: "/build", body: { job: "b1", stop_after: "place" } });
   });
 
+  it("sends hand edits with the board's KiCad zip, and reads the same stream back", async () => {
+    const seen: { path: string; body: Record<string, unknown> }[] = [];
+    const engine = new HttpEngine(async (path, init) => {
+      seen.push({ path, body: JSON.parse(String(init?.body)) });
+      const done = { done: true, ok: false, rejected: true, error: "edit 1 (delete): no track or via with id x on the board", checks: [], artifacts: [] };
+      return new Response(chunked([lines[0], done].map((l) => JSON.stringify(l)).join("\n"), 5));
+    });
+    const zip = new Uint8Array([80, 75, 3, 4, 255]).buffer;
+    const out = [];
+    for await (const l of engine.edit(emptyDesign("x"), "p-b2", zip, [{ op: "delete", id: "x" }])) out.push(l);
+    expect(out.at(-1)).toMatchObject({ done: true, rejected: true, error: expect.stringContaining("no track or via") });
+    expect(seen[0]!.path).toBe("/edit");
+    expect(seen[0]!.body).toMatchObject({ job: "p-b2", kicad_zip_b64: "UEsDBP8=", edits: [{ op: "delete", id: "x" }], outputs: ["svg", "glb", "png"] });
+    expect((seen[0]!.body.design as { name: string }).name).toBe("x");
+  });
+
   it("reports engine failures with their status", async () => {
     const engine = new HttpEngine(async () => new Response("kicad crashed", { status: 500 }));
     await expect(engine.check(emptyDesign())).rejects.toThrow(EngineError);

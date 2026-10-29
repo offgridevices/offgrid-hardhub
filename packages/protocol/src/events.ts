@@ -48,7 +48,9 @@ export const CheckResult = z.object({
 export type CheckResult = z.infer<typeof CheckResult>;
 
 export const Artifact = z.object({
-  kind: z.enum(["board-svg", "board-png", "glb", "gerbers", "bom", "cpl", "netlist", "step", "kicad", "firmware", "report"]),
+  // board-json: the routed board's vector geometry (BoardGeometry, board.ts), for editing it by hand
+  // package: one zip with everything to order the board, sorted by where each file is uploaded
+  kind: z.enum(["board-svg", "board-png", "board-json", "glb", "gerbers", "bom", "cpl", "netlist", "step", "kicad", "package", "firmware", "report"]),
   name: z.string(),
   url: z.string(), // relative to the API: /projects/:id/files/:name
   bytes: z.number().int().nonnegative().optional(),
@@ -74,6 +76,8 @@ export const ServerEvent = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("job"), job: z.string(), step: z.string(), progress: z.number().min(0).max(1), done: z.boolean(), ok: z.boolean().optional() }),
   z.object({ ...base, type: z.literal("checks"), results: z.array(CheckResult) }),
   z.object({ ...base, type: z.literal("artifacts"), artifacts: z.array(Artifact) }),
+  // the person edited the routed board by hand (POST /projects/:id/board/edits); summary is plain words
+  z.object({ ...base, type: z.literal("board_edit"), id: z.string(), summary: z.string(), edits: z.number().int().nonnegative(), ok: z.boolean() }),
   z.object({ ...base, type: z.literal("usage"), input_tokens: z.number(), output_tokens: z.number(), cost_usd: z.number() }),
   z.object({ ...base, type: z.literal("error"), message: z.string(), retryable: z.boolean() }),
   z.object({ ...base, type: z.literal("turn_end"), reason: z.enum(["waiting_for_user", "done", "stopped", "error"]) }),

@@ -16,6 +16,8 @@ import {
   type ClientMessage,
   type LlmProvider,
   type LlmSettings,
+  BoardEditResult,
+  type BoardEditRequest,
 } from "@hardhub/protocol";
 import type { z } from "zod";
 import { ApiError, type Backend, type LinkStatus, type ProjectLink } from "./backend";
@@ -175,6 +177,9 @@ export class ApiClient implements Backend {
   }
   oauthApprove(answer: OAuthApprove) {
     return this.req("POST", "/oauth/approve", answer, OAuthRedirect);
+  }
+  editBoard(projectId: string, req: BoardEditRequest) {
+    return this.req("POST", `/projects/${encodeURIComponent(projectId)}/board/edits`, req, BoardEditResult);
   }
   fileUrl(_projectId: string, url: string) {
     // artifact urls are API-relative (/projects/:id/files/:name); <img> and
