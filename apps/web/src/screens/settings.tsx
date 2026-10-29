@@ -1,6 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { BridgeStatus, LlmProvider } from "@hardhub/protocol";
-import { TopBar } from "../components/topbar";
+import { ChevronDownIcon, LogOutIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
+import { Screen, TopBar } from "../components/topbar";
+import { ChoiceRow } from "../components/choice";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useApp, MOCK, API_URL } from "../lib/app";
 import { navigate } from "../lib/router";
 import { PROVIDERS, providerInfo } from "../config/llm";
@@ -84,209 +92,188 @@ export default function Settings() {
   };
 
   return (
-    <div className="screen">
+    <Screen>
       <TopBar back current="settings" />
-      <main className="wrap">
-        <div className="settings">
-          <div className="pane-head">
-            <h1 className="d3">Settings</h1>
-            <p className="secondary">Signed in as {me.email}</p>
-          </div>
+      <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 pb-20 pt-10">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+          <p className="text-muted-foreground">Signed in as {me.email}</p>
+        </div>
 
-          <ConnectAi />
+        <ConnectAi />
 
-          <details className="own-chat" open={ownChatOpen} onToggle={(e) => setOwnChatOpen(e.currentTarget.open)} data-testid="own-chat">
-            <summary data-testid="own-chat-toggle">
-              <span>
-                <h2 id="ai-h" className="d4">
-                  HardHub's own chat
-                </h2>
-                <span className="secondary small" style={{ display: "block", marginTop: 6 }}>
-                  {me.llm_ready ? `Optional. In use: ${providerInfo(me.llm.provider).name}.` : "Optional: chat inside HardHub on an AI account you choose, with your own key."}
-                </span>
+        <details className="group rounded-xl border bg-card" open={ownChatOpen} onToggle={(e) => setOwnChatOpen(e.currentTarget.open)} data-testid="own-chat">
+          <summary className="flex cursor-pointer list-none items-center gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden" data-testid="own-chat-toggle">
+            <span className="flex min-w-0 flex-1 flex-col gap-1">
+              <h2 id="ai-h" className="text-base font-semibold">
+                HardHub's own chat
+              </h2>
+              <span className="text-sm text-muted-foreground">
+                {me.llm_ready ? `Optional. In use: ${providerInfo(me.llm.provider).name}.` : "Optional: chat inside HardHub on an AI account you choose, with your own key."}
               </span>
-              <span className="own-chat-sign" aria-hidden="true" />
-            </summary>
-            <div className="setting own-chat-body">
-              <p className="secondary">
-                You pay the provider directly for what you use, and HardHub never marks it up.
-              </p>
+            </span>
+            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="flex flex-col gap-6 border-t px-5 py-5">
+            <p className="text-sm text-soft">You pay the provider directly for what you use, and HardHub never marks it up.</p>
 
-              <div className="choice-list" role="radiogroup" aria-label="AI provider">
-                {PROVIDERS.filter((p) => p.id !== "claude-code" || bridgeHere || me.llm.provider === "claude-code").map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="opt"
-                    role="radio"
-                    aria-checked={provider === p.id}
-                    onClick={() => pickProvider(p.id)}
-                    data-testid={`provider-${p.id}`}
-                  >
-                    <span className="box" />
-                    <span className="body">
-                      <span className="title">
-                        {p.name}
-                        {p.recommended && <span className="tag">Recommended</span>}
-                        {me.llm.provider === p.id && <span className="tag tag-solid">In use</span>}
-                      </span>
-                      <span className="detail">{p.where}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {provider === "claude-code" && <ClaudeCodeStatus />}
-
-              <div className="field">
-                <label className="label" htmlFor="model">
-                  Model
-                </label>
-                {info.models.length > 0 && (
-                  <div className="choice-list" role="radiogroup" aria-label="Model">
-                    {info.models.map((m) => (
-                      <button key={m.id} type="button" className="opt" role="radio" aria-checked={model === m.id} onClick={() => setModel(m.id)} data-testid={`model-${m.id}`}>
-                        <span className="box" />
-                        <span className="body">
-                          <span className="title">{m.label}</span>
-                          {m.note && <span className="detail">{m.note}</span>}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {info.freeModel && (
-                  <input
-                    id="model"
-                    className="input num"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder={info.modelPlaceholder ?? "Model name"}
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    data-testid="model-input"
-                  />
-                )}
-              </div>
-
-              {info.needsBaseUrl && (
-                <div className="field">
-                  <label className="label" htmlFor="base">
-                    Server address
-                  </label>
-                  <input
-                    id="base"
-                    className="input num"
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    inputMode="url"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    data-testid="base-url"
-                  />
-                  {provider === "ollama" && (
-                    <p className="small muted">
-                      Start Ollama on this computer and run <span className="num">ollama pull {model || "qwen3.5:0.8b"}</span> once. The address above
-                      reaches it from HardHub's Docker container.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div>
-                <button className="btn btn-solid" onClick={saveLlm} disabled={!model.trim() || saving !== "" || active} data-testid="save-llm">
-                  {active ? "In use" : saving === "llm" ? "Saving…" : `Use ${info.name}`}
-                </button>
-              </div>
-
-              {info.needsKey && (
-                <form className="field" onSubmit={saveKey} style={{ paddingTop: 8 }}>
-                  <label className="label" htmlFor="key">
-                    {provider === "anthropic" ? "Claude API key" : `${info.name} key`}
-                  </label>
-                  {saved ? (
-                    <div className="panel" style={{ padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                      <span>
-                        Saved key ending <span className="num">…{saved.last4}</span>
-                        <span className="muted small"> · added {date(saved.added_at)}</span>
-                      </span>
-                      <button type="button" className="btn btn-sm" onClick={removeKey} data-testid="remove-key">
-                        Remove
-                      </button>
-                    </div>
-                  ) : null}
-                  <div className="key-row">
-                    <input
-                      id="key"
-                      className="input num"
-                      type="password"
-                      autoComplete="off"
-                      spellCheck={false}
-                      placeholder={saved ? "Paste a new key to replace it" : info.keyHint}
-                      value={key}
-                      onChange={(e) => setKey(e.target.value)}
-                      data-testid="key-input"
-                    />
-                    <button className="btn btn-primary" type="submit" disabled={!key.trim() || saving !== ""} data-testid="save-key">
-                      {saving === "key" ? "Saving…" : "Save key"}
-                    </button>
-                  </div>
-                  {provider === "anthropic" && (
-                    <ol className="steps-list">
-                      <li>
-                        Open{" "}
-                        <a href={info.keyUrl} target="_blank" rel="noreferrer">
-                          Claude Console → API keys
-                        </a>{" "}
-                        and create a key.
-                      </li>
-                      <li>On a Max plan, your plan includes monthly API credit: link it in the Console and this key spends it first.</li>
-                      <li>Paste the key here. It is encrypted before it is stored, and only ever sent to Anthropic.</li>
-                    </ol>
-                  )}
-                  {provider !== "anthropic" && info.keyUrl && (
-                    <p className="small muted">
-                      Create one at{" "}
-                      <a href={info.keyUrl} target="_blank" rel="noreferrer">
-                        {new URL(info.keyUrl).host}
-                      </a>
-                      . It is encrypted before it is stored.
-                    </p>
-                  )}
-                </form>
-              )}
-
-              {msg && (
-                <p className="small" role="status" style={{ color: msg.ok ? "var(--fg-2)" : "var(--destructive)" }} data-testid="settings-msg">
-                  {msg.text}
-                </p>
-              )}
-            </div>
-          </details>
-
-          <section className="setting" aria-labelledby="acct-h">
-            <h2 id="acct-h" className="d4">Account</h2>
-            <div className="key-row" role="radiogroup" aria-label="Theme">
-              {(["auto", "dark", "light"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={`btn btn-sm${theme === t ? " btn-solid" : ""}`}
-                  aria-pressed={theme === t}
-                  onClick={() => {
-                    setTheme(t);
-                    setThemeState(t);
-                  }}
-                  data-testid={`theme-${t}`}
-                >
-                  {t === "auto" ? "Match device" : t === "dark" ? "Dark" : "Light"}
-                </button>
+            <div className="flex flex-col gap-2" role="radiogroup" aria-label="AI provider">
+              {PROVIDERS.filter((p) => p.id !== "claude-code" || bridgeHere || me.llm.provider === "claude-code").map((p) => (
+                <ChoiceRow
+                  key={p.id}
+                  checked={provider === p.id}
+                  onClick={() => pickProvider(p.id)}
+                  data-testid={`provider-${p.id}`}
+                  title={p.name}
+                  detail={p.where}
+                  tag={
+                    <>
+                      {p.recommended && <Badge tone="moss">Recommended</Badge>}
+                      {me.llm.provider === p.id && <Badge tone="solid">In use</Badge>}
+                    </>
+                  }
+                />
               ))}
             </div>
-            <div className="key-row" style={{ alignItems: "center" }}>
-              <button
-                className="btn"
+
+            {provider === "claude-code" && <ClaudeCodeStatus />}
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="model">Model</Label>
+              {info.models.length > 0 && (
+                <div className="flex flex-col gap-2" role="radiogroup" aria-label="Model">
+                  {info.models.map((m) => (
+                    <ChoiceRow key={m.id} checked={model === m.id} onClick={() => setModel(m.id)} data-testid={`model-${m.id}`} title={m.label} detail={m.note} />
+                  ))}
+                </div>
+              )}
+              {info.freeModel && (
+                <Input
+                  id="model"
+                  className="num"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={info.modelPlaceholder ?? "Model name"}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-testid="model-input"
+                />
+              )}
+            </div>
+
+            {info.needsBaseUrl && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="base">Server address</Label>
+                <Input id="base" className="num" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} inputMode="url" autoCapitalize="off" spellCheck={false} data-testid="base-url" />
+                {provider === "ollama" && (
+                  <p className="text-sm text-muted-foreground">
+                    Start Ollama on this computer and run <span className="num text-foreground">ollama pull {model || "qwen3.5:0.8b"}</span> once. The address above
+                    reaches it from HardHub's Docker container.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div>
+              <Button onClick={saveLlm} disabled={!model.trim() || saving !== "" || active} data-testid="save-llm">
+                {active ? "In use" : saving === "llm" ? "Saving…" : `Use ${info.name}`}
+              </Button>
+            </div>
+
+            {info.needsKey && (
+              <form className="flex flex-col gap-3" onSubmit={saveKey}>
+                <Label htmlFor="key">{provider === "anthropic" ? "Claude API key" : `${info.name} key`}</Label>
+                {saved ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-sunken px-3.5 py-3 text-sm">
+                    <span>
+                      Saved key ending <span className="num">…{saved.last4}</span>
+                      <span className="text-muted-foreground"> · added {date(saved.added_at)}</span>
+                    </span>
+                    <Button type="button" variant="outline" size="sm" onClick={removeKey} data-testid="remove-key">
+                      Remove
+                    </Button>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    id="key"
+                    className="num min-w-[14rem] flex-1"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={saved ? "Paste a new key to replace it" : info.keyHint}
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    data-testid="key-input"
+                  />
+                  <Button type="submit" disabled={!key.trim() || saving !== ""} data-testid="save-key">
+                    {saving === "key" ? "Saving…" : "Save key"}
+                  </Button>
+                </div>
+                {provider === "anthropic" && (
+                  <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-soft marker:text-muted-foreground">
+                    <li>
+                      Open{" "}
+                      <a className="text-ember-text underline-offset-4 hover:underline" href={info.keyUrl} target="_blank" rel="noreferrer">
+                        Claude Console → API keys
+                      </a>{" "}
+                      and create a key.
+                    </li>
+                    <li>On a Max plan, your plan includes monthly API credit: link it in the Console and this key spends it first.</li>
+                    <li>Paste the key here. It is encrypted before it is stored, and only ever sent to Anthropic.</li>
+                  </ol>
+                )}
+                {provider !== "anthropic" && info.keyUrl && (
+                  <p className="text-sm text-muted-foreground">
+                    Create one at{" "}
+                    <a className="text-ember-text underline-offset-4 hover:underline" href={info.keyUrl} target="_blank" rel="noreferrer">
+                      {new URL(info.keyUrl).host}
+                    </a>
+                    . It is encrypted before it is stored.
+                  </p>
+                )}
+              </form>
+            )}
+
+            {msg && (
+              <p className={msg.ok ? "text-sm text-moss-text" : "text-sm text-destructive"} role="status" data-testid="settings-msg">
+                {msg.text}
+              </p>
+            )}
+          </div>
+        </details>
+
+        <Card className="gap-4" aria-labelledby="acct-h">
+          <CardHeader>
+            <CardTitle id="acct-h" className="text-base">
+              Account
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-muted-foreground">Theme</span>
+              <ToggleGroup
+                type="single"
+                value={theme}
+                onValueChange={(t) => {
+                  if (!t) return;
+                  setTheme(t as ThemeChoice);
+                  setThemeState(t as ThemeChoice);
+                }}
+                aria-label="Theme"
+              >
+                {(["auto", "dark", "light"] as const).map((t) => (
+                  <ToggleGroupItem key={t} value={t} data-testid={`theme-${t}`}>
+                    {t === "auto" ? <MonitorIcon /> : t === "dark" ? <MoonIcon /> : <SunIcon />}
+                    {t === "auto" ? "Match device" : t === "dark" ? "Dark" : "Light"}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="outline"
                 onClick={async () => {
                   await backend.logout();
                   setMe(null);
@@ -294,14 +281,15 @@ export default function Settings() {
                 }}
                 data-testid="signout"
               >
+                <LogOutIcon />
                 Sign out
-              </button>
-              <span className="small muted">{MOCK ? "Demo mode: nothing here is saved to a server." : `Server: ${API_URL}`}</span>
+              </Button>
+              <span className="text-sm text-muted-foreground">{MOCK ? "Demo mode: nothing here is saved to a server." : `Server: ${API_URL}`}</span>
             </div>
-          </section>
-        </div>
+          </CardContent>
+        </Card>
       </main>
-    </div>
+    </Screen>
   );
 }
 
@@ -319,14 +307,14 @@ function ClaudeCodeStatus() {
       live = false;
     };
   }, [backend]);
-  if (!s) return <p className="small muted">Looking for Claude Code on this computer…</p>;
+  if (!s) return <p className="text-sm text-muted-foreground">Looking for Claude Code on this computer…</p>;
   if (!s.available)
     return (
-      <div className="panel" style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }} data-testid="bridge-status">
-        <span className="small">Not available here. {s.error}</span>
-        <ol className="steps-list">
+      <div className="flex flex-col gap-2 rounded-lg bg-sunken px-3.5 py-3 text-sm" data-testid="bridge-status">
+        <span>Not available here. {s.error}</span>
+        <ol className="flex list-decimal flex-col gap-1 pl-5 text-soft marker:text-muted-foreground">
           <li>
-            Install Claude Code (<a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noreferrer">code.claude.com</a>) and Node.js 20 or newer.
+            Install Claude Code (<a className="text-ember-text underline-offset-4 hover:underline" href="https://code.claude.com/docs/en/setup" target="_blank" rel="noreferrer">code.claude.com</a>) and Node.js 20 or newer.
           </li>
           <li>
             Run <span className="num">claude</span> once in a terminal and sign in with your Claude account.
@@ -345,7 +333,7 @@ function ClaudeCodeStatus() {
         ? ", signed in with an API key: that is billed to the key, not your plan."
         : ", signed in.";
   return (
-    <p className="small" data-testid="bridge-status">
+    <p className="rounded-lg bg-moss/10 px-3.5 py-3 text-sm text-moss-text" data-testid="bridge-status">
       Claude Code {s.claude} found on this computer{how}
     </p>
   );

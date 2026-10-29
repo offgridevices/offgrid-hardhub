@@ -3,6 +3,7 @@
 // service at ENGINE_URL; on Cloudflare it is a Container behind a Durable Object.
 import { DurableObject } from "cloudflare:workers";
 import {
+  type BoardEdit,
   CatalogPart,
   CheckResult,
   JobLine,
@@ -87,6 +88,8 @@ export interface Engine {
   check(design: Design): Promise<CheckResult[]>;
   quote(design: Design, qty: number[]): Promise<Quote[]>;
   build(design: Design, job: string, signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine>;
+  /** a built board (its KiCad zip) edited by hand, then checked and its files made again; streamed like build */
+  edit(design: Design, job: string, kicadZip: ArrayBuffer, edits: BoardEdit[], signal?: AbortSignal): AsyncIterable<JobLine>;
   file(job: string, name: string): Promise<Response>;
   view(job: string, opts: ViewOptions, kicadZip?: ArrayBuffer): Promise<ArrayBuffer | NeedBoard>;
   inspect(job: string, opts: InspectOptions, kicadZip?: ArrayBuffer): Promise<Record<string, unknown> | NeedBoard>;
@@ -126,15 +129,23 @@ export class HttpEngine implements Engine {
     return (await this.post("/quote", { design, qty }, z.object({ quotes: z.array(Quote) }))).quotes;
   }
 
-  async *build(design: Design, job: string, signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine> {
-    const r = await this.fetch("/build", {
+  build(design: Design, job: string, signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine> {
+    // png renders too: the agent looks at its own layout through render
+    return this.stream("/build", { design, job, outputs: ["svg", "glb", "png"], ...(stopAfter ? { stop_after: stopAfter } : {}) }, signal);
+  }
+
+  edit(design: Design, job: string, kicadZip: ArrayBuffer, edits: BoardEdit[], signal?: AbortSignal): AsyncIterable<JobLine> {
+    return this.stream("/edit", { design, job, kicad_zip_b64: base64(kicadZip), edits, outputs: ["svg", "glb", "png"] }, signal);
+  }
+
+  private async *stream(path: "/build" | "/edit", body: unknown, signal?: AbortSignal): AsyncIterable<JobLine> {
+    const r = await this.fetch(path, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      // png renders too: the agent looks at its own layout through render
-      body: JSON.stringify({ design, job, outputs: ["svg", "glb", "png"], ...(stopAfter ? { stop_after: stopAfter } : {}) }),
+      body: JSON.stringify(body),
       ...(signal ? { signal } : {}),
     });
-    if (!r.ok || !r.body) throw new EngineError(`engine /build: ${r.status} ${(await r.text()).slice(0, 500)}`);
+    if (!r.ok || !r.body) throw new EngineError(`engine ${path}: ${r.status} ${(await r.text()).slice(0, 500)}`);
     // newline-delimited JSON, one progress line per step, then the result
     const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
     let buf = "";

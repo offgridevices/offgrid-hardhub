@@ -4,6 +4,14 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent, typ
 import type { Comparison, Question } from "@hardhub/protocol";
 import type { ChatItem } from "../lib/project-state";
 import { STAGE_LABEL } from "../lib/format";
+import { ArrowUpIcon, CheckIcon, ChevronRightIcon, LoaderCircleIcon, SquareIcon, XIcon } from "lucide-react";
+import { ChoiceRow } from "./choice";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
+const FOLD = "group rounded-lg text-sm text-muted-foreground [&_summary]:flex [&_summary]:cursor-pointer [&_summary]:list-none [&_summary]:items-center [&_summary]:gap-1.5 [&_summary::-webkit-details-marker]:hidden";
 
 /* ---------- questions ---------- */
 
@@ -48,56 +56,46 @@ export const QuestionCard = memo(function QuestionCard({
 
   if (!open)
     return (
-      <details className="thinking" data-testid="questions-answered">
+      <details className={FOLD} data-testid="questions-answered">
         <summary>
+          <ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" />
           {questions.length === 1 ? "1 question" : `${questions.length} questions`} · answered
         </summary>
-        <p>{questions.map((q) => q.text).join("\n")}</p>
+        <p className="mt-2 whitespace-pre-wrap pl-5">{questions.map((q) => q.text).join("\n")}</p>
       </details>
     );
 
   return (
-    <form className="qcard" onSubmit={submit} data-testid="questions" data-question-set={id}>
-      <div className="qcard-head">
-        <span>
-          {questions.length === 1 ? "One question" : `${questions.length} questions`}
-        </span>
-        <span className="muted">Recommended options are selected</span>
+    <form className="flex flex-col gap-5 rounded-xl border border-ember/30 bg-card p-4" onSubmit={submit} data-testid="questions" data-question-set={id}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Badge tone="ember">{questions.length === 1 ? "One question" : `${questions.length} questions`}</Badge>
+        <span className="text-xs text-muted-foreground">Recommended options are selected</span>
       </div>
       {questions.map((q) => (
-        <fieldset key={q.id} className="q" disabled={!open} style={{ border: 0, margin: 0, minWidth: 0 }}>
+        <fieldset key={q.id} className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0" disabled={!open}>
           <legend className="sr-only">{q.text}</legend>
-          <div className="label">{q.header}</div>
-          <div className="q-text" aria-hidden="true">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{q.header}</div>
+          <div className="font-medium" aria-hidden="true">
             {q.text}
-            {q.multi && <span className="muted small"> · pick any</span>}
+            {q.multi && <span className="text-sm font-normal text-muted-foreground"> · pick any</span>}
           </div>
-          <div role={q.multi ? "group" : "radiogroup"} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div role={q.multi ? "group" : "radiogroup"} className="flex flex-col gap-2">
             {q.options.map((o) => {
               const on = picked[q.id]?.includes(o.id) ?? false;
               return (
-                <button
-                  type="button"
+                <ChoiceRow
                   key={o.id}
-                  className="opt"
-                  role={q.multi ? "checkbox" : "radio"}
-                  aria-checked={on}
+                  multi={q.multi}
+                  checked={on}
                   onClick={() => toggle(q, o.id)}
                   data-testid={`option-${q.id}-${o.id}`}
-                >
-                  <span className="box" />
-                  <span className="body">
-                    <span className="title">
-                      {o.label}
-                      {o.recommended && <span className="tag">Recommended</span>}
-                    </span>
-                    {o.detail && <span className="detail">{o.detail}</span>}
-                  </span>
-                </button>
+                  title={o.label}
+                  detail={o.detail}
+                  tag={o.recommended && <Badge tone="moss">Recommended</Badge>}
+                />
               );
             })}
-            <input
-              className="input"
+            <Input
               placeholder="Other — type your own answer"
               value={other[q.id] ?? ""}
               onChange={(e) => setOther((x) => ({ ...x, [q.id]: e.target.value }))}
@@ -108,11 +106,11 @@ export const QuestionCard = memo(function QuestionCard({
         </fieldset>
       ))}
       {open && (
-        <div className="qcard-foot">
-          <span className="status">{missing ? `${missing} still to answer` : "Ready to send"}</span>
-          <button className="btn btn-solid" type="submit" disabled={missing > 0} data-testid="submit-answers">
+        <div className="flex items-center justify-between gap-3 border-t pt-4">
+          <span className="text-sm text-muted-foreground">{missing ? `${missing} still to answer` : "Ready to send"}</span>
+          <Button type="submit" disabled={missing > 0} data-testid="submit-answers">
             Send answers
-          </button>
+          </Button>
         </div>
       )}
     </form>
@@ -123,25 +121,31 @@ export const QuestionCard = memo(function QuestionCard({
 
 export const ComparisonCard = memo(function ComparisonCard({ c }: { c: Comparison }) {
   return (
-    <div className="cmp" data-testid="comparison">
-      <div className="cmp-title">{c.title}</div>
-      <div className="table-scroll">
-        <table className="table">
+    <div className="overflow-hidden rounded-xl border bg-card" data-testid="comparison">
+      <div className="border-b px-4 py-3 font-medium">{c.title}</div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
           <thead>
-            <tr>
+            <tr className="border-b">
               {c.columns.map((h) => (
-                <th key={h}>{h}</th>
+                <th key={h} className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">
+                  {h}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {c.rows.map((r) => (
-              <tr key={r.id} className={r.recommended ? "rec" : undefined}>
+              <tr key={r.id} className={cn("border-b last:border-0", r.recommended && "bg-moss/[0.07]")}>
                 {r.cells.map((cell, i) => (
-                  <td key={i} className={/^[$\d,.×x ]+$/.test(cell) ? "num" : undefined} style={i === 1 ? { minWidth: 180 } : undefined}>
+                  <td key={i} className={cn("px-3 py-2.5 align-top", /^[$\d,.×x ]+$/.test(cell) && "num whitespace-nowrap")} style={i === 1 ? { minWidth: 180 } : undefined}>
                     {cell}
-                    {i === 0 && r.recommended && <span className="tag" style={{ marginLeft: 8 }}>Recommended</span>}
-                    {i === 0 && r.warning && <span className="warn-line">{r.warning}</span>}
+                    {i === 0 && r.recommended && (
+                      <Badge tone="moss" className="ml-2">
+                        Recommended
+                      </Badge>
+                    )}
+                    {i === 0 && r.warning && <span className="mt-1 block text-xs text-gold-text">{r.warning}</span>}
                   </td>
                 ))}
               </tr>
@@ -149,7 +153,7 @@ export const ComparisonCard = memo(function ComparisonCard({ c }: { c: Compariso
           </tbody>
         </table>
       </div>
-      {c.note && <div className="cmp-note">{c.note}</div>}
+      {c.note && <div className="border-t px-4 py-3 text-sm text-muted-foreground">{c.note}</div>}
     </div>
   );
 });
@@ -172,13 +176,13 @@ const ItemView = memo(function ItemView({
   switch (item.kind) {
     case "user":
       return (
-        <div className="msg-user">
+        <div className="ml-auto w-fit max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-secondary px-3.5 py-2.5">
           {item.answers ? (
-            <div className="answers" style={{ marginTop: 0 }}>
+            <div className="flex flex-col gap-1 text-sm">
               {Object.entries(item.answers).map(([k, v]) => (
                 <div key={k}>
-                  <span className="muted">{k}: </span>
-                  <span style={{ color: "var(--fg)" }}>{v.join(", ")}</span>
+                  <span className="text-muted-foreground">{k}: </span>
+                  <span>{v.join(", ")}</span>
                 </div>
               ))}
             </div>
@@ -188,23 +192,36 @@ const ItemView = memo(function ItemView({
         </div>
       );
     case "assistant":
-      return <div className={`msg-ai${item.done ? "" : " streaming"}`}>{item.text}</div>;
+      return (
+        <div className={cn("whitespace-pre-wrap text-foreground/90", !item.done && "after:ml-0.5 after:inline-block after:h-4 after:w-1.5 after:translate-y-0.5 after:bg-ember after:[animation:hh-blink_1s_steps(1)_infinite] after:content-['']")}>
+          {item.text}
+        </div>
+      );
     case "thinking":
       return (
-        <details className="thinking">
-          <summary>Reasoning</summary>
-          <p>{item.text}</p>
+        <details className={FOLD}>
+          <summary>
+            <ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" />
+            Reasoning
+          </summary>
+          <p className="mt-2 whitespace-pre-wrap pl-5">{item.text}</p>
         </details>
       );
     case "tool":
       return (
-        <div className={`tool-row ${item.status}`} data-testid="tool-row">
-          <span className="state" aria-hidden="true">
-            {item.status === "done" ? "✓" : item.status === "error" ? "×" : "•"}
+        <div className="flex items-start gap-2 text-sm" data-testid="tool-row">
+          <span className="mt-0.5" aria-hidden="true">
+            {item.status === "done" ? (
+              <CheckIcon className="size-4 text-moss" />
+            ) : item.status === "error" ? (
+              <XIcon className="size-4 text-clay" />
+            ) : (
+              <LoaderCircleIcon className="size-4 animate-spin text-ember" />
+            )}
           </span>
-          <span>
+          <span className={item.status === "running" ? "text-foreground" : "text-soft"}>
             {item.label}
-            {item.detail && <span className="detail"> · {item.detail}</span>}
+            {item.detail && <span className="text-muted-foreground"> · {item.detail}</span>}
           </span>
         </div>
       );
@@ -213,28 +230,56 @@ const ItemView = memo(function ItemView({
     case "comparison":
       return <ComparisonCard c={item.comparison} />;
     case "stage":
-      return <div className="stage-mark">{STAGE_LABEL[item.stage]}</div>;
+      return (
+        <div className="flex items-center gap-3 text-xs font-medium text-muted-foreground">
+          <span className="h-px flex-1 bg-border" />
+          {STAGE_LABEL[item.stage]}
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      );
     case "job":
       return (
-        <div className="job" data-testid="job">
-          <div className="job-row">
-            <span>{item.done ? (item.ok === false ? "Board build failed" : "Board built") : "Building the board"}</span>
-            <span className="muted small">{item.done ? "Done" : item.step}</span>
+        <div className="flex flex-col gap-2 rounded-xl border bg-card px-3.5 py-3" data-testid="job">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="font-medium">
+              {item.job.startsWith("edit-")
+                ? item.done
+                  ? item.ok === false
+                    ? "Your edits are in · a check needs a look"
+                    : "Your edits are in · checked"
+                  : "Checking your edits in KiCad"
+                : item.done
+                  ? item.ok === false
+                    ? "Board build failed"
+                    : "Board built"
+                  : "Building the board"}
+            </span>
+            <span className="text-xs text-muted-foreground">{item.done ? "Done" : item.step}</span>
           </div>
-          <div className="bar">
-            <span style={{ width: `${Math.round(item.progress * 100)}%` }} />
+          <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10">
+            <span
+              className={cn("block h-full rounded-full transition-[width] duration-500", item.done ? (item.ok === false ? (item.job.startsWith("edit-") ? "bg-gold" : "bg-clay") : "bg-moss") : "bg-ember")}
+              style={{ width: `${Math.round(item.progress * 100)}%` }}
+            />
           </div>
+        </div>
+      );
+    case "edit":
+      return (
+        <div className="mx-auto flex w-fit items-center gap-2 rounded-full bg-foreground/[0.05] px-3 py-1 text-xs text-muted-foreground" data-testid="board-edit">
+          <span className={cn("size-1.5 rounded-full", item.ok ? "bg-moss" : "bg-clay")} aria-hidden="true" />
+          {item.summary}
         </div>
       );
     case "error":
       return (
-        <div className="err" role="alert">
+        <div className="flex flex-col gap-2 rounded-xl bg-clay/10 px-3.5 py-3 text-sm text-clay-text" role="alert">
           {item.message}
           {onKeyHelp && (
             <div>
-              <button className="btn btn-sm" onClick={onKeyHelp} data-testid="add-key">
+              <Button size="sm" variant="outline" onClick={onKeyHelp} data-testid="add-key">
                 {keyLabel}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -293,12 +338,12 @@ export function ChatLog({
   };
 
   return (
-    <div className="chat-log" ref={ref} onScroll={onScroll} data-testid="chat-log" aria-live="polite">
-      <div ref={inner} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5" ref={ref} onScroll={onScroll} data-testid="chat-log" aria-live="polite">
+      <div ref={inner} className="flex flex-col gap-4">
       {start > 0 && (
-        <button className="btn btn-sm btn-quiet" style={{ alignSelf: "center" }} onClick={() => setShown((n) => n + WINDOW)}>
+        <Button variant="ghost" size="sm" className="self-center" onClick={() => setShown((n) => n + WINDOW)}>
           Show {Math.min(start, WINDOW)} earlier
-        </button>
+        </Button>
       )}
       {items.slice(start).map((it) => (
         <div key={`${it.kind}:${it.id}`} style={{ contentVisibility: "auto", containIntrinsicSize: "auto 60px" }}>
@@ -306,9 +351,9 @@ export function ChatLog({
         </div>
       ))}
       {busy && !items.some((i) => i.kind === "assistant" && !i.done) && (
-        <div className="tool-row running" aria-label="Working">
-          <span className="state">•</span>
-          <span className="muted">Working…</span>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="Working">
+          <LoaderCircleIcon className="size-4 animate-spin text-ember" aria-hidden="true" />
+          Working…
         </div>
       )}
       </div>
@@ -356,8 +401,8 @@ export function Composer({
   };
 
   return (
-    <div className="composer">
-      <div className="composer-box">
+    <div className="shrink-0 px-3 pb-3 pt-1">
+      <div className="flex flex-col gap-1.5 rounded-xl border border-input bg-sunken/70 p-2 pl-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
         <textarea
           ref={ta}
           rows={1}
@@ -368,20 +413,23 @@ export function Composer({
           aria-label="Message HardHub"
           data-testid="chat-input"
           disabled={disabled}
+          className="max-h-48 min-h-9 resize-none bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
         />
-        {busy ? (
-          <button className="btn btn-sm" onClick={onStop} data-testid="stop">
-            Stop
-          </button>
-        ) : (
-          <button className="btn btn-sm btn-solid" onClick={send} disabled={!text.trim() || disabled} data-testid="send">
-            Send
-          </button>
-        )}
-      </div>
-      <div className="composer-meta">
-        <span>{hint}</span>
-        <span className="hide-sm">Enter to send · Shift+Enter for a new line</span>
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{hint}</span>
+          <span className="grow" />
+          <span className="hidden text-xs text-muted-foreground/70 lg:inline">Shift+Enter for a new line</span>
+          {busy ? (
+            <Button size="sm" variant="outline" onClick={onStop} data-testid="stop">
+              <SquareIcon className="size-3 fill-current" />
+              Stop
+            </Button>
+          ) : (
+            <Button size="icon-sm" onClick={send} disabled={!text.trim() || disabled} data-testid="send" aria-label="Send">
+              <ArrowUpIcon />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -179,6 +179,9 @@ export class MockBackend implements Backend {
   async deleteProject(id: string) {
     this.projects.delete(id);
   }
+  async editBoard(): Promise<never> {
+    throw new Error("Editing the board by hand needs the HardHub server: the demo has no KiCad engine.");
+  }
   fileUrl(_id: string, url: string) {
     return url;
   }

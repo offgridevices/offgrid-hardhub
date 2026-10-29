@@ -25,7 +25,7 @@ const TEXT_FILE_LIMIT = 200_000;
 
 export const INSTRUCTIONS = `HardHub designs circuit boards that JLCPCB can build and assemble: parts with live stock and prices, the circuit pin by pin, the board laid out and routed in KiCad, checked (DRC, nets, power), shown in 3D, with Gerber, BOM and placement files.
 
-Call \`guide\` once before you start: it explains the journey, the design document and the rules. You propose; the person decides. Ask them each decision in your own chat as multiple-choice questions, your recommendation first. Everything you do shows up live in their HardHub project; leave a short \`note\` there after each stage.`;
+Call \`guide\` once before you start: it explains the journey, the design document and the rules. You propose; the person decides. Ask them each decision in your own chat as multiple-choice questions, your recommendation first. Everything you do shows up live in their HardHub project; leave a short \`note\` there after each stage. The person can also edit the routed board by hand in the app (tracks, vias, part positions); those edits live in the board until it is routed again, so never call \`build_board\` on a hand-edited board without asking them first.`;
 
 const PREFACE = `# Working through MCP
 
@@ -38,6 +38,7 @@ You are connected to HardHub from the person's own AI app. The guide below was w
 - After each stage, \`note\` a few plain sentences into the project: what was decided and why. The person (or anyone they share it with) follows the project in the app.
 - Look at your own work after every build: \`view_board\` (any layers, a net highlighted, a region zoomed, the bottom, or 3D from any angle) and \`inspect_board\` (positions, nets, DRC findings with locations). Move parts with \`move_parts\` and rebuild.
 - \`get_files\` lists the order files of the last build; \`read_file\` reads the text ones (BOM, placement, checks).
+- The person may edit the board by hand in the HardHub app: drag tracks, move or delete vias, draw tracks, move parts. HardHub then checks the board again (DRC and the rest) and remakes the files, and your next tool call starts with a note of what they changed. Their edits live in the board until it is routed again: look at it with \`inspect_board\` and \`view_board\`, and do not call \`build_board\` without asking them (it refuses until you pass \`discard_hand_edits: true\`, which you do only once they agree). Parts they moved are kept in \`design.placement\`, locked.
 
 `;
 
@@ -52,7 +53,7 @@ const DESCRIPTIONS: Partial<Record<(typeof ROOM_TOOLS)[number], string>> = {
   propose_options:
     "Put a comparison table (part candidates, layer counts, board sizes) in the person's HardHub project. Mark the recommended row; cite sources and dates in note. Show the same table in your own chat, then ask the person to pick.",
   build_board:
-    "Lay out, route and check the board in KiCad: placement (yours, plus automatic placement for unplaced parts), routing, 45-degree corners, ground pour, DRC with the fab's limits, net check, fab files, renders. Runs in the background and takes from half a minute to several minutes: this call waits up to 45 seconds, then returns progress; call wait_for_build until it reports the result. Needs design.board.",
+    "Lay out, route and check the board in KiCad: placement (yours, plus automatic placement for unplaced parts), routing, 45-degree corners, ground pour, DRC with the fab's limits, net check, fab files, renders. Runs in the background and takes from half a minute to several minutes: this call waits up to 45 seconds, then returns progress; call wait_for_build until it reports the result. Needs design.board. If the person has edited the board by hand, ask them in your chat before building again: a build re-routes the board and loses their edits.",
   render: "Look at the board renders (PNG) from the last build, to judge placement and routing yourself.",
 };
 

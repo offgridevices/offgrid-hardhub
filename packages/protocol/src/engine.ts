@@ -9,6 +9,14 @@
 //        -> application/x-ndjson stream of JobLine, last line { done: true, ... }
 //        outputs: extras to make, ["svg", "glb"] by default; "png", "step" on request
 //        429 { error, retryable: true } while the engine is at its build limit
+//   POST /edit   { job, design, kicad_zip_b64, edits: BoardEdit[], outputs? }
+//        the routed board in the KiCad zip (a build's "kicad" artifact) with the
+//        person's hand edits applied in order, zones refilled, then the end of a
+//        build (drc, verify, fab, render) without placing or routing again.
+//        Streamed like /build; the last line's placement holds the parts it
+//        moved, in the design's frame. An edit that names no item, a layer the
+//        board lacks or a point off the board changes nothing: ok false,
+//        rejected true, error naming it.
 //   GET  /jobs/:job/files/:name                -> an output file
 //   DELETE /jobs/:job                          -> 204, the job's files forgotten
 //
@@ -57,6 +65,7 @@ export const JobLine = z.union([
     done: z.literal(true),
     ok: z.boolean(),
     error: z.string().optional(),
+    rejected: z.boolean().optional(), // /edit: refused before anything changed (error says why)
     checks: z.array(CheckResult),
     artifacts: z.array(Artifact),
     stats: z.record(z.string(), z.number()).default({}),

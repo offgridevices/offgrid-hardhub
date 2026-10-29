@@ -42,6 +42,9 @@ export interface TurnIO {
 export interface TurnInput {
   text: string;
   answers?: Record<string, string[]>;
+  /** what happened in the project since the last turn that the model should know
+   * (the person edited the board by hand): a note before their words, not shown as theirs */
+  context?: string;
 }
 
 export const LIMITS = {
@@ -64,8 +67,9 @@ const stopped = (c: ToolCall): ToolOutcome => ({ id: c.id, name: c.name, content
 export async function runTurn(io: TurnIO, input: TurnInput): Promise<TurnEnd> {
   // the person's message, answering any questions still open
   const pending = io.getPending();
+  const note = (t: string) => (input.context ? `${input.context}\n\n${t}` : t);
   if (pending) {
-    const answer = formatAnswers(input);
+    const answer = note(formatAnswers(input));
     const outcomes = [
       ...pending.outcomes,
       ...pending.askIds.map((id, i) => ({ id, name: "ask_user", content: i === 0 ? answer : "Answered above." })),
@@ -73,7 +77,7 @@ export async function runTurn(io: TurnIO, input: TurnInput): Promise<TurnEnd> {
     io.append(io.llm.toolResults(outcomes));
     io.setPending(null);
   } else {
-    io.append(io.llm.userText(input.text || formatAnswers(input)));
+    io.append(io.llm.userText(note(input.text || formatAnswers(input))));
   }
 
   let badSteps = 0;

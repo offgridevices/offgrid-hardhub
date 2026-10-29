@@ -1,6 +1,6 @@
 // A RoomCore on in-memory SQLite with a fake engine and file store, recording
 // every frame it broadcasts.
-import type { CheckResult, Design, JobLine, ServerEvent } from "@hardhub/protocol";
+import type { BoardEdit, CheckResult, Design, JobLine, ServerEvent } from "@hardhub/protocol";
 import { CONVERTERS } from "../../src/agent/llm";
 import type { Llm } from "../../src/agent/llm/types";
 import { type Engine, type InspectOptions, NEED_BOARD, type ViewOptions } from "../../src/engine";
@@ -24,8 +24,10 @@ export class FakeEngine implements Engine {
   async quote() {
     return [];
   }
-  async *build(design: Design, job: string): AsyncIterable<JobLine> {
+  async *build(design: Design, job: string, _signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine> {
     this.builds.push(design);
+    // a build stopped before the fab files makes no KiCad zip
+    const files = !stopAfter || stopAfter === "fab" || stopAfter === "render";
     yield { step: "place", progress: 0.2, message: "placing" };
     yield { step: "route", progress: 0.6, message: "routing" };
     yield {
@@ -35,10 +37,44 @@ export class FakeEngine implements Engine {
       artifacts: [
         { kind: "board-png", name: "top.png", url: `/jobs/${job}/files/top.png` },
         { kind: "glb", name: "board.glb", url: `/jobs/${job}/files/board.glb` },
-        { kind: "kicad", name: "board-kicad.zip", url: `/jobs/${job}/files/board-kicad.zip` },
+        ...(files ? [{ kind: "kicad" as const, name: "board-kicad.zip", url: `/jobs/${job}/files/board-kicad.zip` }] : []),
       ],
       stats: { tracks: 120, vias: 30 },
       placement: { U1: { x: 1, y: 2, rot: 0, side: "top" } },
+    };
+  }
+  /** hand edits sent, with the zip they were applied to; reject: the engine refuses them */
+  edits: { design: Design; job: string; zip: number; edits: BoardEdit[] }[] = [];
+  reject = "";
+  /** held edits wait here, as a slow engine would */
+  hold: Promise<void> | null = null;
+  async *edit(design: Design, job: string, zip: ArrayBuffer, edits: BoardEdit[]): AsyncIterable<JobLine> {
+    this.edits.push({ design, job, zip: zip.byteLength, edits });
+    yield { step: "validate", progress: 0.1, message: "applying" };
+    if (this.hold) await this.hold;
+    if (this.reject) {
+      yield { done: true, ok: false, rejected: true, error: this.reject, checks: [], artifacts: [], stats: {}, placement: {} };
+      return;
+    }
+    yield { step: "drc", progress: 0.5, message: "checking" };
+    const moved = edits.filter((e) => e.op === "move_part");
+    const stats: Record<string, number> = {};
+    for (const e of edits) {
+      const k = `edits_${e.op === "delete" ? "delete_track" : e.op}`;
+      stats[k] = (stats[k] ?? 0) + 1;
+    }
+    yield {
+      done: true,
+      ok: true,
+      checks: [{ id: "drc-errors", group: "fab", name: "DRC 0 errors", why: "the fab rejects what breaks its rules", status: "pass" }],
+      artifacts: [
+        { kind: "board-json", name: "board-board.json", url: `/jobs/${job}/files/board-board.json` },
+        { kind: "kicad", name: "board-kicad.zip", url: `/jobs/${job}/files/board-kicad.zip` },
+        { kind: "package", name: "board-package.zip", url: `/jobs/${job}/files/board-package.zip` },
+      ],
+      stats,
+      // the engine answers in the design's frame (mm from the centre); this fake shifts by 25 mm
+      placement: Object.fromEntries(moved.map((e) => [e.ref, { x: e.x - 25, y: e.y - 20, rot: e.rot, side: e.side ?? "top" }])),
     };
   }
   /** views asked for, and whether the engine has "lost" its jobs (a restarted container) */

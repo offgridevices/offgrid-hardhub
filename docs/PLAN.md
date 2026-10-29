@@ -23,7 +23,7 @@ never hides a trade-off: cost, availability, size, layers.
 
 | Topic | Decision |
 |---|---|
-| Product name and brand | **HardHub by OffGrid** (owner). OffGrid design language v3.2.2: Pitch/Bone, one Ember accent per surface, square corners, no shadows, Instrument Sans / Newsreader / JetBrains Mono. |
+| Product name and brand | **HardHub by OffGrid** (owner). OffGrid palette (Pitch, Bone, Ember) in the "Workbench" look chosen in phase 3: shadcn/ui components on Tailwind, soft rounded corners, named status and layer colours (ember, moss, sky, gold, plum, clay), Geist / Geist Mono. Tokens: apps/web/src/styles/globals.css. |
 | First build | **A simple board, fully real** (owner): chat → questions and part picks → circuit → real KiCad layout and routing on the server → checks → 3D → Gerber, BOM, CPL. |
 | Benchmark board | **Print Hub, from one prompt** (owner). `offgridevices/offgrid-hardware/print-hub/v1` is the answer key. |
 | Also in scope | **Firmware** (ESPHome / Arduino starter + pin-map check), **accounts and saved projects**, **open source** (owner). Enclosure later. |

@@ -1,11 +1,14 @@
 // Bill of materials: one line per part, with what it costs and whether it can
 // be bought. Every price and stock figure carries the date it was read.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Design } from "@hardhub/protocol";
 import { date, int, usd } from "../lib/format";
-
-const LIFE: Record<string, string> = { active: "In production", nrnd: "Not for new designs", eol: "End of life", unknown: "Status unknown" };
-const TIER: Record<string, string> = { basic: "Basic", preferred: "Preferred", extended: "Extended" };
+import { Empty, Pane, PaneHead, Section } from "../components/pane";
+import { LIFE, PartDetails, TIER, footprintName } from "../components/part-details";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 export default function Parts({ design }: { design: Design }) {
   const lines = useMemo(() => {
@@ -31,113 +34,114 @@ export default function Parts({ design }: { design: Design }) {
   const dates = lines.map((l) => l.p?.sourcing?.checked_at).filter(Boolean).sort() as string[];
   const risky = lines.filter((l) => l.p && (l.p.lifecycle === "nrnd" || l.p.lifecycle === "eol"));
 
+  const [open, setOpen] = useState<string | null>(null);
+  const openLine = lines.find((l) => l.key === open);
+
   if (lines.length === 0)
-    return (
-      <div className="pane-inner">
-        <div className="empty">
-          <h2 className="d4">No parts yet</h2>
-          <p>Parts appear here once you and HardHub have chosen them, with price, stock and whether they are still made.</p>
-        </div>
-      </div>
-    );
+    return <Empty title="No parts yet">Parts appear here once you and HardHub have chosen them, with price, stock and whether they are still made.</Empty>;
+
+  const stats = [
+    { n: int(count), m: "parts on the board", tone: "text-sky-text", bg: "bg-sky/10" },
+    { n: usd(cost), m: "parts per board, at 10", tone: "text-ember-text", bg: "bg-ember/10" },
+    { n: extended, m: "extended types (≈$3 setup each)", tone: "text-plum-text", bg: "bg-plum/10" },
+    { n: risky.length, m: "at end of life", tone: risky.length ? "text-clay-text" : "text-moss-text", bg: risky.length ? "bg-clay/10" : "bg-moss/10" },
+  ];
 
   return (
-    <div className="pane-inner">
-      <div className="stats">
-        <div className="stat">
-          <span className="n">{count}</span>
-          <span className="m">parts on the board</span>
-        </div>
-        <div className="stat">
-          <span className="n">{usd(cost)}</span>
-          <span className="m">parts per board, at 10</span>
-        </div>
-        <div className="stat">
-          <span className="n">{extended}</span>
-          <span className="m">extended types (≈$3 setup each)</span>
-        </div>
-        <div className="stat">
-          <span className="n">{risky.length}</span>
-          <span className="m">at end of life</span>
-        </div>
+    <Pane>
+      <PaneHead title="Parts">Every part on the board, what it does, what it costs and whether it can be bought. Click one for its details.</PaneHead>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {stats.map((x) => (
+          <div key={x.m} className={cn("flex flex-col gap-0.5 rounded-xl p-4", x.bg)}>
+            <span className={cn("num text-2xl font-medium", x.tone)}>{x.n}</span>
+            <span className="text-sm text-soft">{x.m}</span>
+          </div>
+        ))}
       </div>
 
-      <section>
-        <h3 className="section-title">Bill of materials</h3>
-        <div className="table-scroll">
-          <table className="table" data-testid="bom">
-            <thead>
-              <tr>
-                <th>Part</th>
-                <th className="r">Qty</th>
-                <th className="hide-sm">LCSC</th>
-                <th className="hide-sm">JLCPCB</th>
-                <th className="r hide-sm">Stock</th>
-                <th className="r hide-sm">Each</th>
-                <th className="r">Line</th>
-              </tr>
-            </thead>
-            <tbody>
+      <Section title="Bill of materials" aside={`${lines.length} different parts`}>
+        <div className="rounded-xl border">
+          <Table data-testid="bom">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Part</TableHead>
+                <TableHead className="hidden lg:table-cell">What it does</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="hidden md:table-cell">Package</TableHead>
+                <TableHead className="hidden md:table-cell">Stock</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">Each</TableHead>
+                <TableHead className="text-right">Line</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {lines.map(({ key, refs, p, unit, total }) => (
-                <tr key={key} style={{ contentVisibility: "auto", containIntrinsicSize: "auto 64px" }}>
-                  <td style={{ minWidth: 150 }}>
-                    <div style={{ fontWeight: 500 }}>{p?.value ?? p?.mpn ?? key}</div>
-                    <div className="small muted">
+                <TableRow
+                  key={key}
+                  className="cursor-pointer"
+                  onClick={() => setOpen(key)}
+                  style={{ contentVisibility: "auto", containIntrinsicSize: "auto 56px" }}
+                >
+                  <TableCell className="min-w-40 align-top">
+                    <button type="button" className="text-left font-medium outline-none hover:text-ember-text focus-visible:text-ember-text" onClick={() => setOpen(key)}>
+                      {p?.value ?? p?.mpn ?? key}
+                    </button>
+                    <div className="text-xs text-muted-foreground">
                       {p?.mpn} · {p?.maker}
                     </div>
-                    <div className="small secondary">{p?.description}</div>
-                    <div className="small muted num" title={refs.join(", ")} style={{ marginTop: 2, overflowWrap: "anywhere" }}>
+                    <div className="num mt-0.5 text-xs text-muted-foreground [overflow-wrap:anywhere]" title={refs.join(", ")}>
                       {refs.length > 6 ? `${refs.slice(0, 6).join(" ")} +${refs.length - 6}` : refs.join(" ")}
                     </div>
-                    {p?.sourcing?.tier && (
-                      <span className="tag show-sm" style={{ marginTop: 6, marginRight: 6 }}>
-                        {TIER[p.sourcing.tier]}
-                        {unit !== null && (
-                          <span>
-                            {" ·\u00a0"}
-                            <span className="num">{usd(unit, unit < 0.1 ? 3 : 2)}</span> each
-                          </span>
-                        )}
-                      </span>
-                    )}
                     {p && p.lifecycle !== "active" && (
-                      <span className={`tag${p.lifecycle === "unknown" ? "" : " tag-warn"}`} style={{ marginTop: 6 }}>
-                        {LIFE[p.lifecycle]}
-                      </span>
+                      <Badge tone={LIFE[p.lifecycle].tone} className="mt-1.5">
+                        {LIFE[p.lifecycle].label}
+                      </Badge>
                     )}
-                  </td>
-                  <td className="r num">{refs.length}</td>
-                  <td className="num hide-sm">{p?.sourcing?.lcsc ?? "—"}</td>
-                  <td className="hide-sm">{p?.sourcing?.tier ? <span className="tag">{TIER[p.sourcing.tier]}</span> : <span className="muted">—</span>}</td>
-                  <td className="r num hide-sm">{p?.sourcing?.stock !== undefined ? int(p.sourcing.stock) : "—"}</td>
-                  <td className="r num hide-sm">{unit === null ? "—" : usd(unit, unit < 0.1 ? 3 : 2)}</td>
-                  <td className="r num">{total === null ? "—" : usd(total)}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="hidden max-w-72 align-top text-soft lg:table-cell">{p?.description}</TableCell>
+                  <TableCell className="num text-right align-top">{refs.length}</TableCell>
+                  <TableCell className="num hidden align-top text-xs text-soft md:table-cell">{p ? footprintName(p.footprint) : "—"}</TableCell>
+                  <TableCell className="hidden align-top md:table-cell">
+                    {p?.sourcing?.stock !== undefined ? (
+                      <Badge tone={p.sourcing.stock > 1000 ? "moss" : p.sourcing.stock > 0 ? "gold" : "clay"}>{p.sourcing.stock > 0 ? int(p.sourcing.stock) : "None"}</Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                    {p?.sourcing?.tier && <div className="mt-1 text-xs text-muted-foreground">{TIER[p.sourcing.tier]}</div>}
+                  </TableCell>
+                  <TableCell className="num hidden text-right align-top sm:table-cell">{unit === null ? "—" : usd(unit, unit < 0.1 ? 3 : 2)}</TableCell>
+                  <TableCell className="num text-right align-top">{total === null ? "—" : usd(total)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-        <p className="small muted" style={{ marginTop: 12 }}>
+        <p className="text-xs text-muted-foreground">
           {dates.length ? `Prices and stock from the JLCPCB catalogue, read ${date(dates[0]!)}${dates.at(-1) !== dates[0] ? ` to ${date(dates.at(-1)!)}` : ""}. ` : ""}
           Price at 10 pieces. Read them again before ordering: stock moves.
         </p>
-      </section>
+      </Section>
 
       {rejected.length > 0 && (
-        <section>
-          <h3 className="section-title">Considered, not used</h3>
-          <div style={{ display: "flex", flexDirection: "column" }}>
+        <Section title="Considered, not used">
+          <div className="divide-y rounded-xl border">
             {rejected.map(([k, p]) => (
-              <div key={k} style={{ padding: "12px 0", borderBottom: "1px solid var(--hairline)", display: "flex", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
+              <div key={k} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <span>
-                  {p.mpn} <span className="muted small">· {p.maker}</span>
+                  {p.mpn} <span className="text-sm text-muted-foreground">· {p.maker}</span>
                 </span>
-                <span className={`tag${p.lifecycle === "nrnd" || p.lifecycle === "eol" ? " tag-warn" : ""}`}>{LIFE[p.lifecycle]}</span>
+                <Badge tone={LIFE[p.lifecycle].tone}>{LIFE[p.lifecycle].label}</Badge>
               </div>
             ))}
           </div>
-        </section>
+        </Section>
       )}
-    </div>
+
+      <Dialog open={!!openLine} onOpenChange={(o) => !o && setOpen(null)}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto">
+          <DialogTitle className="sr-only">Part details</DialogTitle>
+          {openLine && <PartDetails design={design} partKey={openLine.key} refName={openLine.refs.length === 1 ? openLine.refs[0] : undefined} />}
+        </DialogContent>
+      </Dialog>
+    </Pane>
   );
 }

@@ -14,6 +14,8 @@ import type {
   ServerEvent,
   Session,
   AuthStatus,
+  BoardEditRequest,
+  BoardEditResult,
 } from "@hardhub/protocol";
 
 export type LinkStatus = "connecting" | "open" | "closed";
@@ -51,6 +53,8 @@ export interface Backend {
   /** the consent page: who is asking, then the person's answer (where to send the browser) */
   oauthClient(clientId: string, redirectUri: string): Promise<OAuthClientInfo>;
   oauthApprove(answer: OAuthApprove): Promise<{ redirect: string }>;
+  /** hand edits to the routed board: applied in KiCad, then every check runs again */
+  editBoard(projectId: string, req: BoardEditRequest): Promise<BoardEditResult>;
   /** URL a browser element (<img>, fetch, download link) can load. */
   fileUrl(projectId: string, url: string): string;
   connect(

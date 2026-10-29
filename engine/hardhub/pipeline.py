@@ -18,6 +18,8 @@ import sys
 import time
 
 STEPS = ['validate', 'footprints', 'place', 'route', 'miter', 'pour', 'drc', 'verify', 'fab', 'render']
+# a hand-edited board: the edits, the zones refilled, then the end of a build
+EDIT_STEPS = ['validate', 'pour', 'drc', 'verify', 'fab', 'render']
 DEFAULT_OUTPUTS = ('svg', 'glb')               # 'png' and 'step' only when asked: they are slow
 
 
@@ -26,6 +28,8 @@ class Stop(Exception):
 
 
 class Job:
+    steps = STEPS
+
     def __init__(self, d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None):
         from . import design as D
         self.d = D.normalize(d)
@@ -38,8 +42,8 @@ class Job:
 
     # ------------------------------------------------------------ plumbing
     def emit(self, step, message, frac=0.0):
-        i = STEPS.index(step)
-        self.emit_line(dict(step=step, progress=round((i + frac) / len(STEPS), 3), message=message))
+        i = self.steps.index(step)
+        self.emit_line(dict(step=step, progress=round((i + frac) / len(self.steps), 3), message=message))
 
     def art(self, kind, path, **kw):
         name = os.path.basename(path)
@@ -51,15 +55,17 @@ class Job:
         self.checks.append(r)
         return r['status'] != 'fail'
 
-    def final(self, ok, error=None):
+    def final(self, ok, error=None, rejected=False):
         line = dict(done=True, ok=ok, checks=self.checks, artifacts=self.artifacts, stats=self.stats,
                     placement=self.placement)
         if error:
             line['error'] = error
+        if rejected:
+            line['rejected'] = True
         return line
 
     def run(self):
-        for step in STEPS:
+        for step in self.steps:
             t = time.time()
             self.emit(step, 'starting')
             try:
@@ -300,11 +306,15 @@ class Job:
         self.art('kicad', kz)
 
     def s_render(self):
-        from . import fab
+        from . import fab, geometry
+        svg = None
         if 'svg' in self.outputs:
             for layer, path in fab.svgs(self.routed, self.out, self.slug):
                 self.art('board-svg', path, layers=[layer])
+                svg = svg or path
             self.emit('render', 'layer drawings done', 0.3)
+        # the board as vector geometry, in the SVGs' own frame, for editing by hand
+        self.art('board-json', geometry.write(self.routed, os.path.join(self.out, self.slug + '-board.json'), svg))
         if 'glb' in self.outputs:
             path, raw = fab.glb(self.routed, self.out, self.slug)
             self.stats.update(glb_bytes=os.path.getsize(path), glb_raw_bytes=raw)
@@ -317,6 +327,60 @@ class Job:
                 self.emit('render', 'render skipped: %s' % str(e)[:200], 0.8)
         if 'step' in self.outputs:
             self.art('step', fab.step(self.routed, self.out, self.slug))
+        # last: everything to order the board, in one zip sorted by upload slot
+        self.art('package', fab.package(self.d, self.out, self.slug, self.artifacts))
+
+
+class EditJob(Job):
+    """A routed board from a build's KiCad zip, edited by hand: the edits,
+    the zones refilled, then the build's own drc, verify, fab and render
+    steps. Nothing is placed or routed again; placement holds the parts the
+    edits moved, in the design's frame."""
+    steps = EDIT_STEPS
+
+    def __init__(self, d, kicad_zip, edits, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS):
+        super().__init__(d, work, out, emit, job, outputs)
+        self.kicad_zip, self.edits = kicad_zip, edits
+
+    def s_validate(self):
+        from . import design as D, edits, fab, view
+        errs = D.require_board(self.d)
+        if errs:
+            raise Stop('; '.join(errs))
+        self.slug = fab.slug(self.d['name'])
+        src = view.board_path(os.path.join(self.work, 'in'), self.kicad_zip)
+        if src is None:
+            raise Stop('the KiCad zip holds no board')
+        # the board under the name a build gives it, with its rules and project
+        self.routed = os.path.join(self.work, self.slug + '.kicad_pcb')
+        for ext in ('.kicad_pcb', '.kicad_pro', '.kicad_dru'):
+            p = os.path.splitext(src)[0] + ext
+            if os.path.exists(p):
+                shutil.copy(p, os.path.splitext(self.routed)[0] + ext)
+        counts, self.placement = edits.apply(self.routed, self.edits, self.d)
+        self.stats.update({'edits_' + k: v for k, v in counts.items()})
+        self.emit('validate', 'applied %d edits' % sum(counts.values()), 0.9)
+
+    def s_pour(self):
+        # edits.apply refilled the zones; the DRC refills them again as it checks
+        pass
+
+
+def edit(d, kicad_zip, edit_list, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS):
+    """Apply hand edits to a built board and redo its checks and files; returns the
+    final JobLine. An edit that cannot be applied comes back rejected, nothing changed."""
+    from .edits import EditError
+    j = EditJob(d, kicad_zip, edit_list, work, out, emit, job, outputs)
+    try:
+        return j.run()
+    except EditError as e:
+        return j.final(False, str(e), rejected=True)
+    except Stop as e:
+        return j.final(False, str(e))
+    except Exception as e:                                   # noqa: BLE001 -- the client must hear about it
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return j.final(False, '%s: %s' % (type(e).__name__, e))
 
 
 def build(d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None):

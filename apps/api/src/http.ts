@@ -1,5 +1,5 @@
 // The REST API (packages/protocol/src/api.ts) and the WebSocket entry.
-import { type Connections, LlmProvider, LlmSettings, OAuthApprove, type ProjectDetail } from "@hardhub/protocol";
+import { BoardEditRequest, type Connections, LlmProvider, LlmSettings, OAuthApprove, type ProjectDetail } from "@hardhub/protocol";
 import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { cors } from "hono/cors";
@@ -286,6 +286,17 @@ app.get("/projects/:id/files/:name", auth, async (c) => {
       etag: obj.httpEtag,
     },
   });
+});
+
+// the person's hand edits to the routed board: applied to its KiCad file, checked
+// again and every file made again (no re-route). 409 while the AI, a connected
+// agent or a build works here, or before there is a board; 422 when an edit
+// names something the board does not have
+app.post("/projects/:id/board/edits", auth, async (c) => {
+  const p = await owned(c);
+  const req = BoardEditRequest.parse(await c.req.json());
+  const r = await room(c.env, p.id).editBoard(req);
+  return c.json(r.body, r.status);
 });
 
 app.get("/projects/:id/ws", auth, async (c) => {

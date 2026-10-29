@@ -1,12 +1,27 @@
-// The assembled board in 3D. The worker parses the GLB and merges it into a
-// few meshes (one per colour and side); this thread only uploads buffers and
-// draws. Frames are drawn on demand: nothing renders while nothing moves.
-import { useEffect, useRef, useState } from "react";
+// The assembled board in 3D, three ways: assembled; with the parts lifted off;
+// and with every layer pulled apart, one plate per copper layer, the
+// silkscreen outside the top and bottom copper, and the parts above and
+// below. The worker parses the GLB and merges it into a few meshes (one per
+// colour and side); this thread only uploads buffers and draws. Frames are
+// drawn on demand: nothing renders while nothing moves.
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Artifact, Design } from "@hardhub/protocol";
+import { RotateCcwIcon } from "lucide-react";
 import { loadScene } from "../workers/client";
 import type { SceneData } from "../workers/geometry";
+import { useGeometry } from "../lib/use-geometry";
+import { copperCanvas, layerColor, plotCanvas } from "../lib/layer-canvas";
+import { layerName } from "./board2d";
+import { ViewBar } from "../components/viewer-ui";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Loader } from "@/components/ui/skeleton";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 
 declare global {
   interface Window {
@@ -14,20 +29,65 @@ declare global {
   }
 }
 
+type Mode = "assembled" | "parts" | "layers";
+interface Plate {
+  layer: string;
+  canvas: HTMLCanvasElement;
+  /** a copper plate sits on a slab of board material */
+  copper: boolean;
+}
+interface Api {
+  setVisible(g: string, v: boolean): void;
+  setMode(m: Mode, spread: number, layersOn: Set<string>): void;
+  setPlates(p: Plate[], board: { w: number; h: number }): void;
+  reset(): void;
+}
+
+const SILK = ["F.Silkscreen", "B.Silkscreen"];
+
 export default function Viewer3D({ design, artifacts, fileUrl }: { design: Design; artifacts: Artifact[]; fileUrl(u: string): string }) {
   const host = useRef<HTMLDivElement>(null);
-  const hintRef = useRef<HTMLDivElement>(null);
-  const toolsRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [showTop, setShowTop] = useState(true);
   const [showBottom, setShowBottom] = useState(true);
-  const [explode, setExplode] = useState(0);
-  const api = useRef<{ setVisible(g: string, v: boolean): void; setExplode(k: number): void; reset(): void } | null>(null);
+  const [mode, setMode] = useState<Mode>("assembled");
+  const [spread, setSpread] = useState(0.6);
+  const [plates, setPlates] = useState<Plate[] | null>(null);
+  const [off, setOff] = useState<Set<string>>(() => new Set());
+  const api = useRef<Api | null>(null);
 
   const glb = artifacts.find((a) => a.kind === "glb");
   const src = glb && !glb.url.startsWith("mock:") ? { glb: fileUrl(glb.url) } : { design };
   const srcKey = "glb" in src ? src.glb : `demo:${design.name}:${design.components.length}`;
+  const { geo } = useGeometry(
+    artifacts.find((a) => a.kind === "board-json"),
+    fileUrl,
+  );
+  const silk = useMemo(() => artifacts.filter((a) => a.kind === "board-svg" && SILK.includes(a.layers?.[0] ?? "") && !a.url.startsWith("mock:")), [artifacts]);
+
+  // the plates are drawn once, the first time the layers are pulled apart
+  useEffect(() => {
+    if (mode !== "layers" || plates || !geo) return;
+    let live = true;
+    (async () => {
+      const copper = geo.layers.map((l) => ({ layer: l, canvas: copperCanvas(geo, l), copper: true }));
+      const prints = await Promise.all(
+        silk.map(async (a) => ({ layer: a.layers![0]!, canvas: await plotCanvas(fileUrl(a.url), geo.size[0], geo.size[1]).catch(() => null), copper: false })),
+      );
+      const order = [
+        ...prints.filter((p) => p.layer === "F.Silkscreen"),
+        ...copper,
+        ...prints.filter((p) => p.layer === "B.Silkscreen"),
+      ].filter((p): p is Plate => !!p.canvas);
+      if (live) setPlates(order);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [mode, plates, geo, silk, fileUrl]);
+  // a new board brings new plates
+  useEffect(() => setPlates(null), [geo]);
 
   useEffect(() => {
     const el = host.current;
@@ -40,8 +100,9 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
     const movingDpr = coarse ? Math.min(dpr, 1) : dpr;
     renderer.setPixelRatio(dpr);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.setClearColor(0x100d09, 1);
+    renderer.setClearColor(0x000000, 0);
     renderer.domElement.setAttribute("data-testid", "viewer-3d-canvas");
+    renderer.domElement.className = "absolute inset-0 size-full";
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -82,34 +143,31 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
       }
     });
     let fitTo: (() => void) | null = null;
-    // the free area between the caption and the tools: the view is shifted so
-    // the board is centred there, and fitted to its height, so no overlay
-    // covers it
-    let freeK = 1;
     const resize = () => {
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
       renderer.setSize(r.width, r.height, false);
       camera.aspect = r.width / r.height;
-      const h = hintRef.current;
-      const t = toolsRef.current;
-      const top = h ? h.offsetTop + h.offsetHeight + 8 : 0;
-      const bottom = r.height - (t ? r.bottom - t.getBoundingClientRect().top : 0) - 8;
-      const free = Math.max(40, bottom - top);
-      freeK = free / r.height;
-      camera.setViewOffset(r.width, r.height, 0, r.height / 2 - (top + bottom) / 2, r.width, r.height);
       camera.updateProjectionMatrix();
       if (!touched) fitTo?.();
       request();
     };
     const ro = new ResizeObserver(resize);
     ro.observe(el);
-    if (toolsRef.current) ro.observe(toolsRef.current);
 
     const groups: Record<string, THREE.Mesh[]> = { board: [], top: [], bottom: [] };
     let upVec = new THREE.Vector3(0, 0, 1);
+    let upAxis: 0 | 1 | 2 = 2;
     let thick = 1.6;
     let home: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null;
+    // the board body's own box: where the layer plates go
+    const body = new THREE.Box3();
+    let unit = 1; // scene units per mm
+    const plateGroup = new THREE.Group();
+    plateGroup.visible = false;
+    scene.add(plateGroup);
+    let plateMeshes: { layer: string; meshes: THREE.Object3D[] }[] = [];
+    let state: { mode: Mode; spread: number; on: Set<string> } = { mode: "assembled", spread: 0.6, on: new Set() };
 
     const build = (data: SceneData) => {
       const mats = new Map<string, THREE.MeshStandardMaterial>();
@@ -121,6 +179,10 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
         const index = coarse && m.lod ? m.lod : m.index;
         g.setIndex(new THREE.BufferAttribute(index, 1));
         g.computeBoundingSphere();
+        if (m.group === "board") {
+          g.computeBoundingBox();
+          body.union(g.boundingBox!);
+        }
         const ck = m.color.join(",");
         let mat = mats.get(ck);
         if (!mat) {
@@ -139,8 +201,10 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
         stats.triangles += index.length / 3;
       }
       stats.meshes = data.meshes.length;
+      upAxis = data.up;
       upVec = new THREE.Vector3(data.up === 0 ? 1 : 0, data.up === 1 ? 1 : 0, data.up === 2 ? 1 : 0);
       thick = data.thickness || 1.6;
+      if (body.isEmpty()) body.setFromCenterAndSize(new THREE.Vector3(...data.center), new THREE.Vector3(...data.size));
       const center = new THREE.Vector3(...data.center);
       const radius = Math.hypot(...data.size) / 2;
       camera.up.copy(upVec);
@@ -152,9 +216,11 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
       if (data.up === 1) dir.set(0, 0.9, 1.1);
       dir.normalize();
       fitTo = () => {
-        const v = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * freeK);
-        const h = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect);
-        const dist = (radius / Math.sin(Math.min(v, h))) * 1.02;
+        const v = THREE.MathUtils.degToRad(camera.fov / 2);
+        const h = Math.atan(Math.tan(v) * camera.aspect);
+        // pulled apart, the stack is taller: stand further back
+        const tall = state.mode === "layers" ? 1 + state.spread * 0.9 : state.mode === "parts" ? 1 + state.spread * 0.3 : 1;
+        const dist = ((radius * tall) / Math.sin(Math.min(v, h))) * 1.02;
         camera.position.copy(center).addScaledVector(dir, dist);
         controls.target.copy(center);
         home = { pos: camera.position.clone(), target: center.clone() };
@@ -164,22 +230,76 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
       request();
     };
 
+    const place = () => {
+      const { mode: m, spread: k, on } = state;
+      const step = thick * 10 * k; // between plates when pulled apart
+      const n = plateMeshes.length;
+      // the plates' centre stays at the board's middle
+      const at = (i: number) => (n - 1) / 2 * step - i * step;
+      for (const g of groups.board!) g.visible = m !== "layers";
+      plateGroup.visible = m === "layers";
+      plateMeshes.forEach((p, i) => {
+        for (const o of p.meshes) {
+          o.visible = on.has(p.layer);
+          o.position.copy(upVec).multiplyScalar(at(i) + (o.userData.offset as number));
+        }
+      });
+      const lift = m === "assembled" ? 0 : m === "parts" ? k * thick * 8 : at(0) + step + thick * 2;
+      for (const mesh of groups.top!) {
+        mesh.position.copy(upVec).multiplyScalar(lift);
+        mesh.updateMatrix();
+      }
+      for (const mesh of groups.bottom!) {
+        mesh.position.copy(upVec).multiplyScalar(m === "layers" ? -lift : -lift);
+        mesh.updateMatrix();
+      }
+      request();
+    };
+
     api.current = {
       setVisible(g, v) {
         for (const m of groups[g] ?? []) m.visible = v;
         request();
       },
-      setExplode(k) {
-        const off = k * thick * 8;
-        for (const m of groups.top!) {
-          m.position.copy(upVec).multiplyScalar(off);
-          m.updateMatrix();
-        }
-        for (const m of groups.bottom!) {
-          m.position.copy(upVec).multiplyScalar(-off);
-          m.updateMatrix();
-        }
-        request();
+      setMode(m, k, on) {
+        const was = state.mode;
+        state = { mode: m, spread: k, on };
+        place();
+        if (was !== m && !touched) fitTo?.();
+      },
+      setPlates(list, board) {
+        for (const p of plateMeshes) for (const o of p.meshes) plateGroup.remove(o);
+        const size = body.getSize(new THREE.Vector3());
+        const mid = body.getCenter(new THREE.Vector3());
+        const across = [0, 1, 2].filter((a) => a !== upAxis) as [number, number];
+        unit = size.getComponent(across[0]) / board.w || 1;
+        const w = board.w * unit;
+        const h = board.h * unit;
+        const slab = new THREE.MeshStandardMaterial({ color: 0x1f3326, transparent: true, opacity: 0.55, roughness: 0.8, depthWrite: false, side: THREE.DoubleSide });
+        plateMeshes = list.map((p) => {
+          const tex = new THREE.CanvasTexture(p.canvas);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+          const face = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+          const meshes: THREE.Object3D[] = [face];
+          face.userData.offset = 0;
+          if (p.copper) {
+            const base = new THREE.Mesh(new THREE.PlaneGeometry(w, h), slab);
+            base.userData.offset = -thick * 0.05;
+            base.renderOrder = -1;
+            meshes.push(base);
+          }
+          for (const o of meshes) {
+            // planes face +z; turn them to face up, and centre them on the board
+            if (upAxis === 1) o.rotation.x = -Math.PI / 2;
+            else if (upAxis === 0) o.rotation.y = Math.PI / 2;
+            o.userData.offset = (o.userData.offset as number) * unit + 0;
+            plateGroup.add(o);
+          }
+          plateGroup.position.copy(mid);
+          return { layer: p.layer, meshes };
+        });
+        place();
       },
       reset() {
         touched = false;
@@ -215,7 +335,10 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
         const m = o as THREE.Mesh;
         if (m.isMesh) {
           m.geometry.dispose();
-          (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x.dispose());
+          (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => {
+            (x as THREE.MeshBasicMaterial).map?.dispose();
+            x.dispose();
+          });
         }
       });
       renderer.dispose();
@@ -226,52 +349,130 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
     // src is derived from srcKey
   }, [srcKey]);
 
+  const layerList = plates?.map((p) => p.layer) ?? [];
+  const on = useMemo(() => new Set(layerList.filter((l) => !off.has(l))), [layerList.join(), off]);
   useEffect(() => api.current?.setVisible("top", showTop), [showTop, status]);
   useEffect(() => api.current?.setVisible("bottom", showBottom), [showBottom, status]);
-  useEffect(() => api.current?.setExplode(explode), [explode, status]);
+  useEffect(() => {
+    if (status === "ready" && plates && geo) api.current?.setPlates(plates, { w: geo.size[0], h: geo.size[1] });
+  }, [plates, status, geo]);
+  useEffect(() => api.current?.setMode(mode === "layers" && !plates ? "parts" : mode, spread, on), [mode, spread, on, status, plates]);
+
+  const canLayers = !!geo;
+  const copperCount = geo?.layers.length ?? design.board?.layers ?? 0;
 
   return (
-    <div className="viewer" ref={host} data-testid="viewer-3d" data-status={status} style={{ background: "var(--coal)" }}>
-      {status !== "ready" && (
-        <div className="center-state" style={{ position: "absolute", inset: 0, color: "var(--sand)" }}>
-          <div style={{ alignItems: "center", textAlign: "center" }}>
-            {status === "loading" ? (
-              <>
-                <div className="spinner-line" />
-                <span className="small">Loading the board in 3D</span>
-              </>
-            ) : (
-              <span className="small">{error}</span>
-            )}
-          </div>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <ViewBar>
+        <ToggleGroup type="single" value={mode} onValueChange={(v) => v && setMode(v as Mode)} aria-label="Arrangement" className="h-8">
+          <ToggleGroupItem value="assembled">Assembled</ToggleGroupItem>
+          <ToggleGroupItem value="parts" data-testid="explode">
+            Parts lifted
+          </ToggleGroupItem>
+          <ToggleGroupItem value="layers" disabled={!canLayers} title={canLayers ? undefined : "Every layer appears with the next board build"} data-testid="explode-layers">
+            Every layer
+          </ToggleGroupItem>
+        </ToggleGroup>
+        {mode !== "assembled" && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            Spread
+            <Slider className="w-32" min={0.1} max={1} step={0.01} value={[spread]} onValueChange={([v]) => setSpread(v!)} aria-label="How far apart" />
+          </label>
+        )}
+        <span className="grow" />
+        {copperCount > 0 && <Badge>{copperCount} copper layers</Badge>}
+        <Button variant="ghost" size="sm" onClick={() => api.current?.reset()}>
+          <RotateCcwIcon />
+          Reset view
+        </Button>
+      </ViewBar>
+      <div className="flex min-h-0 flex-1 flex-wrap">
+        <div
+          ref={host}
+          data-testid="viewer-3d"
+          data-status={status}
+          className="relative min-h-[380px] min-w-0 flex-[999_1_420px] touch-none bg-[radial-gradient(ellipse_at_50%_40%,#2a241d_0%,var(--board-bg)_70%)]"
+        >
+          {status !== "ready" && (
+            <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">
+              {status === "loading" ? (
+                <div className="flex flex-col items-center gap-3">
+                  <Loader />
+                  Loading the board in 3D
+                </div>
+              ) : (
+                <span className="max-w-sm px-6 text-center">{error}</span>
+              )}
+            </div>
+          )}
+          <span className="pointer-events-none absolute left-3 top-3 rounded-md bg-card/70 px-2 py-1 text-xs text-muted-foreground backdrop-blur">
+            {"glb" in src ? "From the routed board" : "Demo model: parts as blocks"} · drag to turn, pinch or scroll to zoom
+          </span>
+          {mode === "layers" && !plates && canLayers && (
+            <div className="absolute inset-x-0 bottom-4 flex justify-center">
+              <Badge tone="ember">Drawing each layer…</Badge>
+            </div>
+          )}
         </div>
+        <aside className="flex min-w-0 flex-[1_1_240px] flex-col gap-1 border-l p-3 max-[699px]:border-l-0 max-[699px]:border-t lg:max-w-72" aria-label="What to show">
+          <span className="px-2 pb-1 text-xs font-medium text-muted-foreground">{mode === "layers" ? "Layers, top to bottom" : "Parts"}</span>
+          <ToggleRow label="Top parts" color="#9aa0a6" checked={showTop} onChange={setShowTop} testId="toggle-top" />
+          {mode === "layers" &&
+            layerList.map((l) => (
+              <ToggleRow
+                key={l}
+                label={layerName(l)}
+                color={l.endsWith(".Cu") ? layerColor(l) : "#f1ece0"}
+                checked={!off.has(l)}
+                onChange={(v) =>
+                  setOff((o) => {
+                    const n = new Set(o);
+                    if (v) n.delete(l);
+                    else n.add(l);
+                    return n;
+                  })
+                }
+                onSolo={() => setOff(new Set(layerList.filter((x) => x !== l)))}
+              />
+            ))}
+          <ToggleRow label="Bottom parts" color="#6f757a" checked={showBottom} onChange={setShowBottom} testId="toggle-bottom" />
+          {mode === "layers" && (
+            <p className="mt-2 rounded-lg bg-sunken p-3 text-xs text-soft">
+              Silkscreen sits on the outside: above the top copper and below the bottom copper. Click a layer's name to see it alone; switch them all back on with Assembled.
+            </p>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function ToggleRow({
+  label,
+  color,
+  checked,
+  onChange,
+  onSolo,
+  testId,
+}: {
+  label: string;
+  color: string;
+  checked: boolean;
+  onChange(v: boolean): void;
+  onSolo?: () => void;
+  testId?: string;
+}) {
+  return (
+    <div className={cn("flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm", !checked && "text-muted-foreground")}>
+      <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: color, opacity: checked ? 1 : 0.4 }} />
+      {onSolo ? (
+        <button type="button" className="flex-1 text-left hover:text-foreground" onClick={onSolo} title="Show this layer alone">
+          {label}
+        </button>
+      ) : (
+        <span className="flex-1">{label}</span>
       )}
-      <div className="viewer-hint" ref={hintRef} style={{ color: "var(--dim)" }}>
-        {"glb" in src ? "From the routed board" : "Demo model: parts as blocks"} · drag to turn, pinch to zoom
-      </div>
-      <div className="viewer-tools" ref={toolsRef}>
-        <div className="layer-panel" role="group" aria-label="Show">
-          <label className="chk">
-            <input type="checkbox" checked={showTop} onChange={(e) => setShowTop(e.target.checked)} data-testid="toggle-top" />
-            <span className="box" aria-hidden="true" />
-            Top parts
-          </label>
-          <label className="chk">
-            <input type="checkbox" checked={showBottom} onChange={(e) => setShowBottom(e.target.checked)} data-testid="toggle-bottom" />
-            <span className="box" aria-hidden="true" />
-            Bottom parts
-          </label>
-          <label className="range">
-            Explode
-            <input type="range" min={0} max={1} step={0.01} value={explode} onChange={(e) => setExplode(Number(e.target.value))} data-testid="explode" />
-          </label>
-        </div>
-        <div className="zoom">
-          <button onClick={() => api.current?.reset()} className="zoom-fit">
-            Reset
-          </button>
-        </div>
-      </div>
+      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} data-testid={testId} />
     </div>
   );
 }

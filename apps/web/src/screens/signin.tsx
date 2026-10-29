@@ -4,6 +4,12 @@ import { Lockup } from "../components/brand";
 import { useApp } from "../lib/app";
 import { ApiError } from "../lib/backend";
 import { navigate, takeNext } from "../lib/router";
+import { Screen } from "../components/topbar";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 // Email and password. The first account made is the owner's; after that new
 // accounts are closed unless the server allows them (ALLOW_SIGNUP).
@@ -59,93 +65,95 @@ export default function SignIn() {
   };
 
   return (
-    <div className="screen">
-      <header className="topbar">
+    <Screen>
+      <header className="flex min-h-14 items-center border-b px-4">
         <Lockup />
       </header>
-      <main className="signin">
-        <div className="signin-box">
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <h1 className="d3">Describe it. Check it. Build it.</h1>
-            <p className="lead">HardHub designs the circuit board with you, checks every connection, and hands you files a fab can build.</p>
+      <main className="grid flex-1 place-items-center px-4 py-12">
+        <div className="grid w-full max-w-4xl items-center gap-10 md:grid-cols-2 md:gap-16">
+          <div className="flex flex-col gap-4">
+            <Badge tone="ember" className="self-start">
+              Hardware, designed with you
+            </Badge>
+            <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight text-balance sm:text-5xl">Describe it. Check it. Build it.</h1>
+            <p className="max-w-[46ch] text-lg text-soft">HardHub designs the circuit board with you, checks every connection, and hands you files a fab can build.</p>
+            <p className="text-sm text-muted-foreground">The AI proposes. You decide.</p>
           </div>
-          <form onSubmit={submit} className="field" data-testid="signin-form" aria-busy={!status}>
-            {first && (
-              <p className="small secondary" style={{ marginBottom: 4 }} data-testid="signin-first">
-                Nobody has an account here yet. Create yours: it becomes this HardHub's owner, and new accounts close after it.
-              </p>
-            )}
-            <label className="label" htmlFor="email">
-              Email
-            </label>
-            <input
-              id="email"
-              className="input"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              required
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              data-testid="signin-email"
-            />
-            <label className="label" htmlFor="password" style={{ marginTop: 8 }}>
-              Password
-            </label>
-            <input
-              id="password"
-              className="input"
-              type="password"
-              autoComplete={signup ? "new-password" : "current-password"}
-              required
-              minLength={signup ? 8 : undefined}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              data-testid="signin-password"
-            />
-            {signup && (
-              <>
-                <label className="label" htmlFor="password-again" style={{ marginTop: 8 }}>
-                  Password again
-                </label>
-                <input
-                  id="password-again"
-                  className="input"
-                  type="password"
-                  autoComplete="new-password"
+          <Card className="gap-0 py-0">
+            <form onSubmit={submit} className="flex flex-col gap-4 p-6" data-testid="signin-form" aria-busy={!status}>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-lg font-semibold">{signup ? "Create your account" : "Sign in"}</h2>
+                {first && (
+                  <p className="text-sm text-muted-foreground" data-testid="signin-first">
+                    Nobody has an account here yet. Create yours: it becomes this HardHub's owner, and new accounts close after it.
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  inputMode="email"
                   required
-                  value={again}
-                  onChange={(e) => setAgain(e.target.value)}
-                  data-testid="signin-password-again"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  data-testid="signin-email"
                 />
-              </>
-            )}
-            <button className="btn btn-primary btn-lg" type="submit" disabled={busy || !status} data-testid="signin-submit" style={{ marginTop: 8 }}>
-              {busy ? (signup ? "Creating your account…" : "Signing in…") : signup ? "Create account" : "Sign in"}
-            </button>
-            {error && (
-              <p className="small" style={{ color: "var(--destructive)" }} role="alert">
-                {error}
-              </p>
-            )}
-            {status?.has_account && status.signup_open && (
-              <button
-                type="button"
-                className="btn btn-sm btn-quiet"
-                style={{ alignSelf: "flex-start", paddingLeft: 0 }}
-                onClick={() => switchTo(signup ? "signin" : "signup")}
-                data-testid="signin-switch"
-              >
-                {signup ? "I have an account: sign in" : "Create an account"}
-              </button>
-            )}
-          </form>
-          <p className="ed secondary" style={{ fontSize: 19 }}>
-            The model proposes. You decide.
-          </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete={signup ? "new-password" : "current-password"}
+                  required
+                  minLength={signup ? 8 : undefined}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  data-testid="signin-password"
+                />
+              </div>
+              {signup && (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="password-again">Password again</Label>
+                  <Input
+                    id="password-again"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    value={again}
+                    onChange={(e) => setAgain(e.target.value)}
+                    data-testid="signin-password-again"
+                  />
+                </div>
+              )}
+              <Button size="lg" type="submit" disabled={busy || !status} data-testid="signin-submit" className="mt-1">
+                {busy ? (signup ? "Creating your account…" : "Signing in…") : signup ? "Create account" : "Sign in"}
+              </Button>
+              {error && (
+                <p className="text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              )}
+              {status?.has_account && status.signup_open && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="self-start px-0"
+                  onClick={() => switchTo(signup ? "signin" : "signup")}
+                  data-testid="signin-switch"
+                >
+                  {signup ? "I have an account: sign in" : "Create an account"}
+                </Button>
+              )}
+            </form>
+          </Card>
         </div>
       </main>
-    </div>
+    </Screen>
   );
 }

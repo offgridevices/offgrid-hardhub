@@ -47,10 +47,10 @@ function rotated(w: number, h: number, rot: number): [number, number] {
 /* ---------- demo layer SVGs ---------- */
 
 export const LAYER_COLORS: Record<string, string> = {
-  "F.Cu": "#c9a25c",
-  "In1.Cu": "#7f9460",
-  "In2.Cu": "#9c7468",
-  "B.Cu": "#6d8db2",
+  "F.Cu": "#ff8a3d",
+  "In1.Cu": "#f0b84a",
+  "In2.Cu": "#c39bd3",
+  "B.Cu": "#6fa8e8",
   "F.Silkscreen": "#f1ece0",
   "B.Silkscreen": "#b9b0a0",
   "Edge.Cuts": "#d9c9a8",

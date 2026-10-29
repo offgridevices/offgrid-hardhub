@@ -42,3 +42,15 @@ export const STAGE_LABEL = {
   view: "3D",
   order: "Order",
 } as const;
+
+// each stage's colour in pills and progress marks
+export const STAGE_TONE = {
+  idea: "sky",
+  parts: "sky",
+  circuit: "plum",
+  board: "plum",
+  layout: "ember",
+  checks: "gold",
+  view: "gold",
+  order: "moss",
+} as const;

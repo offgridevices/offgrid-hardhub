@@ -51,7 +51,8 @@ def ctx():
     if _ctx is None:
         _ctx = mp.get_context('forkserver')
         _ctx.set_forkserver_preload(['pcbnew', 'shapely', 'hardhub.pipeline', 'hardhub.board', 'hardhub.checks',
-                                     'hardhub.route', 'hardhub.fab', 'hardhub.place', 'hardhub.miter', 'hardhub.view'])
+                                     'hardhub.route', 'hardhub.fab', 'hardhub.place', 'hardhub.miter', 'hardhub.view',
+                                     'hardhub.geometry', 'hardhub.edits'])
     return _ctx
 
 
@@ -77,6 +78,22 @@ def _build(q, design, job, outputs, stop_after):
     line = pipeline.build(design, work, out, q.put, job=job, outputs=outputs, stop_after=stop_after)
     if os.environ.get('HARDHUB_KEEP_WORK') != '1':
         shutil.rmtree(work, ignore_errors=True)
+    q.put(line)
+
+
+def _edit(q, design, job, kicad_zip_b64, edits, outputs):
+    import base64
+    import io
+    from . import pipeline
+    base = os.path.join(JOBS, job)
+    shutil.rmtree(base, ignore_errors=True)
+    work, out = os.path.join(base, 'work'), os.path.join(base, 'files')
+    line = pipeline.edit(design, io.BytesIO(base64.b64decode(kicad_zip_b64)), edits, work, out, q.put, job=job,
+                         outputs=outputs)
+    if os.environ.get('HARDHUB_KEEP_WORK') != '1':
+        shutil.rmtree(work, ignore_errors=True)
+    if line.get('rejected'):
+        shutil.rmtree(base, ignore_errors=True)        # nothing was made
     q.put(line)
 
 
@@ -271,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
                 if res is None or 'results' not in res:
                     return self.send_json(500, dict(error=(res or {}).get('error', 'check failed')))
                 return self.send_json(200, res)
-            if self.path == '/build':
+            if self.path in ('/build', '/edit'):
                 return self.build(req)
             if self.path in ('/view', '/inspect'):
                 return self.look(req)
@@ -312,9 +329,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(png)
 
     def build(self, req):
+        """POST /build, and POST /edit (a built board edited by hand): the same
+        build slots, the same NDJSON stream of JobLines."""
         job = str(req.get('job', ''))
         if not JOB_RE.match(job):
             return self.send_json(400, dict(error='job must be 1-64 letters, digits, - or _'))
+        editing = self.path == '/edit'
+        if editing:
+            if not isinstance(req.get('kicad_zip_b64'), str) or not req['kicad_zip_b64']:
+                return self.send_json(400, dict(error='kicad_zip_b64: the KiCad zip of the build to edit, base64'))
+            if not isinstance(req.get('edits'), list) or not 1 <= len(req['edits']) <= 500:
+                return self.send_json(400, dict(error='edits: a list of 1 to 500 edits'))
+            if not isinstance(req.get('design'), dict):
+                return self.send_json(400, dict(error='design: the design the board was built from'))
         if not _builds.acquire(blocking=False):
             return self.send_json(429, dict(error='engine busy: %d build(s) running, at most %d at once'
                                             % (MAX_BUILDS, MAX_BUILDS), retryable=True))
@@ -340,7 +367,10 @@ class Handler(BaseHTTPRequestHandler):
                     sent_done[0] = True
                 chunk(x)
             try:
-                run_child(_build, (req['design'], job, outputs, req.get('stop_after')), BUILD_TIMEOUT, on_line)
+                if editing:
+                    run_child(_edit, (req['design'], job, req['kicad_zip_b64'], req['edits'], outputs), BUILD_TIMEOUT, on_line)
+                else:
+                    run_child(_build, (req['design'], job, outputs, req.get('stop_after')), BUILD_TIMEOUT, on_line)
             except TimeoutError as e:
                 chunk(dict(done=True, ok=False, error='build %s' % e, checks=[], artifacts=[], stats={}, placement={}))
                 sent_done[0] = True

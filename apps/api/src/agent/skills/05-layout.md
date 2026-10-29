@@ -35,3 +35,15 @@
 - **Fix by moving, then rebuild.** `move_parts` sets positions and rotations
   (lock the ones you placed on purpose). If routing left connections unrouted,
   move the parts that crowd them rather than adding layers.
+- **The person can edit the routed board by hand** in the app, as in KiCad:
+  drag a track's ends, move or delete a via, draw a track, add a via, move or
+  rotate a part. HardHub applies the edits to the KiCad board, refills the
+  pours, runs the DRC and every check again and makes every file again,
+  without re-routing. You hear of it as a note before their next message
+  ("The person edited the board by hand: ..."). Their edits live in the board
+  until it is routed again: look at it with `inspect_board` and `view_board`
+  rather than rebuilding, and never call `build_board` on a hand-edited board
+  without asking them first, because a build places and routes it again and
+  loses their tracks and vias (it refuses until you pass
+  `discard_hand_edits: true`, which you do only once they agree). Parts they
+  moved are kept in `design.placement`, locked.

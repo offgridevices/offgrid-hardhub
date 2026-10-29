@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import type { Connections } from "@hardhub/protocol";
 import { useApp } from "../lib/app";
 import { date } from "../lib/format";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+const STEPS = "flex list-decimal flex-col gap-2 pl-5 text-sm text-soft marker:text-muted-foreground";
 
 type AppId = "claude" | "claude-code" | "chatgpt" | "codex";
 
@@ -17,7 +23,7 @@ const APPS: { id: AppId; name: string; online: boolean }[] = [
 function Steps({ app, url }: { app: AppId; url: string }) {
   if (app === "claude")
     return (
-      <ol className="steps-list">
+      <ol className={STEPS}>
         <li>In Claude (website, desktop or phone app), open Settings → Connectors.</li>
         <li>Choose Add custom connector, name it HardHub, and paste the address above.</li>
         <li>Choose Connect, then Allow on the HardHub page that opens.</li>
@@ -26,7 +32,7 @@ function Steps({ app, url }: { app: AppId; url: string }) {
     );
   if (app === "chatgpt")
     return (
-      <ol className="steps-list">
+      <ol className={STEPS}>
         <li>In ChatGPT, open Settings → Apps → Advanced settings and turn on Developer mode (Plus, Pro, Business and Enterprise plans).</li>
         <li>Choose Create app, name it HardHub, paste the address above, and pick OAuth.</li>
         <li>Allow it on the HardHub page that opens, then pick HardHub in the chat's tools.</li>
@@ -34,7 +40,7 @@ function Steps({ app, url }: { app: AppId; url: string }) {
     );
   const cmd = app === "claude-code" ? `claude mcp add --transport http hardhub ${url}` : `codex mcp add hardhub --url ${url}`;
   return (
-    <ol className="steps-list">
+    <ol className={STEPS}>
       <li>
         In a terminal, run:
         <CopyRow text={cmd} label="Copy command" testId={`cmd-${app}`} />
@@ -54,11 +60,14 @@ function Steps({ app, url }: { app: AppId; url: string }) {
 function CopyRow({ text, label, testId }: { text: string; label: string; testId?: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="copy-row" style={{ marginTop: 6 }}>
-      <code data-testid={testId}>{text}</code>
-      <button
+    <div className="mt-1.5 flex items-center gap-2 rounded-lg border bg-sunken py-1.5 pl-3 pr-1.5">
+      <code className="num min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[13px] text-foreground" data-testid={testId}>
+        {text}
+      </code>
+      <Button
         type="button"
-        className="btn btn-sm"
+        variant="outline"
+        size="xs"
         onClick={async () => {
           try {
             await navigator.clipboard.writeText(text);
@@ -70,8 +79,9 @@ function CopyRow({ text, label, testId }: { text: string; label: string; testId?
         }}
         aria-label={label}
       >
+        {copied ? <CheckIcon /> : <CopyIcon />}
         {copied ? "Copied" : "Copy"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -97,83 +107,78 @@ export function ConnectAi() {
   const chosen = APPS.find((a) => a.id === app)!;
 
   return (
-    <section className="setting" aria-labelledby="mcp-h" data-testid="connect-ai">
-      <div>
-        <h2 id="mcp-h" className="d4">
+    <Card className="gap-5" aria-labelledby="mcp-h" data-testid="connect-ai">
+      <CardHeader>
+        <CardTitle id="mcp-h" className="text-base">
           Use your own Claude or ChatGPT
-        </h2>
-        <p className="secondary" style={{ marginTop: 8 }}>
+        </CardTitle>
+        <CardDescription>
           Connect the AI app you already pay for. It does the thinking on your own plan, with no API key; HardHub finds the parts, checks the circuit and builds the board in KiCad. Your boards
           show up here as it works.
-        </p>
-      </div>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        {data && (
+          <>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium">HardHub's address for AI apps</span>
+              <CopyRow text={data.mcp_url} label="Copy address" testId="mcp-url" />
+            </div>
 
-      {error && (
-        <p className="small" style={{ color: "var(--destructive)" }} role="alert">
-          {error}
-        </p>
-      )}
-      {data && (
-        <>
-          <div className="field">
-            <span className="label">HardHub's address for AI apps</span>
-            <CopyRow text={data.mcp_url} label="Copy address" testId="mcp-url" />
-          </div>
-
-          <div className="key-row" role="radiogroup" aria-label="Your AI app">
-            {APPS.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                role="radio"
-                className={`btn btn-sm${app === a.id ? " btn-solid" : ""}`}
-                aria-checked={app === a.id}
-                onClick={() => setApp(a.id)}
-                data-testid={`app-${a.id}`}
-              >
-                {a.name}
-              </button>
-            ))}
-          </div>
-          {local && chosen.online ? (
-            <p className="small muted" data-testid="needs-online">
-              {chosen.name} reaches HardHub from its own servers, over the internet, so it can connect once HardHub is on Cloudflare (<span className="num">./hardhub deploy</span>).
-              On this computer, use Claude Code or Codex now.
-            </p>
-          ) : (
-            <Steps app={app} url={data.mcp_url} />
-          )}
-
-          <div className="field">
-            <span className="label">Connected apps</span>
-            {data.connections.length === 0 ? (
-              <p className="small muted">None yet.</p>
+            <ToggleGroup type="single" value={app} onValueChange={(v) => v && setApp(v as AppId)} aria-label="Your AI app" className="flex-wrap">
+              {APPS.map((a) => (
+                <ToggleGroupItem key={a.id} value={a.id} data-testid={`app-${a.id}`}>
+                  {a.name}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+            {local && chosen.online ? (
+              <p className="text-sm text-muted-foreground" data-testid="needs-online">
+                {chosen.name} reaches HardHub from its own servers, over the internet, so it can connect once HardHub is on Cloudflare (<span className="num">./hardhub deploy</span>).
+                On this computer, use Claude Code or Codex now.
+              </p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {data.connections.map((c) => (
-                  <div key={c.client_id} className="panel conn-row" data-testid="connection">
-                    <span>
-                      {c.name}
-                      <span className="muted small"> · connected {date(c.connected_at)}</span>
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={async () => {
-                        await backend.disconnect(c.client_id);
-                        setData({ ...data, connections: data.connections.filter((x) => x.client_id !== c.client_id) });
-                      }}
-                      data-testid="disconnect"
-                    >
-                      Disconnect
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <Steps app={app} url={data.mcp_url} />
             )}
-          </div>
-        </>
-      )}
-    </section>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium">Connected apps</span>
+              {data.connections.length === 0 ? (
+                <p className="text-sm text-muted-foreground">None yet.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {data.connections.map((c) => (
+                    <div key={c.client_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-sunken px-3.5 py-2.5 text-sm" data-testid="connection">
+                      <span className="flex items-center gap-2">
+                        <span className="size-2 rounded-full bg-moss" aria-hidden="true" />
+                        {c.name}
+                        <span className="text-muted-foreground"> · connected {date(c.connected_at)}</span>
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={async () => {
+                          await backend.disconnect(c.client_id);
+                          setData({ ...data, connections: data.connections.filter((x) => x.client_id !== c.client_id) });
+                        }}
+                        data-testid="disconnect"
+                      >
+                        Disconnect
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

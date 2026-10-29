@@ -2,7 +2,7 @@
 // object's own SQLite storage and the project's WebSockets (hibernatable: an
 // idle project costs nothing, and wakes on the next message).
 import { DurableObject } from "cloudflare:workers";
-import { ClientMessage } from "@hardhub/protocol";
+import { type BoardEditRequest, ClientMessage } from "@hardhub/protocol";
 import { CONVERTERS, llmFor } from "../agent/llm";
 import type { TurnInput } from "../agent/loop";
 import { touchProject } from "../db";
@@ -69,7 +69,12 @@ export class ProjectRoom extends DurableObject<Env> {
 
   detail() {
     const { design, version } = this.core.design();
-    return { design, design_version: version, last_seq: this.core.lastSeq(), busy: this.core.busy };
+    return { design, design_version: version, last_seq: this.core.lastSeq(), busy: this.core.busy || this.core.editing };
+  }
+
+  /** the person's hand edits to the routed board; answers when they are checked */
+  editBoard(req: BoardEditRequest) {
+    return this.core.editBoard(req);
   }
 
   events(after: number, limit: number) {

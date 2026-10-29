@@ -10,7 +10,9 @@ finished .kicad_pcb.
   <slug>.ipc              IPC-D-356 netlist (the fab's electrical test)
   <slug>.glb              3D board with parts, meshopt-compressed
   <slug>-<layer>.svg      one SVG per layer, board area only
+  <slug>-board.json       the board as vector geometry, in the SVGs' frame (geometry.py)
   <slug>-top.png          rendered view
+  <slug>-package.zip      all of the order files, sorted by where each is uploaded, with a README
 
 Pick-and-place coordinates are the Gerbers' own (KiCad absolute, y up), so
 the two line up without any origin setting.  Rotation: 0 degrees is the
@@ -193,12 +195,12 @@ def glb(board, out_dir, name):
 # they are. Solder mask is left out: a mask plot is the openings in a filled
 # sheet, which only hides the copper in a viewer.
 SVG_COLORS = {
-    'F.Cu': '#c9a25c', 'B.Cu': '#6d8db2',
+    'F.Cu': '#ff8a3d', 'B.Cu': '#6fa8e8',
     'F.Silkscreen': '#f1ece0', 'B.Silkscreen': '#b9b0a0',
     'F.Fab': '#9a9082', 'B.Fab': '#6f675c', 'Edge.Cuts': '#d9c9a8',
 }
-INNER_COLORS = ['#7f9460', '#9c7468', '#8a7fa8', '#5f9a94', '#a8925f', '#7d8a9c', '#9c8a70', '#6f9a7a',
-                '#a07890', '#7f8f5f', '#8f7f6f', '#6f8fa0', '#9f8f9f', '#7f9f8f']
+INNER_COLORS = ['#f0b84a', '#c39bd3', '#8cc084', '#4fd1c5', '#7f9460', '#9c7468', '#8a7fa8', '#5f9a94', '#a8925f',
+                '#7d8a9c', '#9c8a70', '#6f9a7a', '#a07890', '#7f8f5f', '#8f7f6f', '#6f8fa0', '#9f8f9f', '#7f9f8f']
 
 
 def svg_color(layer):
@@ -247,4 +249,85 @@ def step(board, out_dir, name):
     with zipfile.ZipFile(zp, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         z.write(raw, os.path.basename(raw))
     os.remove(raw)
+    return zp
+
+
+FINISH_NAMES = {'hasl': 'HASL (with lead)', 'lead-free-hasl': 'lead-free HASL', 'enig': 'ENIG'}
+
+
+def package(d, out_dir, name, artifacts):
+    """The order package: every file a fab asks for, in the folder of the
+    upload it goes to, and a README saying which is which and the board
+    settings to pick.  The Gerber zip goes in unchanged: the fabs read it flat.
+
+      README.txt
+      board/<slug>-gerbers.zip
+      assembly/jlcpcb/   BOM + CPL
+      assembly/pcbway/   BOM + the same CPL
+      netlist/<slug>.ipc
+      3d/<slug>-step.zip  when a STEP model was made
+    """
+    f = lambda suffix: os.path.join(out_dir, name + suffix)
+    gerb, bom, bom_pw, cpl, ipc = (f('-gerbers.zip'), f('-bom-jlcpcb.csv'), f('-bom-pcbway.csv'),
+                                   f('-cpl-jlcpcb.csv'), f('.ipc'))
+    step = [os.path.join(out_dir, a['name']) for a in artifacts if a['kind'] == 'step']
+    files = [('board/', gerb), ('assembly/jlcpcb/', bom), ('assembly/jlcpcb/', cpl), ('assembly/pcbway/', bom_pw),
+             ('assembly/pcbway/', cpl), ('netlist/', ipc)] + [('3d/', p) for p in step]
+    with open(cpl) as fh:
+        rows = list(csv.DictReader(fh))
+    sides = sorted({r['Layer'].lower() for r in rows})
+    bd = d['board']
+    oz = bd.get('copper_oz') or {'outer': 1, 'inner': 0.5}
+    with open(bom) as fh:
+        lines = sum(1 for _ in csv.DictReader(fh))
+    assembly = ('%s side%s, %d parts (%d different)' % (' and '.join(sides), 's' if len(sides) > 1 else '', len(rows), lines)
+                if rows else 'none: no part is marked for assembly')
+    g = lambda p: os.path.basename(p)
+    readme = [
+        '%s %s: order files from HardHub' % (d.get('name', 'Board'), d.get('revision', '')),
+        '',
+        'BOARD SETTINGS TO PICK WHEN YOU ORDER',
+        '  Copper layers:   %d' % bd['layers'],
+        '  Size:            %g x %g mm' % (bd['width'], bd['height']),
+        '  Thickness:       %g mm' % bd.get('thickness', 1.6),
+        '  Solder mask:     %s' % bd.get('mask_color', 'green'),
+        '  Surface finish:  %s' % FINISH_NAMES.get(bd.get('finish'), bd.get('finish', 'lead-free HASL')),
+        '  Copper weight:   %g oz outside%s' % (oz['outer'], (', %g oz inside' % oz['inner']) if bd['layers'] > 2 else ''),
+        '  Assembly:        %s' % assembly,
+        '',
+        'WHAT EACH FILE IS FOR',
+        '  board/%s' % g(gerb),
+        '      The board itself: copper, solder mask, silkscreen, outline and drill holes.',
+        '      Upload this zip as it is; do not unzip it.',
+        '  assembly/jlcpcb/%s' % g(bom),
+        '      The parts list (BOM) for JLCPCB assembly, with LCSC part numbers.',
+        '  assembly/jlcpcb/%s' % g(cpl),
+        '      Where each part goes and how it is turned (CPL, pick and place).',
+        '  assembly/pcbway/%s' % g(bom_pw),
+        '      The parts list in PCBWay\'s columns (maker part number and LCSC number).',
+        '  assembly/pcbway/%s' % g(cpl),
+        '      The same placement file, for PCBWay\'s centroid (pick and place) upload.',
+        '  netlist/%s' % g(ipc),
+        '      IPC-D-356 netlist: the fab tests every connection against it. Optional.',
+    ] + sum((['  3d/%s' % g(p), '      The board and its parts as a STEP model, for a case design. Not for the fab.'] for p in step), []) + [
+        '',
+        'AT JLCPCB',
+        '  1. Add the Gerber file: board/%s' % g(gerb),
+        '  2. Set the board settings above.',
+        '  3. Turn on PCB Assembly and pick the %s side; add the BOM file' % (' and '.join(sides) or 'top'),
+        '     assembly/jlcpcb/%s and the CPL file assembly/jlcpcb/%s.' % (g(bom), g(cpl)),
+        '',
+        'AT PCBWAY',
+        '  1. Upload the Gerber file: board/%s' % g(gerb),
+        '  2. Set the board settings above.',
+        '  3. Add assembly; upload the BOM assembly/pcbway/%s' % g(bom_pw),
+        '     and the centroid file assembly/pcbway/%s.' % g(cpl),
+        '  4. For their netlist test, add netlist/%s if they ask for one.' % g(ipc),
+        '',
+    ]
+    zp = os.path.join(out_dir, '%s-package.zip' % name)
+    with zipfile.ZipFile(zp, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('README.txt', '\n'.join(readme))
+        for folder, path in files:
+            z.write(path, folder + os.path.basename(path))
     return zp

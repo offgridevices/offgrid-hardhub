@@ -73,7 +73,7 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
       init: async (p: string, o: string, n: string) => core(id).init(p, o, n),
       detail: async () => {
         const { design, version } = core(id).design();
-        return { design, design_version: version, last_seq: core(id).lastSeq(), busy: core(id).busy };
+        return { design, design_version: version, last_seq: core(id).lastSeq(), busy: core(id).busy || core(id).editing };
       },
       events: async (after: number, limit: number) => core(id).events(after, limit),
       start: async (input: { text: string }) => core(id).queue(input),
@@ -90,6 +90,7 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
       agentNote: async (t: string, fromChat = false) => core(id).agentNote(t, fromChat),
       agentResults: async () => ({ artifacts: core(id).latestArtifacts(), checks: core(id).latestChecks() }),
       agentFile: async (name: string) => core(id).file(name),
+      editBoard: async (req: Parameters<RoomCore["editBoard"]>[0]) => core(id).editBoard(req),
     }),
   };
 }
