@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { STAGES, type ProjectSummary } from "@hardhub/protocol";
-import { ArrowRightIcon, SparklesIcon, Trash2Icon } from "lucide-react";
+import { ArrowRightIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Screen, TopBar } from "../components/topbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Loader } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useApp } from "../lib/app";
+import { AI_SETUP_NOTE, useDismissed } from "../lib/dismissed";
 import { navigate, onLink } from "../lib/router";
 import { STAGE_LABEL, STAGE_TONE, ago } from "../lib/format";
 
@@ -51,6 +52,7 @@ export default function Projects() {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start();
   };
   const noKey = me && !me.llm_ready;
+  const [noteHidden, hideNote] = useDismissed(AI_SETUP_NOTE);
 
   const remove = async (p: ProjectSummary) => {
     setDeleting(p.id);
@@ -68,13 +70,16 @@ export default function Projects() {
   return (
     <Screen>
       <TopBar />
-      {noKey && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-ember/10 px-4 py-2.5 text-sm text-ember-text" data-testid="no-key-bar">
-          <span>Connect the Claude or ChatGPT you already pay for, or add an API key, so HardHub can design.</span>
-          <Button size="sm" variant="outline" asChild>
+      {noKey && !noteHidden && (
+        <div className="flex items-center gap-3 border-b bg-ember/10 px-4 py-2.5 text-sm text-ember-text" data-testid="no-key-bar">
+          <span className="grow">Connect the Claude or ChatGPT you already pay for, or add an API key, so HardHub can design.</span>
+          <Button size="sm" variant="outline" className="shrink-0" asChild>
             <a href="/settings" onClick={onLink}>
               Set up AI
             </a>
+          </Button>
+          <Button size="icon-sm" variant="ghost" className="-mr-2 shrink-0" onClick={hideNote} aria-label="Dismiss" data-testid="no-key-dismiss">
+            <XIcon />
           </Button>
         </div>
       )}

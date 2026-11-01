@@ -25,6 +25,15 @@ try {
   (await page.getByTestId("no-key-bar").count()) ? ok("asked to add an AI key") : fail("asked to add an AI key", "no banner");
   await shot("no-key");
 
+  // closing the note keeps it closed, here and above the chat
+  await page.getByTestId("no-key-dismiss").click();
+  await page.reload();
+  await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
+  (await page.getByTestId("no-key-bar").count()) ? fail("closed note stays closed", "back after a reload") : ok("closed note stays closed");
+  await page.evaluate(() => localStorage.removeItem("hh_hide_ai_setup"));
+  await page.reload();
+  await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
+
   // Claude with a key that is not real
   await page.getByTestId("nav-settings").click();
   await openOwnChat(page);
