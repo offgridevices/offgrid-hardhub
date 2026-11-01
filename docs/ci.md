@@ -86,7 +86,14 @@ cd apps/api && pnpm exec wrangler rollback <version-id> --env production
 
 ## One-time setup
 
-Three repository secrets (Settings → Secrets and variables → Actions):
+```bash
+./scripts/setup-ci-secrets.sh
+```
+
+It walks through the three repository secrets below: opens Cloudflare's token
+page with the clicks to make, checks the token can do each part of the deploy,
+runs `claude setup-token`, and saves each value to GitHub without showing or
+storing it. By hand instead (Settings → Secrets and variables → Actions):
 
 | Secret | What it is | How to make it |
 |---|---|---|
