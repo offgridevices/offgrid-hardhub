@@ -1,0 +1,270 @@
+name: CI
+
+# The whole of HardHub's checks, and on `main` the deploy. docs/ci.md says
+# what each part is for and what the one-time setup is.
+#
+#   quality  types, unit tests (web, API, protocol), the database migrations on
+#            a real D1, the web build
+#   e2e      the engine's own tests in its image (real KiCad), then the
+#            end-to-end test: the whole stack in Docker, a browser, a board
+#            designed, routed, checked, edited by hand and ordered
+#   deploy   main only, once both are green: database migrations, then the
+#            Worker, web app and KiCad engine container, then a check of the
+#            live site that rolls back to the last good version if it fails
+on:
+  push:
+    branches: [main]
+  # Pull requests do not trigger this file directly. `claude-code-review.yml`
+  # calls it as its first job and starts the Claude review only once every job
+  # here is green, so a pull request runs this suite once and a red suite stops
+  # there: no paid review of code that does not pass its own tests.
+  workflow_call:
+
+# A new push to a pull request cancels its run in progress. On main nothing is
+# cancelled: a deploy must never be stopped halfway (migrations applied, Worker
+# not yet up). A merge that lands meanwhile waits, then deploys; if several
+# land, GitHub keeps only the newest waiting run, which contains the others.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Read-only: the checks only check out, install, test and build. The deploy
+# authenticates to Cloudflare with its own token, never with GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    # Blacksmith, like every repository in the org: the same Ubuntu 24.04 image
+    # as GitHub's runner on faster hardware, with `actions/cache` and
+    # `setup-node`'s cache redirected to Blacksmith's own, no changes needed.
+    # 2 vCPU because the org is on the free plan (3,000 2-vCPU minutes a month;
+    # a 4-vCPU minute counts double). x64 on purpose: Cloudflare runs the engine
+    # container on amd64, so the image built and tested here is the one that ships.
+    # Reverting to GitHub's runners is this line back to `ubuntu-latest`.
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+    steps:
+      # Every action is pinned to a commit: a tag can be moved, and whoever
+      # moves it controls what runs here. Dependabot keeps the pins current.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # pnpm at the version package.json pins (packageManager)
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      # `check-latest`: without it setup-node takes whatever 24.x the runner
+      # image carries, which has been older than dependencies need.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          check-latest: true
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Types
+        run: pnpm -r typecheck
+
+      - name: Unit tests
+        run: pnpm -r test
+
+      # The unit tests apply the migrations to SQLite; this applies them to D1
+      # itself (wrangler's local copy of Cloudflare's database), so a migration
+      # D1 refuses fails here and not halfway through a deploy.
+      - name: Database migrations apply cleanly on D1
+        working-directory: apps/api
+        run: pnpm exec wrangler d1 migrations apply hardhub --local
+
+      - name: Web build (what ships)
+        env:
+          VITE_API_URL: /api
+        run: pnpm --filter @hardhub/web build
+
+  e2e:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # The engine image is large (KiCad); a cold build is the slow part and the
+    # layer cache below makes later runs much faster.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Docker builds keep their layers on a Blacksmith disk that outlives the
+      # runner, so the KiCad engine image is rebuilt only from the first layer
+      # a change touches. One key for every job that builds the engine.
+      - uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          cache-key: offgrid-hardhub/engine
+
+      - name: Engine tests (in its image, real KiCad)
+        timeout-minutes: 25
+        run: ./scripts/engine-tests.sh
+
+      - name: End-to-end test (./hardhub test)
+        timeout-minutes: 25
+        run: ./hardhub test
+
+      # Every screen the test passed through, at phone, tablet and desktop in
+      # light and dark, for the reviewer to look at (and for a human, from the
+      # run's page). Kept a week.
+      - name: Hand the screenshots to the reviewer
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-shots
+          path: e2e/out/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ── Deploy to Cloudflare (main only, and only when every check is green) ──
+  # `needs` makes this wait for, and require, both jobs above. If either fails
+  # this is skipped and nothing is published: the live site keeps running the
+  # last good version.
+  deploy:
+    name: Deploy to Cloudflare
+    needs: [quality, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 50
+    # One deploy at a time, never cancelled (see the note at the top).
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    # Shown on the run and in the repository's Environments list: what is live.
+    environment:
+      name: production
+      url: https://hardhub.offgridevices.com
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: "false"
+      SITE: https://hardhub.offgridevices.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          check-latest: true
+          cache: pnpm
+
+      # wrangler builds the engine image with `docker build --load`; the same
+      # layer cache as the e2e job, so this is mostly cache hits.
+      - uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          cache-key: offgrid-hardhub/engine
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cloudflare credentials are set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be repository secrets. docs/ci.md says how to make them. Nothing was deployed."
+            exit 1
+          fi
+
+      # The version live right now: the one to go back to if this deploy breaks
+      # the site. Taken before anything changes.
+      - name: Note the live version
+        id: before
+        working-directory: apps/api
+        run: |
+          id=$(pnpm exec wrangler deployments list --env production --json 2>/dev/null \
+            | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const l=d.at(-1);process.stdout.write(l?.versions?.[0]?.version_id??"")' || true)
+          echo "Live before this deploy: ${id:-none found}"
+          echo "version=$id" >> "$GITHUB_OUTPUT"
+
+      # A new random token each deploy, for the engine check below. It goes up
+      # with the deploy as a Worker secret and never leaves this job.
+      - name: Make the engine-check token
+        run: |
+          t=$(openssl rand -hex 32)
+          echo "::add-mask::$t"
+          echo "HEALTH_TOKEN=$t" >> "$GITHUB_ENV"
+
+      # apps/api/scripts/deploy.mjs, the same script as `./hardhub deploy`: the
+      # database migrations first (D1, US), then the web app, Worker, Durable
+      # Objects and the KiCad engine container in one `wrangler deploy`.
+      # Migrations are not undone by a rollback, so they must keep working with
+      # the version before them (add, don't rename or drop); see docs/ci.md.
+      - name: Deploy (database migrations, then everything else)
+        id: deploy
+        run: pnpm --filter @hardhub/api run deploy
+
+      # The live site, checked after every deploy. Three rounds in a row, 15 s
+      # apart, must each find: the API healthy, the page served and its script
+      # loading, and the KiCad engine answering. The engine check only succeeds
+      # on the new version (only it has this deploy's token), so a pass also
+      # proves the new version is the live one. Cloudflare takes a moment to
+      # swap versions and the engine 30-90 s to start cold, so failures only
+      # count if they never clear within eight minutes. A failed request is a
+      # "not yet", never a crash of this step (hence `set +e`).
+      - name: Check the live site
+        id: live
+        timeout-minutes: 14
+        run: |
+          set +e
+          q="deploy=$GITHUB_SHA"
+          check() {
+            bad=""
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$SITE/api/health?$q")
+            [ "$code" = 200 ] || bad="$bad api:$code"
+            page=$(curl -s --max-time 15 "$SITE/?$q")
+            js=$(printf '%s' "$page" | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -1)
+            if [ -z "$js" ]; then bad="$bad page:no-script"
+            else
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$SITE$js")
+              [ "$code" = 200 ] || bad="$bad script:$code"
+            fi
+            code=$(curl -s -o /tmp/engine.json -w '%{http_code}' --max-time 160 \
+              -H "Authorization: Bearer $HEALTH_TOKEN" "$SITE/api/health/engine?$q")
+            [ "$code" = 200 ] || bad="$bad engine:$code"
+          }
+          streak=0
+          round=0
+          deadline=$(( $(date +%s) + 480 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            round=$((round + 1))
+            check
+            if [ -z "$bad" ]; then
+              streak=$((streak + 1))
+              echo "round $round: all good ($streak in a row)"
+              if [ "$streak" -ge 3 ]; then
+                echo "Engine: $(cat /tmp/engine.json)"
+                exit 0
+              fi
+            else
+              streak=0
+              echo "round $round: not yet:$bad"
+            fi
+            sleep 15
+          done
+          echo "::error::The live site still failed eight minutes after deploying:$bad"
+          exit 1
+
+      # The way back, in its own step so nothing above can skip it: when the
+      # deploy itself failed partway (traffic may already be on the new
+      # version) or the live check failed or timed out, the Worker goes back to
+      # the version noted before the deploy, and the job stays red so the merge
+      # shows it. Not when the deploy never started (credentials missing).
+      - name: Roll back to the last good version
+        if: failure() && (steps.deploy.outcome == 'failure' || steps.live.outcome == 'failure' || steps.live.outcome == 'cancelled')
+        working-directory: apps/api
+        env:
+          BEFORE: ${{ steps.before.outputs.version }}
+        run: |
+          msg="Auto-rollback: deploying $GITHUB_SHA failed its checks"
+          if [ -n "$BEFORE" ]; then
+            echo "::error::Rolling back to $BEFORE, the version live before this deploy."
+            pnpm exec wrangler rollback "$BEFORE" --env production -y -m "$msg"
+          else
+            echo "::error::The version before this deploy is unknown; rolling back one version."
+            pnpm exec wrangler rollback --env production -y -m "$msg"
+          fi

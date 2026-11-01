@@ -31,6 +31,9 @@ export interface Env {
   /** base64 of 32 random bytes; encrypts stored API keys (secret) */
   KEY_ENCRYPTION_KEY: string;
 
+  /** lets the check after a deploy wake the engine (secret; set by each CI deploy) */
+  HEALTH_TOKEN?: string;
+
   /** "1": anyone may create an account. Otherwise only the first account,
    *  the owner's, can be created (end-to-end tests set it) */
   ALLOW_SIGNUP?: string;
