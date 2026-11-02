@@ -7,11 +7,15 @@
 //     and writes the database id into wrangler.jsonc
 //  3. applies the database migrations
 //  4. makes KEY_ENCRYPTION_KEY (encrypts people's API keys) if it is not set;
-//     it goes up with the deploy. Sign-in is email and password: no email service
+//     it goes up with the deploy, as does HEALTH_TOKEN when CI passes one.
+//     Secrets only ever add: wrangler keeps the ones a deploy leaves out.
+//     Sign-in is email and password: no email service
 //  5. builds the web app and deploys the Worker, the Durable Objects and the engine
 //
 // Safe to run again: every step checks before it creates. Needs Docker running
-// (the engine image is built and pushed by wrangler).
+// (the engine image is built and pushed by wrangler). With CLOUDFLARE_API_TOKEN
+// and CLOUDFLARE_ACCOUNT_ID set it runs unattended: that is how every merge to
+// main deploys (.github/workflows/ci.yml, docs/ci.md).
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,13 +45,21 @@ let who = "";
 try {
   who = wrangler(["whoami"]);
 } catch {}
-if (/not authenticated/i.test(who) || !/associated with/i.test(who)) {
+if (process.env.CLOUDFLARE_API_TOKEN) {
+  // CI (.github/workflows/ci.yml) signs in with an API token: nobody is there
+  // to open a browser, so a token that does not work stops the deploy here
+  if (/not authenticated/i.test(who) || !who.trim()) {
+    console.error("\nThe Cloudflare API token in CLOUDFLARE_API_TOKEN did not sign in. See docs/ci.md for the permissions it needs.");
+    process.exit(1);
+  }
+} else if (/not authenticated/i.test(who) || !/associated with/i.test(who)) {
   // in ./hardhub's deploy container: print the sign-in link, and take
   // Cloudflare's answer on the port the container publishes
   run(process.env.HARDHUB_DEPLOY_IN_CONTAINER ? ["login", "--browser=false", "--callback-host", "0.0.0.0"] : ["login"]);
   who = wrangler(["whoami"]);
 }
-console.log(who.split("\n").find((l) => l.includes("associated with")) ?? "signed in");
+// the account's email only on this computer, never in CI's public log
+console.log(process.env.CLOUDFLARE_API_TOKEN ? "signed in with an API token" : (who.split("\n").find((l) => l.includes("associated with")) ?? "signed in"));
 
 let config = readFileSync(CONFIG, "utf8");
 
@@ -73,16 +85,25 @@ say("Database migrations");
 run(["d1", "migrations", "apply", DB, "--remote", ...ENV]);
 
 say("Secrets");
-// a first deploy has no Worker yet, so no secrets to list
+// A first deploy has no Worker yet, so no secrets to list. Anything else that
+// stops the list (the network, a rate limit) stops the deploy: taking it for
+// "no secrets" would make a new KEY_ENCRYPTION_KEY and lock every stored key.
 let secrets = [];
-try {
-  secrets = JSON.parse(wrangler(["secret", "list", ...ENV, "--format", "json"], { stdio: ["pipe", "pipe", "ignore"] }) || "[]");
-} catch {}
+const list = spawnSync("npx", ["wrangler", "secret", "list", ...ENV, "--format", "json"], { encoding: "utf8", env });
+if (list.status === 0) secrets = JSON.parse(list.stdout || "[]");
+else if (/does not exist|not found|\b10007\b/i.test(`${list.stdout}\n${list.stderr}`)) console.log("no Worker yet: a first deploy");
+else {
+  console.error(`\nCould not list the Worker's secrets, so the deploy stops here:\n${list.stderr || list.stdout}`);
+  process.exit(1);
+}
 const has = (name) => secrets.some((s) => s.name === name);
 const upload = {};
 // generated, never shown: losing it only means people re-enter their API keys
 if (!has("KEY_ENCRYPTION_KEY")) upload.KEY_ENCRYPTION_KEY = randomBytes(32).toString("base64");
 else console.log("KEY_ENCRYPTION_KEY is set");
+// CI makes a new one each deploy, for its check that the engine starts
+// (GET /api/health/engine); a deploy by hand leaves the last one in place
+if (process.env.HEALTH_TOKEN) upload.HEALTH_TOKEN = process.env.HEALTH_TOKEN;
 say("Building the web app");
 const web = spawnSync("pnpm", ["--filter", "@hardhub/web", "build"], { stdio: "inherit", env: { ...env, VITE_API_URL: "/api" } });
 if (web.status !== 0) process.exit(web.status ?? 1);

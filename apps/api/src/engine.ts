@@ -203,15 +203,20 @@ function base64(buf: ArrayBuffer): string {
   return btoa(s);
 }
 
-export function engineFor(env: Env): Engine {
+/** a request to the engine: its URL locally, else the Cloudflare container */
+export function engineFetch(env: Env): Fetch {
   if (env.ENGINE_URL) {
     const base = env.ENGINE_URL.replace(/\/$/, "");
-    return new HttpEngine((path, init) => fetch(base + path, init));
+    return (path, init) => fetch(base + path, init);
   }
   // one shared engine instance; jobs are stateless apart from their outputs.
   // Its Durable Object is US-only like the rooms (Cloudflare places the
   // container itself; see wrangler.jsonc)
   const ns = env.US_ONLY === "1" ? env.ENGINE.jurisdiction("us") : env.ENGINE;
   const stub = ns.get(ns.idFromName("engine"));
-  return new HttpEngine((path, init) => stub.fetch(new Request("http://engine" + path, init)));
+  return (path, init) => stub.fetch(new Request("http://engine" + path, init));
+}
+
+export function engineFor(env: Env): Engine {
+  return new HttpEngine(engineFetch(env));
 }

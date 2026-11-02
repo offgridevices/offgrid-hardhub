@@ -1,0 +1,57 @@
+version: 2
+# Weekly update pull requests. Each one runs the full CI (and is not deployed
+# until a human merges it); Dependabot's pull requests skip the paid review.
+# `cooldown`: a release must be two weeks old before it is proposed (the age
+# the engine's pins already follow), so a hijacked package version is usually
+# pulled before it reaches here.
+updates:
+  # The pnpm workspace (apps/*, packages/*), one lockfile at the root.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 10
+    # wrangler and Cloudflare's types move together: the deploy, the local
+    # Worker runtime and the type definitions must agree. Vite and its plugins
+    # likewise. Groups default to version updates; the -security groups do
+    # the same for security updates.
+    groups:
+      cloudflare:
+        patterns: ["wrangler", "@cloudflare/*"]
+      cloudflare-security:
+        applies-to: security-updates
+        patterns: ["wrangler", "@cloudflare/*"]
+      vite:
+        patterns: ["vite", "@vitejs/*", "@tailwindcss/vite", "tailwindcss", "vitest"]
+      vite-security:
+        applies-to: security-updates
+        patterns: ["vite", "@vitejs/*", "@tailwindcss/vite", "tailwindcss", "vitest"]
+
+  # The workflows' actions are pinned to commits (see ci.yml); a pin with no
+  # way to move goes stale, so this proposes the next commit for each.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+
+  # The engine's Python packages (engine/requirements*.txt). KiCad itself is
+  # pinned by version in engine/Dockerfile and moved by hand: a KiCad release
+  # can change the boards it makes, which the engine's tests must confirm.
+  - package-ecosystem: "pip"
+    directory: "/engine"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+
+  # The engine image's base (ubuntu, pinned by digest).
+  - package-ecosystem: "docker"
+    directory: "/engine"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14

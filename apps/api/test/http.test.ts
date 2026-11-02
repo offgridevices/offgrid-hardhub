@@ -1,6 +1,6 @@
 // The REST API over a real schema (D1 on sql.js) with in-memory rooms and files.
 import { Me, ProjectDetail, ProjectSummary } from "@hardhub/protocol";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { b64, decryptSecret, encryptSecret, hashPassword, sha256, verifyPassword } from "../src/crypto";
 import type { Env } from "../src/env";
 import { app } from "../src/http";
@@ -155,6 +155,39 @@ describe("auth", () => {
     const assets = { fetch: async () => new Response("<!doctype html>app") } as unknown as Fetcher;
     const page = await worker.fetch(new Request("http://x/p/abc"), { ...asEnv(env), ASSETS: assets }, ctx);
     expect(await page.text()).toContain("app");
+  });
+
+  it("checks the engine only for the deploy's token", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      seen.push(url);
+      return Response.json({ ok: true, kicad: "10.0.7" });
+    });
+    try {
+      const e = { ...env, ENGINE_URL: "http://engine.test" } as TestEnv;
+      const ask = (token?: string) => app.request("/health/engine", token ? { headers: { authorization: `Bearer ${token}` } } : {}, asEnv(e));
+      // no token set on the Worker: the route does not exist, whatever is sent
+      expect((await ask("anything")).status).toBe(404);
+      e.HEALTH_TOKEN = "deploy-token-123";
+      expect((await ask()).status).toBe(404);
+      expect((await ask("deploy-token-124")).status).toBe(404);
+      expect(seen).toEqual([]);
+      const r = await ask("deploy-token-123");
+      expect(r.status).toBe(200);
+      expect(await r.json()).toMatchObject({ ok: true, kicad: "10.0.7" });
+      expect(seen).toEqual(["http://engine.test/health"]);
+      // an engine that is up but not ready, or does not answer, is a 503
+      vi.stubGlobal("fetch", async () => Response.json({ ok: false }, { status: 503 }));
+      expect((await ask("deploy-token-123")).status).toBe(503);
+      vi.stubGlobal("fetch", async () => {
+        throw new Error("The KiCad engine did not start");
+      });
+      const down = await ask("deploy-token-123");
+      expect(down.status).toBe(503);
+      expect(await down.json()).toMatchObject({ ok: false, error: "The KiCad engine did not start" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("rejects bad input with a reason", async () => {
