@@ -25,6 +25,30 @@ try {
   (await page.getByTestId("no-key-bar").count()) ? ok("asked to add an AI key") : fail("asked to add an AI key", "no banner");
   await shot("no-key");
 
+  // closing the note keeps it closed: on the boards page...
+  await page.getByTestId("no-key-dismiss").click();
+  await page.reload();
+  await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
+  (await page.getByTestId("no-key-bar").count()) ? fail("closed note stays closed", "back after a reload") : ok("closed note stays closed");
+  await page.evaluate(() => localStorage.removeItem("hh_hide_ai_setup"));
+
+  // ...and above the chat, on a board started with no AI set up
+  await page.goto(APP);
+  await page.getByTestId("prompt-input").fill("A tiny temperature logger");
+  await page.getByTestId("prompt-submit").click();
+  await page.waitForURL(/\/p\//, { timeout: 20000 });
+  await page.getByTestId("project-name").waitFor({ timeout: 20000 });
+  await page.getByTestId("no-key-bar").waitFor({ timeout: 10000 });
+  await shot("no-key-chat");
+  await page.getByTestId("no-key-dismiss").click();
+  await page.reload();
+  await page.getByTestId("project-name").waitFor({ timeout: 20000 });
+  await page.waitForTimeout(1000);
+  (await page.getByTestId("no-key-bar").count()) ? fail("closed note above the chat stays closed", "back after a reload") : ok("closed note above the chat stays closed");
+  await page.evaluate(() => localStorage.removeItem("hh_hide_ai_setup"));
+  await page.goto(APP);
+  await page.getByTestId("prompt-input").waitFor({ timeout: 20000 });
+
   // Claude with a key that is not real
   await page.getByTestId("nav-settings").click();
   await openOwnChat(page);

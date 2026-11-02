@@ -56,5 +56,11 @@ export default defineConfig({
       output: { manualChunks: (id) => (id.includes("node_modules/three") ? "three" : undefined) },
     },
   },
-  test: { environment: "jsdom", include: ["test/**/*.test.ts", "test/**/*.test.tsx"] },
+  test: {
+    environment: "jsdom",
+    include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
+    // Node 25+ has its own localStorage global, which hides jsdom's and is
+    // empty without --localstorage-file. Turn it off so jsdom's is the one.
+    execArgv: ["--no-experimental-webstorage"],
+  },
 });

@@ -48,10 +48,17 @@ updates:
     cooldown:
       default-days: 14
 
-  # The engine image's base (ubuntu, pinned by digest).
+  # The engine image's base (ubuntu, pinned by digest). Only new digests of
+  # the same release (security fixes): KiCad comes from a PPA built for one
+  # Ubuntu release (noble, 24.04), and another release cannot install it
+  # (Dependabot's 25.10, a short-term release, broke the build). Moving to the
+  # next LTS is done by hand, with KiCad's PPA for it.
   - package-ecosystem: "docker"
     directory: "/engine"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 14
+    ignore:
+      - dependency-name: "ubuntu"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

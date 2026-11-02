@@ -3,7 +3,7 @@
 // bottom of the screen.
 import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { STAGES, type BoardEditRequest, type Stage } from "@hardhub/protocol";
-import { BoxIcon, CircleCheckBigIcon, CpuIcon, DownloadIcon, LayoutDashboardIcon, ListChecksIcon, PackageIcon, WaypointsIcon } from "lucide-react";
+import { BoxIcon, CircleCheckBigIcon, CpuIcon, DownloadIcon, LayoutDashboardIcon, ListChecksIcon, PackageIcon, WaypointsIcon, XIcon } from "lucide-react";
 import { Screen, TopBar } from "../components/topbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { ChatLog, Composer } from "../components/chat";
 import { useApp } from "../lib/app";
+import { AI_SETUP_NOTE, useDismissed } from "../lib/dismissed";
 import { navigate, onLink } from "../lib/router";
 import { useProject } from "../lib/use-project";
 import { isKeyError } from "../lib/project-state";
@@ -172,6 +173,7 @@ export default function Workspace({ id }: { id: string }) {
 
   const provider = me ? providerInfo(me.llm.provider) : null;
   const noKey = !!me && !me.llm_ready;
+  const [noteHidden, hideNote] = useDismissed(AI_SETUP_NOTE);
   const keyError = isKeyError(state.lastError) || (noKey && !!state.lastError);
   const keyLabel = me?.llm.provider === "anthropic" || !me ? "Add your Claude API key" : `Add your ${provider?.name} key`;
 
@@ -357,13 +359,18 @@ export default function Workspace({ id }: { id: string }) {
               </Badge>
             )}
           </div>
-          {noKey && (
-            <div className="flex flex-col gap-2 border-b bg-ember/10 px-4 py-3 text-sm text-ember-text" data-testid="no-key-bar">
-              <span>To chat here, add an AI key, or keep designing from your connected Claude or ChatGPT.</span>
-              <Button size="xs" variant="outline" className="self-start" asChild>
-                <a href="/settings" onClick={onLink} data-testid="add-key-bar">
-                  {keyLabel}
-                </a>
+          {noKey && !noteHidden && (
+            <div className="flex items-start gap-2 border-b bg-ember/10 px-4 py-3 text-sm text-ember-text" data-testid="no-key-bar">
+              <div className="flex grow flex-col gap-2">
+                <span>To chat here, add an AI key, or keep designing from your connected Claude or ChatGPT.</span>
+                <Button size="xs" variant="outline" className="self-start" asChild>
+                  <a href="/settings" onClick={onLink} data-testid="add-key-bar">
+                    {keyLabel}
+                  </a>
+                </Button>
+              </div>
+              <Button size="icon-sm" variant="ghost" className="-mr-2 -mt-1 shrink-0" onClick={hideNote} aria-label="Dismiss" data-testid="no-key-dismiss">
+                <XIcon />
               </Button>
             </div>
           )}
