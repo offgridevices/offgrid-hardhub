@@ -9,6 +9,8 @@ import { contentType } from "./agent/tools";
 import * as db from "./db";
 import { type Env, isDev } from "./env";
 import { CHAT_CLIENT, bridgeFor } from "./bridge";
+import { sha256 } from "./crypto";
+import { engineFetch } from "./engine";
 import { appUrlFor, handleMcp } from "./mcp";
 import { checkRequest, createCode, listConnections, oauth, redirectLabel, resourceMetadataUrl, revokeConnection, SCOPE } from "./oauth";
 
@@ -66,6 +68,21 @@ app.onError((err, c) => {
 });
 
 app.get("/health", (c) => c.json({ ok: true }));
+
+// The KiCad engine itself, for the check after each deploy. It wakes the
+// container (30-40 s cold), so only for whoever holds the token that deploy
+// set; to anyone else it does not exist.
+app.get("/health/engine", async (c) => {
+  const want = c.env.HEALTH_TOKEN;
+  const got = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (!want || !got || (await sha256(got)) !== (await sha256(want))) return c.json({ error: "not found" }, 404);
+  try {
+    const r = await engineFetch(c.env)("/health", { signal: AbortSignal.timeout(150_000) });
+    return c.json((await r.json()) as Record<string, unknown>, r.ok ? 200 : 503);
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
 
 // ------------------------------------------------------------------ MCP
 

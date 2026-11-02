@@ -63,6 +63,7 @@ Your Claude or ChatGPT login stays there: HardHub only sees the tool calls.
 | `./hardhub stop` | stop (projects are kept) |
 | `./hardhub logs` | follow the logs |
 | `./hardhub test` | end-to-end test: a scripted AI designs a board through the real app and engine |
+| `./scripts/engine-tests.sh` | the engine's own tests, inside its image with KiCad |
 | `./hardhub reset` | stop and delete local data |
 | `./hardhub deploy` | put it on Cloudflare (below) |
 | `./hardhub reset-password` | set a new password here; `--live` for the Cloudflare site (there is no email to reset it with) |
@@ -98,6 +99,11 @@ the custom domain in `apps/api/wrangler.jsonc` (OffGrid's is
 Cloudflare account). Cloudflare adds that hostname's DNS record and
 certificate and changes nothing else on the domain. Run it again to ship an
 update.
+
+OffGrid's own site deploys itself: every pull request is tested and reviewed,
+and merging it to `main` runs the tests again, applies the database migrations
+and deploys, then checks the live site and rolls back if it is broken.
+[docs/ci.md](docs/ci.md) has how it works and the one-time setup.
 
 Sign-in is email and password, with no email service: open the site and
 create your account; after that first account, new ones are closed. A lost
