@@ -52,6 +52,8 @@
   --layer-in3: #8cc084;
   --layer-in4: #4fd1c5;
   --silk: #f1ece0;
+  --paste: #b9b0a0; /* solder paste: tin grey */
+  --core: #c9a86a; /* FR4, the board's glass-fibre core */
   --board-bg: #100d0a;
   --sheet: #f4efe3;
   --sheet-ink: #3a2e22;
@@ -87,6 +89,8 @@
     --gold-text: #7a5410;
     --plum-text: #66406f;
     --clay-text: #a8381a;
+    --paste: #8f877a;
+    --core: #b08d4e;
     color-scheme: light;
   }
 }
@@ -117,6 +121,8 @@
   --gold-text: #7a5410;
   --plum-text: #66406f;
   --clay-text: #a8381a;
+  --paste: #8f877a;
+  --core: #b08d4e;
   color-scheme: light;
 }
 

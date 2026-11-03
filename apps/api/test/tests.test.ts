@@ -191,3 +191,24 @@ describe("a board older than its design", () => {
     expect(r.content).toMatch(/the design changed after this board was built/);
   });
 });
+
+describe("the order files", () => {
+  it("are still listed after many test runs", async () => {
+    const token = await signIn();
+    const { id } = await project(token, false);
+    const real = engine.build.bind(engine);
+    engine.build = async function* (d, job, signal, stop) {
+      for await (const line of real(d, job, signal, stop)) {
+        // a full build also makes the Gerbers, as the real engine does
+        if ("done" in line) yield { ...line, artifacts: [...line.artifacts, { kind: "gerbers" as const, name: "board-gerbers.zip", url: `/jobs/${job}/files/board-gerbers.zip` }] };
+        else yield line;
+      }
+    };
+    expect((await env.ROOMS.get(id).agentTool("build_board", {})).isError).toBeFalsy();
+    for (let i = 0; i < 21; i++) expect((await run(id, {}, token)).status).toBe(200);
+    const kinds = (await env.ROOMS.get(id).agentResults()).artifacts.map((a) => a.kind);
+    expect(kinds).toContain("gerbers");
+    expect(kinds).toContain("kicad");
+    expect(kinds.filter((k) => k === "report")).toHaveLength(2);
+  });
+});

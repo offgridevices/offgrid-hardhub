@@ -106,9 +106,9 @@ function Card({
 const STACK_STYLE: Record<string, { h: number; bg: string }> = {
   silk: { h: 4, bg: "var(--silk)" },
   mask: { h: 6, bg: "color-mix(in oklab, var(--moss) 70%, var(--card))" },
-  paste: { h: 4, bg: "#b9b0a0" },
+  paste: { h: 4, bg: "var(--paste)" },
   copper: { h: 8, bg: "var(--layer-top)" },
-  dielectric: { h: 30, bg: "color-mix(in oklab, #c9a86a 55%, var(--card))" },
+  dielectric: { h: 30, bg: "color-mix(in oklab, var(--core) 55%, var(--card))" },
 };
 const thick = (mm?: number) => (mm === undefined ? "" : mm < 0.1 ? `${num(mm * 1000)} µm` : `${num(mm)} mm`);
 

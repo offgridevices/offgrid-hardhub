@@ -19,8 +19,8 @@
 //        rejected true, error naming it.
 //   POST /test   { job, design, kicad_zip_b64?, options?: TestOptions }
 //        the board tests alone on a built board (the job's own, or the KiCad zip
-//        sent), without building again: streamed like /build, steps validate and
-//        test; the last line's artifacts are the test report (json, md)
+//        sent), without building again: streamed like /build, steps validate,
+//        verify and test; the last line's artifacts are the test report (json, md)
 //   GET  /jobs/:job/files/:name                -> an output file
 //   DELETE /jobs/:job                          -> 204, the job's files forgotten
 //

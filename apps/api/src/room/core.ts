@@ -734,15 +734,18 @@ export class RoomCore {
   /** The files of the last build that made any, with the newest of each name:
    * a test run after it adds its report and keeps the build's order files. */
   latestArtifacts(): { kind: string; name: string; url: string; bytes?: number }[] {
-    const rows = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"artifacts"%' ORDER BY seq DESC LIMIT 20`).toArray();
+    // from the last full build (the one that made the order files) on: however
+    // many test runs and hand edits came after it
+    const from = (this.d.sql
+      .exec(`SELECT MAX(seq) AS s FROM events WHERE json LIKE '%"type":"artifacts"%' AND json LIKE '%"kind":"gerbers"%'`)
+      .toArray()[0]?.s as number | null) ?? -1;
+    const rows = this.d.sql.exec(`SELECT json FROM events WHERE seq >= ? AND json LIKE '%"type":"artifacts"%' ORDER BY seq DESC`, from).toArray();
     const key = (n: string) => n.replace(/^b\d+-/, "");
     const out = new Map<string, Artifact>();
     for (const r of rows) {
       const ev = JSON.parse(r.json as string) as ServerEvent;
       if (ev.type !== "artifacts") continue;
       for (const a of ev.artifacts) if (!out.has(key(a.name))) out.set(key(a.name), a);
-      // older than the last full build (one with order files): nothing more to take
-      if (ev.artifacts.some((a) => a.kind === "gerbers")) break;
     }
     return [...out.values()];
   }
