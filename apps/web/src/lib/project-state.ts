@@ -1,6 +1,6 @@
 // Folds the project's event stream into what the workspace draws. Pure, so it
 // replays the same way on every client and is easy to test.
-import type { Artifact, CheckResult, Comparison, Question, ServerEvent, Stage } from "@hardhub/protocol";
+import type { Artifact, CheckPlan, CheckResult, Comparison, Question, ServerEvent, Stage } from "@hardhub/protocol";
 
 export type ChatItem =
   | { kind: "user"; id: string; text: string; answers?: Record<string, string[]> }
@@ -12,7 +12,24 @@ export type ChatItem =
   | { kind: "stage"; id: string; stage: Stage }
   | { kind: "job"; id: string; job: string; step: string; progress: number; done: boolean; ok?: boolean }
   | { kind: "edit"; id: string; summary: string; ok: boolean }
+  // a run of the board tests: one card that fills as checks finish
+  | { kind: "tests"; id: string; label: string; progress: number; total: number; done: boolean; ok?: boolean; summary?: string }
   | { kind: "error"; id: string; message: string; retryable: boolean };
+
+/** the board tests running now, or the last run: each check as it finishes */
+export interface TestRun {
+  run: string;
+  phase: "start" | "check" | "done";
+  /** what is running now, in plain words */
+  label: string;
+  progress: number;
+  plan: CheckPlan[];
+  results: Record<string, CheckResult>;
+  ok?: boolean;
+  summary?: string;
+  /** the run's full results have arrived (the "checks" event after done) */
+  settled?: boolean;
+}
 
 export interface ProjectState {
   lastSeq: number;
@@ -27,6 +44,7 @@ export interface ProjectState {
   /** id of the questions item still waiting for an answer, if any */
   openQuestions: string | null;
   lastError: string | null;
+  testRun: TestRun | null;
 }
 
 export const initialState: ProjectState = {
@@ -41,7 +59,11 @@ export const initialState: ProjectState = {
   busy: false,
   openQuestions: null,
   lastError: null,
+  testRun: null,
 };
+
+/** are the board tests running right now? */
+export const testsRunning = (s: Pick<ProjectState, "testRun">) => !!s.testRun && s.testRun.phase !== "done";
 
 function upsert(items: ChatItem[], item: ChatItem): ChatItem[] {
   const i = items.findIndex((x) => x.kind === item.kind && x.id === item.id);
@@ -59,6 +81,18 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
     if (cur && cur.kind === "assistant" && cur.done) return s; // the full text already arrived
     const text = (cur && cur.kind === "assistant" ? cur.text : "") + e.text;
     return { ...s, busy: true, items: upsert(s.items, { kind: "assistant", id: e.id, text, done: false }) };
+  }
+  if (e.type === "test_run" && e.phase === "check") {
+    // a live result, like a text delta: not stored, carries the seq of the
+    // last stored event. It belongs to the run its stored "start" opened; a
+    // run already done (replayed, or a late line) keeps its final state.
+    const r = s.testRun;
+    if (!r || r.run !== e.run || r.phase === "done") return s;
+    const results = e.result ? { ...r.results, [e.result.id]: e.result } : r.results;
+    const progress = e.progress ?? Object.keys(results).length / Math.max(1, r.plan.length);
+    const label = e.label ?? r.label;
+    const items = s.items.map((it) => (it.kind === "tests" && it.id === e.run ? { ...it, label, progress } : it));
+    return { ...s, items, testRun: { ...r, phase: "check", results, progress, label } };
   }
   if (e.seq <= s.lastSeq) return s; // duplicate after a reconnect
   const n: ProjectState = { ...s, lastSeq: e.seq };
@@ -101,10 +135,40 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
       n.items = upsert(s.items, { kind: "job", id: e.job, job: e.job, step: e.step, progress: e.progress, done: e.done, ok: e.ok });
       break;
     case "checks": {
+      // the first results after a test run ends are the whole run: they
+      // replace the list (checks from an older suite would otherwise linger)
+      if (s.testRun?.phase === "done" && !s.testRun.settled) {
+        n.checks = e.results;
+        n.testRun = { ...s.testRun, settled: true };
+        break;
+      }
       // results arrive per job; a later result for the same check replaces it
       const byId = new Map(s.checks.map((c) => [c.id, c]));
       for (const r of e.results) byId.set(r.id, r);
       n.checks = [...byId.values()];
+      break;
+    }
+    case "test_run": {
+      if (e.phase === "start") {
+        const plan = e.plan ?? [];
+        n.testRun = { run: e.run, phase: "start", label: e.label ?? "Getting ready", progress: e.progress ?? 0, plan, results: {} };
+        n.items = upsert(s.items, { kind: "tests", id: e.run, label: n.testRun.label, progress: n.testRun.progress, total: plan.length, done: false });
+      } else {
+        // done: the full results follow as a "checks" event
+        const r = s.testRun?.run === e.run ? s.testRun : { run: e.run, phase: "done" as const, label: "", progress: 1, plan: [], results: {} };
+        n.testRun = { ...r, phase: "done", progress: 1, label: e.label ?? r.label, ok: e.ok, summary: e.summary };
+        const was = s.items.find((it) => it.kind === "tests" && it.id === e.run);
+        n.items = upsert(s.items, {
+          kind: "tests",
+          id: e.run,
+          label: n.testRun.label,
+          progress: 1,
+          total: was && was.kind === "tests" ? was.total : r.plan.length,
+          done: true,
+          ok: e.ok,
+          summary: e.summary,
+        });
+      }
       break;
     }
     case "artifacts": {

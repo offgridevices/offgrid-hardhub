@@ -13,7 +13,7 @@ import { loadScene } from "../workers/client";
 import type { SceneData } from "../workers/geometry";
 import { useGeometry } from "../lib/use-geometry";
 import { copperCanvas, layerColor, plotCanvas } from "../lib/layer-canvas";
-import { layerName } from "./board2d";
+import { layerName } from "../lib/layers";
 import { ViewBar } from "../components/viewer-ui";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

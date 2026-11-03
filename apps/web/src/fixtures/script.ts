@@ -1,6 +1,6 @@
 // Scripted conversations for demo mode. Each entry is a ServerEvent without
 // seq/at (the mock backend stamps them) plus an optional delay before it.
-import type { ServerEvent } from "@hardhub/protocol";
+import type { CheckPlan, CheckResult, ServerEvent } from "@hardhub/protocol";
 
 type Bare<T> = T extends unknown ? Omit<T, "seq" | "at"> : never;
 export type ScriptStep = Bare<ServerEvent> & { delay?: number };
@@ -180,5 +180,56 @@ export function replyScript(text: string, answered: boolean): ScriptStep[] {
     ),
     { type: "usage", input_tokens: 4200, output_tokens: 380, cost_usd: 0.03, delay: 50 },
     { type: "turn_end", reason: "done", delay: 50 },
+  ];
+}
+
+const SENSOR_LAYERS = ["F.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen", "Edge.Cuts"];
+const sensorPrompt = "A small temperature and humidity sensor for my living room that shows up in Home Assistant. Powered from a USB-C charger.";
+
+/**
+ * The room sensor, built and tested. The test run's live lines are never
+ * stored, so history holds its start and its end; the checks and the report
+ * (whose url the mock backend makes) follow.
+ */
+export function sensorHistory(run: { plan: CheckPlan[]; checks: CheckResult[]; summary: string; reportUrl: string; label: string }): ScriptStep[] {
+  return [
+    { type: "stage", stage: "idea" },
+    { type: "user_message", id: "s1", text: sensorPrompt },
+    ...said("sa1", "A Wi-Fi sensor on USB power is a small two-layer board. I'll use an ESP32-C3 module and a Sensirion SHT40, and keep the sensor away from anything warm so it reads the room, not the board."),
+    { type: "tool", id: "st1", name: "update_design", label: "Wrote 4 requirements", status: "done" },
+    { type: "stage", stage: "parts" },
+    { type: "tool", id: "st2", name: "search_parts", label: "Searched JLCPCB for ESP32-C3 modules", status: "done", detail: "9 results" },
+    { type: "design", version: 3, summary: "Parts chosen: ESP32-C3-MINI-1, SHT40, AP2112K-3.3" },
+    { type: "stage", stage: "circuit" },
+    { type: "tool", id: "st3", name: "update_design", label: "Wired 19 components", status: "done" },
+    { type: "stage", stage: "board" },
+    { type: "design", version: 5, summary: "Board 50 × 40 mm, 2 layers, green mask" },
+    { type: "stage", stage: "layout" },
+    { type: "job", job: "build-s1", step: "place", progress: 0.15, done: false },
+    { type: "job", job: "build-s1", step: "route", progress: 0.55, done: false },
+    { type: "job", job: "build-s1", step: "test", progress: 0.85, done: false },
+    { type: "job", job: "build-s1", step: "fab", progress: 1, done: true, ok: true },
+    { type: "stage", stage: "checks" },
+    { type: "test_run", run: "run-s1", phase: "start", label: run.label, progress: 0, plan: run.plan },
+    { type: "test_run", run: "run-s1", phase: "done", progress: 1, ok: !run.checks.some((c) => c.status === "fail"), summary: run.summary },
+    { type: "checks", results: run.checks },
+    {
+      type: "artifacts",
+      artifacts: [
+        ...SENSOR_LAYERS.map((l) => ({ kind: "board-svg" as const, name: `layer-${l}.svg`, url: `mock:svg/${l}`, layers: [l] })),
+        { kind: "glb", name: "board.glb", url: "mock:glb", bytes: 640_000 },
+        { kind: "gerbers", name: "room-climate-gerbers.zip", url: "mock:file/gerbers", bytes: 96_000 },
+        { kind: "bom", name: "room-climate-bom-jlcpcb.csv", url: "mock:file/bom", bytes: 1_900 },
+        { kind: "cpl", name: "room-climate-cpl-jlcpcb.csv", url: "mock:file/cpl", bytes: 1_400 },
+        { kind: "report", name: "b1-room-climate-tests.json", url: run.reportUrl, bytes: 41_000 },
+        { kind: "firmware", name: "room-climate.yaml", url: "mock:file/firmware", bytes: 600 },
+      ],
+    },
+    ...said(
+      "sa2",
+      "The board is built and went through every test. Two things to fix before ordering: the small capacitor for the module's power pin is too far from it, and the I2C lines cross a cut in the ground under them. Both are quick moves. Open Tests to see each one, where it is, and how to fix it.",
+    ),
+    { type: "usage", input_tokens: 96_300, output_tokens: 11_200, cost_usd: 0.62 },
+    { type: "turn_end", reason: "done" },
   ];
 }

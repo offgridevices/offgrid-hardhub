@@ -99,7 +99,7 @@ Each stage ends with the person approving it. The AI can go back.
 | 3 | **Circuit** | Wires every pin from datasheets; supporting parts (decoupling, pull-ups, protection). Runs circuit checks (no single-pin nets, every pad accounted for, ESP32 strapping and ADC rules…). | Circuit view by block, BOM with cost, check results. |
 | 4 | **Board** | Proposes size (with real-object comparison), connector edges, mounting holes, layer count. Layer table: 2 / 4 / 6 / 8 with price for 5 and 100 boards, what each buys (signal quality, size, heat). | Picks size and layers. |
 | 5 | **Layout** | Places parts (power entry, antenna at the edge, connectors on edges), power copper first, ground planes, autoroutes the rest, cuts every corner to 45°, pours and stitches ground. | 2D board with layer toggles; progress while routing. |
-| 6 | **Checks** | DRC with the fab's own limits (0 errors / 0 warnings / 0 unconnected), copper equals circuit pad for pad, BOM/CPL equal placed parts, 45° corners, current per track width, power budget, thermal estimate, firmware pin map. | A checklist: what was tested, how, result. Misses written the same way as passes. |
+| 6 | **Checks** | The board tests (`engine/hardhub/review`), run on every build, hand edit and on request: about 80 checks in 13 areas, the list an experienced engineer works through before ordering. KiCad's DRC with the fab's own limits, sorted into the checklist; the copper measured in Rust (narrowest track, gap, ring, hole, mask strip, printing; corners, acid traps, loose ends, return paths); the power tree, voltage drop solved on the real copper, supply impedance and load step in ngspice; heat solved for the whole board at each outside temperature; every part against its ratings; sourcing; manufacturing. | The Tests tab: a verdict, the checklist filling in live as each test runs, each with what it means in plain words, the number against its limit, where on the board, how it was tested and how to fix it; heat map, power and part-rating charts; the layer stack. The AI gets the same as a fix list (`run_tests`, `test_report`). |
 | 7 | **3D** | Exports the board with parts and silkscreen. | Smooth 3D on phone and desktop: orbit, explode, layers. |
 | 8 | **Order** | Gerber zip, JLCPCB BOM + CPL, fab settings, firmware starter. | Download, JLCPCB/PCBWay links with the settings to pick. |
 
@@ -123,6 +123,7 @@ The agent never touches files or a shell directly. It calls tools:
 | `build_board` | Engine job: place → route → miter → pour → DRC → fab files. Streams progress. |
 | `render` | PNG of the board (layers, zoom) for the AI to look at its own layout. |
 | `quote` | Board + assembly price estimate by layer count and quantity, dated, with its source. |
+| `run_tests` / `test_report` | The board tests again on the built board (other outside temperatures, after hand edits), streamed live to the app; the report with where and how to fix each finding. |
 | `set_stage` | Moves the journey forward when the person approves. |
 
 Skills (system knowledge) come from `offgrid-hardware/docs`: the workflow and
@@ -144,7 +145,7 @@ obvious paths, fab limits as DRC rules), and the brand-on-board rules.
 | Phase | Contents |
 |---|---|
 | **1 (now)** | Everything in §4 for 2–4 layer boards on JLCPCB; Claude with the user's key; accounts; web only; runs locally in Docker; Print Hub benchmark. |
-| 2 | Deploy to Cloudflare (Containers, D1, R2, DO, all `us`); OpenAI provider; PCBWay; 6–8 layers; ngspice and thermal simulations surfaced in the UI; KiCad schematic file export. |
+| 2 | Deploy to Cloudflare (Containers, D1, R2, DO, all `us`); OpenAI provider; PCBWay; 6–8 layers; KiCad schematic file export. (ngspice and thermal simulations: done, in the board tests.) |
 | 3 | Enclosure (build123d, 3D-printable), product renders, iOS/Android apps on the same API, ordering APIs (JLCPCB/PCBWay partner programs). |
 
 ## 8. Things the owner needs to do (none block phase 1 code)

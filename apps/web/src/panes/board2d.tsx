@@ -11,6 +11,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardE
 import type { Artifact, BoardEdit, BoardEditRequest, BoardEditResult, BoardFootprint, BoardGeometry, BoardTrack, BoardVia, CheckResult, Design, Pt } from "@hardhub/protocol";
 import { CircleCheckIcon, CircleXIcon, LayersIcon, LoaderCircleIcon, MousePointer2Icon, Redo2Icon, RotateCwIcon, SplineIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { demoLayerSvgs } from "../workers/client";
+import { layerName } from "../lib/layers";
 import { usePanZoom } from "../lib/pan-zoom";
 import { useGeometry } from "../lib/use-geometry";
 import { applyEdits, compact, describe, dragEnd, dragTrack, dragVia, netAt, placeEdits, pt, trackLength } from "../lib/board-edit";
@@ -36,16 +37,6 @@ const COPPER_COLOR: Record<string, string> = {
   "In4.Cu": "var(--layer-in4)",
 };
 const copperColor = (l: string) => COPPER_COLOR[l] ?? "var(--layer-in3)";
-const NAMES: Record<string, string> = {
-  "F.Cu": "Top copper",
-  "B.Cu": "Bottom copper",
-  "F.Silkscreen": "Top print",
-  "B.Silkscreen": "Bottom print",
-  "Edge.Cuts": "Outline",
-  "F.Fab": "Top part outlines",
-  "B.Fab": "Bottom part outlines",
-};
-export const layerName = (l: string) => NAMES[l] ?? l.replace(/^In(\d+)\.Cu$/, "Inner $1");
 // plots drawn under the copper, and over it
 const UNDER = ["B.Fab", "B.Silkscreen"];
 const OVER = ["F.Silkscreen", "F.Fab", "Edge.Cuts"];

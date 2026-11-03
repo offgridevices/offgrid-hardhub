@@ -41,7 +41,8 @@ ARG WITH_TESTS=0
 # and must match the fingerprint Launchpad publishes for it.  Only the
 # symbols, footprints and templates: the full 3D library is 5 GB, the few
 # folders the viewer needs come below.  xvfb gives Freerouting 1.9 its display;
-# librsvg (with cairo) turns view_board's SVGs into PNGs.  The engine's user
+# librsvg (with cairo) turns view_board's SVGs into PNGs; ngspice runs the
+# board tests' circuit simulations (Ubuntu's own package, version 42).  The engine's user
 # is uid 1000, as in the kicad/kicad image, so existing volumes stay writable.
 ARG KICAD_VERSION=10.0.7~ubuntu24.04.1
 ARG KICAD_PPA_SNAPSHOT=20261027T000000Z
@@ -56,10 +57,10 @@ RUN apt-get update -qq \
  && apt-get update -qq \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       kicad=$KICAD_VERSION kicad-symbols=$KICAD_VERSION kicad-footprints=$KICAD_VERSION kicad-templates=$KICAD_VERSION \
-      python3 git xz-utils xvfb xauth librsvg2-2 > /dev/null \
+      python3 git xz-utils xvfb xauth librsvg2-2 ngspice > /dev/null \
  && apt-get purge -y -qq gnupg > /dev/null && apt-get autoremove -y -qq > /dev/null \
  && rm -rf /var/lib/apt/lists/* /tmp/kicad-ppa.asc \
- && kicad-cli version && python3 -c "import pcbnew; print('pcbnew', pcbnew.GetBuildVersion())" \
+ && kicad-cli version && python3 -c "import pcbnew; print('pcbnew', pcbnew.GetBuildVersion())" && ngspice -v | head -2 \
  && userdel --remove ubuntu && useradd --uid 1000 --create-home --shell /usr/sbin/nologin kicad
 
 # pip (Ubuntu's Python ships without it), from PyPI

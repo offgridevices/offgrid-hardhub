@@ -18,13 +18,17 @@
 //   POST   /projects/:id/board/edits  BoardEditRequest      -> BoardEditResult (board.ts; 409 while the AI,
 //                                                              an agent or a build works, or with no board yet;
 //                                                              422 an edit the board cannot take, nothing changed)
+//   POST   /projects/:id/tests    TestOptions (engine.ts)    -> TestRunResult (the board tests again on the
+//                                                              last built board, at these outside temperatures;
+//                                                              live as test_run events; 409 while the AI, an
+//                                                              agent or a build works, or with no board yet)
 //   GET    /projects/:id/ws       (WebSocket: ClientMessage up, ServerEvent down)
 //
 // Auth: "Authorization: Bearer <session token>" on every request; browsers
 // may use the hh_session cookie instead. WebSockets pass ?token=.
 import { z } from "zod";
 import { Design, Stage } from "./design";
-import { ServerEvent } from "./events";
+import { CheckResult, ServerEvent } from "./events";
 
 // Who runs the AI. Every option is kept on US servers: Anthropic with
 // inference_geo "us", OpenAI through its US data-residency endpoint,
@@ -137,3 +141,7 @@ export type OAuthClientInfo = z.infer<typeof OAuthClientInfo>;
 
 export const OAuthRedirect = z.object({ redirect: z.string() });
 export type OAuthRedirect = z.infer<typeof OAuthRedirect>;
+
+// POST /projects/:id/tests -> 200 TestRunResult, once every test has run
+export const TestRunResult = z.object({ ok: z.boolean(), summary: z.string(), checks: z.array(CheckResult) });
+export type TestRunResult = z.infer<typeof TestRunResult>;

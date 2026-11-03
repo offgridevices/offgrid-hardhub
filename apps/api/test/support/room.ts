@@ -77,6 +77,29 @@ export class FakeEngine implements Engine {
       placement: Object.fromEntries(moved.map((e) => [e.ref, { x: e.x - 25, y: e.y - 20, rot: e.rot, side: e.side ?? "top" }])),
     };
   }
+  /** board test runs asked for, with the zip size and options */
+  tests: { job: string; zip: number; options: unknown }[] = [];
+  async *test(_design: Design, job: string, zip: ArrayBuffer, options?: unknown): AsyncIterable<JobLine> {
+    this.tests.push({ job, zip: zip.byteLength, options });
+    yield { step: "validate", progress: 0.1, message: "reading the board" };
+    yield { step: "test", progress: 0.2, message: "Planning 2 tests", plan: [{ id: "shorts", group: "connections", name: "No shorts" }, { id: "heat-board", group: "thermal", name: "Board below 105 °C" }] };
+    yield { step: "test", progress: 0.5, message: "Measuring", result: { id: "shorts", group: "connections", name: "No shorts", why: "a short burns", status: "pass" } };
+    yield { step: "test", progress: 0.9, message: "Simulating heat", result: { id: "heat-board", group: "thermal", name: "Board below 105 °C", why: "FR4 softens", status: "fail", detail: "118 °C", fix: "spread the heat" } };
+    yield {
+      done: true,
+      ok: false,
+      checks: [
+        { id: "shorts", group: "connections", name: "No shorts", why: "a short burns", status: "pass" },
+        { id: "heat-board", group: "thermal", name: "Board below 105 °C", why: "FR4 softens", status: "fail", detail: "118 °C", fix: "spread the heat" },
+      ],
+      artifacts: [
+        { kind: "report", name: "board-tests.json", url: `/jobs/${job}/files/board-tests.json` },
+        { kind: "report", name: "board-tests.md", url: `/jobs/${job}/files/board-tests.md` },
+      ],
+      stats: {},
+      placement: {},
+    };
+  }
   /** views asked for, and whether the engine has "lost" its jobs (a restarted container) */
   views: { job: string; opts: ViewOptions; zip: boolean }[] = [];
   lost = false;
@@ -91,6 +114,8 @@ export class FakeEngine implements Engine {
     return { board: { width: 30, height: 20 }, parts: [{ ref: "U1", x: 1, y: 2, rot: 0, side: "top" }], asked: opts.what ?? [], job };
   }
   async file(_job: string, name: string) {
+    if (name.endsWith(".md"))
+      return new Response("# Board tests: Sensor v1\n\n2 tests.\n\n## To fix before ordering (1)\n\n### Board below 105 °C (Heat, `heat-board`)\n- Found: 118 °C\n- Fix: spread the heat\n\n## Passed (1)\n\n- No shorts\n", { headers: { "content-type": "text/markdown" } });
     return new Response(name.endsWith(".png") ? PNG : new Uint8Array([1, 2, 3]), { headers: { "content-type": name.endsWith(".png") ? "image/png" : "model/gltf-binary" } });
   }
 }

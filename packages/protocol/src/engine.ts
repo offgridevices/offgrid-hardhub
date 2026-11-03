@@ -17,6 +17,10 @@
 //        moved, in the design's frame. An edit that names no item, a layer the
 //        board lacks or a point off the board changes nothing: ok false,
 //        rejected true, error naming it.
+//   POST /test   { job, design, kicad_zip_b64?, options?: TestOptions }
+//        the board tests alone on a built board (the job's own, or the KiCad zip
+//        sent), without building again: streamed like /build, steps validate and
+//        test; the last line's artifacts are the test report (json, md)
 //   GET  /jobs/:job/files/:name                -> an output file
 //   DELETE /jobs/:job                          -> 204, the job's files forgotten
 //
@@ -27,7 +31,7 @@
 // The engine is stateless between jobs apart from its cache of fetched
 // footprints and finished job outputs (which the API copies to R2).
 import { z } from "zod";
-import { CheckResult, Artifact } from "./events";
+import { Artifact, CheckPlan, CheckResult } from "./events";
 
 export const CatalogPart = z.object({
   lcsc: z.string(),
@@ -57,10 +61,24 @@ export type Quote = z.infer<typeof Quote>;
 
 export const BuildOutputs = z.array(z.enum(["svg", "glb", "png", "step"]));
 
-export const BuildSteps =["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "fab", "render"] as const;
+export const BuildSteps = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "test", "fab", "render"] as const;
+
+// The board tests' own options (POST /test, and the test step of a build)
+export const TestOptions = z.object({
+  ambient_min: z.number().min(-60).max(150).optional(), // °C; default the design's environment, else 0
+  ambient_max: z.number().min(-60).max(150).optional(), // °C; default the design's environment, else 50
+});
+export type TestOptions = z.infer<typeof TestOptions>;
 
 export const JobLine = z.union([
-  z.object({ step: z.enum(BuildSteps), progress: z.number(), message: z.string() }),
+  z.object({
+    step: z.enum(BuildSteps),
+    progress: z.number(),
+    message: z.string(),
+    // the test step: plan comes first (every check it will run), then one result per finished check
+    plan: z.array(CheckPlan).optional(),
+    result: CheckResult.optional(),
+  }),
   z.object({
     done: z.literal(true),
     ok: z.boolean(),

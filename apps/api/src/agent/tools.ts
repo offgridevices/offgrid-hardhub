@@ -3,7 +3,9 @@
 // it runs. A bad call comes back as a plain error the model can fix.
 import {
   type Artifact,
+  type CheckPlan,
   type CheckResult,
+  type TestOptions,
   Comparison,
   Design,
   Firmware,
@@ -29,6 +31,8 @@ export interface ToolContext {
   /** stores a new design version and tells every client */
   saveDesign(design: Design, summary: string): number;
   emit(e: EventInput): void;
+  /** send to every open client without storing it (live progress, like text deltas) */
+  live(e: EventInput): void;
   putFile(name: string, body: ReadableStream | ArrayBuffer, contentType: string): Promise<void>;
   getFile(name: string): Promise<ArrayBuffer | null>;
   nextJob(): string;
@@ -38,6 +42,9 @@ export interface ToolContext {
   /** the last build that made files: its engine job and its KiCad zip in the file store */
   lastBuild(): { job: string; kicad: string } | null;
   setLastBuild(b: { job: string; kicad: string }): void;
+  /** the file names of the latest board test report (json for clients, md for reading) */
+  lastTests(): { json?: string; md?: string } | null;
+  setLastTests(t: { json?: string; md?: string }): void;
   /** what the person changed by hand on the last built board (POST /projects/:id/board/edits), oldest first */
   handEdits(): string[];
   /** the model can look at images */
@@ -72,7 +79,7 @@ const UpdateInput = z.object({
   patch: z.array(PatchOp).min(1).max(200),
 });
 
-const BUILD_STEPS = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "fab", "render"] as const;
+const BUILD_STEPS = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "test", "fab", "render"] as const;
 
 const FIRMWARE_PATH = /^(?!.*\.\.)[\w][\w./-]{0,119}$/;
 
@@ -224,15 +231,19 @@ export const TOOLS = {
       const refused = replaces ? handEditGuard(ctx, i.discard_hand_edits) : null;
       if (refused) return { content: refused, isError: true };
       const job = ctx.nextJob();
+      const tests = new TestRelay(ctx, job);
       for await (const line of ctx.engine.build(design, job, signal, i.stop_after)) {
         if (!("done" in line)) {
-          ctx.emit({ type: "job", job, step: line.step, progress: line.progress, done: false });
+          if (line.step === "test") tests.line(line);
+          else ctx.emit({ type: "job", job, step: line.step, progress: line.progress, done: false });
           continue;
         }
         ctx.emit({ type: "job", job, step: "done", progress: 1, done: true, ok: line.ok });
+        tests.done(line.checks);
         if (line.checks.length) ctx.emit({ type: "checks", results: line.checks });
         const stored = await storeArtifacts(ctx, job, line.artifacts);
         if (stored.length) ctx.emit({ type: "artifacts", artifacts: stored });
+        rememberTests(ctx, stored);
         const renders = stored.filter((a) => a.kind === "board-png").map((a) => a.name);
         if (renders.length) ctx.setRenders(renders);
         const kicad = stored.find((a) => a.kind === "kicad");
@@ -252,6 +263,7 @@ export const TOOLS = {
             stats && `Stats: ${stats}.`,
             summarizeChecks(line.checks),
             stored.length ? `Files: ${stored.map((a) => a.name).join(", ")}.` : "",
+            ctx.lastTests()?.md ? "test_report gives every board test with where and how to fix." : "",
             renders.length ? "Call render to look at the board." : "",
           ]
             .filter(Boolean)
@@ -362,6 +374,34 @@ export const TOOLS = {
     },
   }),
 
+  run_tests: tool({
+    description:
+      "Run the whole board test suite again on the last built board, without building it again: connections and shorts, copper widths and gaps, holes and vias, printing, solder mask, placement, power (power tree, voltage drop in the copper, supply impedance and load step in ngspice), heat (the whole board solved at each outside temperature), every part against its ratings, signals, sourcing and manufacturing. The person watches each test finish live in the app. Use after a hand edit, or to test other outside temperatures (ambient_min / ambient_max in °C; default the design's environment, else 0 to 50). Every build already runs these tests.",
+    schema: z.object({
+      ambient_min: z.number().min(-60).max(150).optional().describe("coldest outside temperature, °C"),
+      ambient_max: z.number().min(-60).max(150).optional().describe("hottest outside temperature, °C"),
+    }),
+    label: (i) => (i.ambient_min !== undefined || i.ambient_max !== undefined ? `Testing the board at ${i.ambient_min ?? "?"} to ${i.ambient_max ?? "?"} °C` : "Testing the board"),
+    async run(i, ctx, _call, signal) {
+      const r = await runTests(ctx, i, signal);
+      return { content: r.content, ...(r.ok ? {} : { isError: r.error }) };
+    },
+  }),
+
+  test_report: tool({
+    description:
+      "Read the latest board test report: every test with what it found, the measured value against its limit, where on the board (mm from the centre) and how to fix it, plus the heat table. only: problems (default: what fails or needs a look), all, or one area (connections, copper, holes, silkscreen, mask, placement, power, thermal, stress, signals, firmware, sourcing, fab).",
+    schema: z.object({ only: z.string().max(40).default("problems") }),
+    label: () => "Reading the test report",
+    async run(i, ctx) {
+      const t = ctx.lastTests();
+      if (!t?.md) return { content: "No test report yet: build_board (or run_tests) makes one.", isError: true };
+      const buf = await ctx.getFile(t.md);
+      if (!buf) return { content: "The test report is missing from storage: run_tests makes it again.", isError: true };
+      return { content: filterReport(new TextDecoder().decode(buf), i.only) };
+    },
+  }),
+
   quote: tool({
     description: "Estimate board, assembly and parts cost for quantities (JLCPCB), for the current design. Dated, with its basis.",
     schema: z.object({ qty: z.array(z.number().int().min(1).max(100000)).min(1).max(5) }),
@@ -464,11 +504,15 @@ export function handEditGuard(ctx: Pick<ToolContext, "handEdits">, discard?: boo
 
 export function summarizeChecks(results: CheckResult[]): string {
   if (!results.length) return "No checks ran.";
-  const count = (s: CheckResult["status"]) => results.filter((r) => r.status === s).length;
-  const notPass = results.filter((r) => r.status === "fail" || r.status === "warn");
+  const count = (st: CheckResult["status"]) => results.filter((r) => r.status === st).length;
+  const at = (r: CheckResult) => (r.where?.length ? ` At ${r.where.slice(0, 3).map((w) => `(${w.x.toFixed(1)}, ${w.y.toFixed(1)})${w.refs?.length ? ` ${w.refs.join(",")}` : ""}`).join("; ")}.` : "");
+  const line = (r: CheckResult) => `${r.status === "fail" ? "FAIL" : "WARN"} ${r.name} [${r.id}]${r.detail ? `: ${r.detail}` : ""}.${at(r)}${r.fix ? ` Fix: ${r.fix}` : ""}`;
+  // what fails first, then what needs a look
+  const notPass = [...results.filter((r) => r.status === "fail"), ...results.filter((r) => r.status === "warn")];
   return [
-    `Checks: ${count("pass")} pass, ${count("fail")} fail, ${count("warn")} warn, ${count("skip")} skipped.`,
-    ...notPass.slice(0, 20).map((r) => `${r.status.toUpperCase()} ${r.name}${r.detail ? `: ${r.detail}` : ""}`),
+    `Checks: ${count("pass")} pass, ${count("fail")} fail, ${count("warn")} warn, ${count("skip")} skipped${count("na") ? `, ${count("na")} do not apply` : ""}.`,
+    ...notPass.slice(0, 25).map(line),
+    ...(notPass.length > 25 ? [`... and ${notPass.length - 25} more (test_report).`] : []),
   ].join("\n");
 }
 
@@ -532,4 +576,118 @@ function base64(buf: ArrayBuffer): string {
   let s = "";
   for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
   return btoa(s);
+}
+
+// ------------------------------------------------------------------ board tests
+
+/** Turns the engine's test-step lines into test_run events: the plan (stored),
+ * one live event per finished test (not stored: a late client sees the result
+ * in the stored checks event at the end), then done (stored). */
+export class TestRelay {
+  private started = false;
+  private total = 0;
+  private count = 0;
+  constructor(
+    private readonly ctx: Pick<ToolContext, "emit" | "live">,
+    private readonly run: string,
+  ) {}
+
+  line(l: { message: string; plan?: CheckPlan[]; result?: CheckResult }) {
+    if (l.plan && !this.started) {
+      this.started = true;
+      this.total = l.plan.length;
+      this.ctx.emit({ type: "test_run", run: this.run, phase: "start", plan: l.plan, label: l.message, progress: 0 });
+      return;
+    }
+    if (!this.started) return;
+    if (l.result) this.count++;
+    const progress = this.total ? Math.min(1, this.count / this.total) : 0;
+    this.ctx.live({ type: "test_run", run: this.run, phase: "check", live: true, label: l.message, progress, ...(l.result ? { result: l.result } : {}) });
+  }
+
+  done(checks: CheckResult[], failed?: string) {
+    if (!this.started) return;
+    this.started = false;
+    const ok = !failed && !checks.some((c) => c.status === "fail");
+    this.ctx.emit({ type: "test_run", run: this.run, phase: "done", ok, progress: 1, summary: failed ?? testCounts(checks) });
+  }
+}
+
+export function testCounts(checks: CheckResult[]): string {
+  const n = (s: CheckResult["status"]) => checks.filter((c) => c.status === s).length;
+  const parts = [`${n("pass")} pass`, `${n("fail")} to fix`, `${n("warn")} to look at`];
+  if (n("skip")) parts.push(`${n("skip")} not run`);
+  return parts.join(", ");
+}
+
+/** remembers the latest test report among a job's stored files */
+export function rememberTests(ctx: Pick<ToolContext, "setLastTests">, stored: Artifact[]) {
+  const json = stored.find((a) => a.kind === "report" && a.name.endsWith("-tests.json"))?.name;
+  const md = stored.find((a) => a.kind === "report" && a.name.endsWith("-tests.md"))?.name;
+  if (json || md) ctx.setLastTests({ ...(json ? { json } : {}), ...(md ? { md } : {}) });
+}
+
+/** The board tests on the last built board (engine POST /test), streamed live
+ * as test_run events; the results and the report are stored like a build's. */
+export async function runTests(
+  ctx: ToolContext,
+  options: TestOptions,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; error: boolean; content: string; checks: CheckResult[] }> {
+  const fail = (content: string) => ({ ok: false, error: true, content, checks: [] as CheckResult[] });
+  const last = ctx.lastBuild();
+  if (!last) return fail("No built board yet: run build_board first.");
+  const zip = await ctx.getFile(last.kicad);
+  if (!zip) return fail("The last build's board file is missing: run build_board again.");
+  const { design } = ctx.design();
+  const job = ctx.nextJob();
+  const relay = new TestRelay(ctx, job);
+  try {
+    for await (const line of ctx.engine.test(design, job, zip, options, signal)) {
+      if (!("done" in line)) {
+        if (line.step === "test") relay.line(line);
+        continue;
+      }
+      relay.done(line.checks, line.ok || line.checks.length ? undefined : (line.error ?? "the tests could not run"));
+      if (!line.checks.length) return fail(`The tests could not run${line.error ? `: ${line.error}` : "."}`);
+      ctx.emit({ type: "checks", results: line.checks });
+      const stored = await storeArtifacts(ctx, job, line.artifacts);
+      if (stored.length) ctx.emit({ type: "artifacts", artifacts: stored });
+      rememberTests(ctx, stored);
+      const at = options.ambient_min !== undefined || options.ambient_max !== undefined ? ` at ${options.ambient_min ?? "the design's"} to ${options.ambient_max ?? "the design's"} °C` : "";
+      return {
+        ok: line.ok,
+        error: false,
+        checks: line.checks,
+        content: [`Board tests${at}: ${testCounts(line.checks)}.`, summarizeChecks(line.checks), "test_report gives the full report."].join("\n"),
+      };
+    }
+  } catch (e) {
+    relay.done([], e instanceof Error ? e.message : String(e));
+    if (e instanceof EngineError) return fail(e.message);
+    throw e;
+  }
+  relay.done([], "the engine stopped without a result");
+  return fail("The engine stopped without a result.");
+}
+
+const AREA_LABEL: Record<string, string> = {
+  connections: "Connections", copper: "Copper and tracks", holes: "Holes and vias", silkscreen: "Printed labels",
+  mask: "Solder mask and paste", placement: "Parts and assembly", power: "Power", thermal: "Heat", stress: "Part ratings",
+  signals: "Signals", firmware: "Firmware", sourcing: "Buying the parts", fab: "Manufacturing",
+};
+
+/** the report, cut to what was asked: problems (fails, warnings, not run), all, or one area */
+export function filterReport(md: string, only: string): string {
+  const LIMIT = 60_000;
+  const cut = (t: string) => (t.length > LIMIT ? `${t.slice(0, LIMIT)}\n... (cut: ask for one area)` : t);
+  if (only === "all") return cut(md);
+  const sections = md.split(/\n(?=## )/);
+  const head = sections[0] ?? "";
+  if (only === "problems") return cut([head, ...sections.filter((x) => /^## (To fix|To look at|Not run|Heat)/.test(x))].join("\n"));
+  const key = only.toLowerCase();
+  const label = AREA_LABEL[key] ?? Object.values(AREA_LABEL).find((l) => l.toLowerCase() === key);
+  if (!label) return `No area "${only}". Areas: ${Object.keys(AREA_LABEL).join(", ")}; or problems, all.`;
+  const blocks = md.split(/\n(?=### )/).filter((b) => b.startsWith("### ") && b.includes(`(${label}, \``));
+  return cut([head, `## ${label}`, ...blocks.map((b) => b.split(/\n(?=## )/)[0])].join("\n"));
 }

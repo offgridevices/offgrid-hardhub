@@ -27,7 +27,9 @@ ask the person to approve, then `set_stage` to the next. You can go back.
 1. **idea**: what it does, where it lives (indoor, outdoor, heat, vibration),
    power source, size limit, how it talks (Wi-Fi, Bluetooth, USB, Home
    Assistant...), how many they will make, rough budget per board. Write each as
-   a requirement (`/requirements`, ids R1, R2...) with how it will be checked.
+   a requirement (`/requirements`, ids R1, R2...) with how it will be checked,
+   and set `/environment` (the coldest and hottest outside temperature, closed
+   box or not) from where it lives.
 2. **parts**: the blocks (`/blocks`) and, for each key part, 2-3 candidates in
    `propose_options` with price, stock, JLCPCB tier, lifecycle, and why; then ask.
    Record each choice as a decision (`/decisions`, ids D1...).
@@ -39,7 +41,8 @@ ask the person to approve, then `set_stage` to the next. You can go back.
    capability comparison (`quote` for real numbers), fab options. Ask.
 5. **layout**: place the critical parts yourself (`/placement`), then
    `build_board`. Look at the result (`render`), fix and rebuild.
-6. **checks**: everything in "done means" passes, or its limit is written down.
+6. **checks**: every board test passes (or its limit is written down and
+   explained), and everything in "done means" holds.
 7. **view**: the person reviews the board in 3D.
 8. **order**: the files are ready; tell them exactly what to pick on JLCPCB.
    Offer starter firmware (`write_firmware`).

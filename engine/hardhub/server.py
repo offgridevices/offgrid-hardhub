@@ -50,7 +50,7 @@ def ctx():
     global _ctx
     if _ctx is None:
         _ctx = mp.get_context('forkserver')
-        _ctx.set_forkserver_preload(['pcbnew', 'shapely', 'hardhub.pipeline', 'hardhub.board', 'hardhub.checks',
+        _ctx.set_forkserver_preload(['pcbnew', 'shapely', 'hardhub.pipeline', 'hardhub.board', 'hardhub.checks', 'hardhub.review',
                                      'hardhub.route', 'hardhub.fab', 'hardhub.place', 'hardhub.miter', 'hardhub.view',
                                      'hardhub.geometry', 'hardhub.edits'])
     return _ctx
@@ -94,6 +94,33 @@ def _edit(q, design, job, kicad_zip_b64, edits, outputs):
         shutil.rmtree(work, ignore_errors=True)
     if line.get('rejected'):
         shutil.rmtree(base, ignore_errors=True)        # nothing was made
+    q.put(line)
+
+
+def _test(q, design, job, kicad_zip_b64, options):
+    """The board tests on a built board: the KiCad zip sent (under a new job
+    name), or the job's own board when none is sent."""
+    import base64
+    import io
+    from . import pipeline
+    if kicad_zip_b64:
+        src = io.BytesIO(base64.b64decode(kicad_zip_b64))
+    else:
+        import glob
+        zips = glob.glob(os.path.join(JOBS, job, 'files', '*-kicad.zip'))
+        if not zips:
+            return q.put(dict(done=True, ok=False, error='the engine no longer has this board: send kicad_zip_b64',
+                              checks=[], artifacts=[], stats={}, placement={}))
+        src = zips[0]
+    # the report goes in this job's own folder: send a new job name, so the
+    # build's files stay as they were (with no zip, the job is the build's)
+    base = os.path.join(JOBS, job)
+    if kicad_zip_b64:
+        shutil.rmtree(base, ignore_errors=True)
+    work, out = os.path.join(base, 'test-work'), os.path.join(base, 'files')
+    line = pipeline.test(design, src, work, out, q.put, job=job, options=options)
+    if os.environ.get('HARDHUB_KEEP_WORK') != '1':
+        shutil.rmtree(work, ignore_errors=True)
     q.put(line)
 
 
@@ -288,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
                 if res is None or 'results' not in res:
                     return self.send_json(500, dict(error=(res or {}).get('error', 'check failed')))
                 return self.send_json(200, res)
-            if self.path in ('/build', '/edit'):
+            if self.path in ('/build', '/edit', '/test'):
                 return self.build(req)
             if self.path in ('/view', '/inspect'):
                 return self.look(req)
@@ -335,6 +362,9 @@ class Handler(BaseHTTPRequestHandler):
         if not JOB_RE.match(job):
             return self.send_json(400, dict(error='job must be 1-64 letters, digits, - or _'))
         editing = self.path == '/edit'
+        testing = self.path == '/test'
+        if testing and not isinstance(req.get('design'), dict):
+            return self.send_json(400, dict(error='design: the design the board was built from'))
         if editing:
             if not isinstance(req.get('kicad_zip_b64'), str) or not req['kicad_zip_b64']:
                 return self.send_json(400, dict(error='kicad_zip_b64: the KiCad zip of the build to edit, base64'))
@@ -367,7 +397,11 @@ class Handler(BaseHTTPRequestHandler):
                     sent_done[0] = True
                 chunk(x)
             try:
-                if editing:
+                if testing:
+                    opts = req.get('options') if isinstance(req.get('options'), dict) else {}
+                    opts = {k: float(v) for k, v in opts.items() if k in ('ambient_min', 'ambient_max') and isinstance(v, (int, float))}
+                    run_child(_test, (req['design'], job, req.get('kicad_zip_b64') or None, opts), BUILD_TIMEOUT, on_line)
+                elif editing:
                     run_child(_edit, (req['design'], job, req['kicad_zip_b64'], req['edits'], outputs), BUILD_TIMEOUT, on_line)
                 else:
                     run_child(_build, (req['design'], job, outputs, req.get('stop_after')), BUILD_TIMEOUT, on_line)

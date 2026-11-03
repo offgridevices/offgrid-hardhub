@@ -27,7 +27,10 @@ export interface SceneData {
 export function footprintSize(fp: string, kind: string): [number, number, number] {
   const m = /(\d{4})_(\d{4})Metric/.exec(fp);
   if (m) return [Number(m[2]!.slice(0, 2)) / 10, Number(m[2]!.slice(2)) / 10, kind === "C" ? 0.6 : 0.4];
+  if (/ESP32-C3-MINI/i.test(fp)) return [13.2, 16.6, 2.4];
   if (/ESP32|WROOM/i.test(fp)) return [18, 25.5, 3.1];
+  if (/DFN-4_1\.5x1\.5/i.test(fp)) return [1.5, 1.5, 0.5];
+  if (/SW-SMD-5\.1x5\.1/i.test(fp)) return [5.1, 5.1, 1.5];
   if (/USB-A/i.test(fp)) return [14.5, 13.8, 7];
   if (/USB-C/i.test(fp)) return [8.9, 7.3, 3.2];
   if (/IND/i.test(fp)) return [7, 6.6, 3];

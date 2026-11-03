@@ -2,13 +2,13 @@
 // AI conversation, and the turn that is running. Storage is SQLite (the
 // Durable Object's own database in production, sql.js in tests), so this
 // class has no Cloudflare dependency and is tested directly.
-import { type BoardEditRequest, type CheckResult, Design, type EventPage, type ServerEvent, emptyDesign } from "@hardhub/protocol";
+import { type BoardEditRequest, type CheckResult, Design, type EventPage, type ServerEvent, type TestOptions, emptyDesign } from "@hardhub/protocol";
 import type { Engine } from "../engine";
 import { type Llm, LlmError, type StreamSink, type ToolImage } from "../agent/llm/types";
 import type { BridgeEvent } from "../bridge";
 import { type Pending, type TurnEnd, type TurnInput, runTurn } from "../agent/loop";
 import { SYSTEM_PROMPT, chatSystemPrompt } from "../agent/prompt";
-import { type EventInput, type ToolContext, TOOLS, handEditGuard, runTool, storeArtifacts, toolSpecs } from "../agent/tools";
+import { type EventInput, type ToolContext, TOOLS, TestRelay, handEditGuard, rememberTests, runTests, runTool, storeArtifacts, testCounts, toolSpecs } from "../agent/tools";
 
 export interface SqlCursor {
   toArray(): Record<string, unknown>[];
@@ -202,6 +202,12 @@ export class RoomCore {
     }
   }
 
+  /** a live event for open clients only (not stored): it carries the seq of the last stored event */
+  live(e: EventInput) {
+    this.flushDelta();
+    this.d.broadcast(JSON.stringify({ ...e, seq: this.lastSeq(), at: new Date().toISOString() }));
+  }
+
   // live text: batched deltas, not stored
   private sendDelta(id: string, text: string) {
     if (this.delta && this.delta.id !== id) this.flushDelta();
@@ -365,6 +371,7 @@ export class RoomCore {
       quote: (d, q) => e.quote(d, q),
       build: (d, job, signal, stopAfter) => e.build(d, scoped(job), signal, stopAfter),
       edit: (d, job, zip, edits, signal) => e.edit(d, scoped(job), zip, edits, signal),
+      test: (d, job, zip, options, signal) => e.test(d, scoped(job), zip, options, signal),
       file: (job, name) => e.file(scoped(job), name),
       view: (job, opts, zip) => e.view(scoped(job), opts, zip),
       inspect: (job, opts, zip) => e.inspect(scoped(job), opts, zip),
@@ -381,6 +388,9 @@ export class RoomCore {
       emit: (e) => {
         this.emit(e);
       },
+      live: (e) => this.live(e),
+      lastTests: () => JSON.parse(this.meta("last_tests") ?? "null") as { json?: string; md?: string } | null,
+      setLastTests: (t) => this.setMeta("last_tests", JSON.stringify(t)),
       putFile: (name, body, ct) => this.d.putFile(key(name), body, ct),
       getFile: (name) => this.d.getFile(key(name)),
       nextJob: () => {
@@ -633,11 +643,14 @@ export class RoomCore {
     try {
       const zip = await ctx.getFile(last.kicad);
       if (!zip) return conflict("The last build's board file is missing: build the board again.");
+      const tests = new TestRelay(ctx, job);
       for await (const line of ctx.engine.edit(design, job, zip, req.edits)) {
         if (!("done" in line)) {
-          this.emit({ type: "job", job: card, step: line.step, progress: line.progress, done: false });
+          if (line.step === "test") tests.line(line);
+          else this.emit({ type: "job", job: card, step: line.step, progress: line.progress, done: false });
           continue;
         }
+        tests.done(line.checks, line.rejected ? (line.error ?? "edits refused") : undefined);
         const made = !line.rejected && line.artifacts.length > 0;
         this.emit({ type: "job", job: card, step: "done", progress: 1, done: true, ok: made && line.ok });
         if (line.rejected) return { status: 422, body: { error: line.error ?? "The edits could not be applied." } };
@@ -645,6 +658,7 @@ export class RoomCore {
         if (line.checks.length) this.emit({ type: "checks", results: line.checks });
         const stored = await storeArtifacts(ctx, job, line.artifacts);
         if (stored.length) this.emit({ type: "artifacts", artifacts: stored });
+        rememberTests(ctx, stored);
         const renders = stored.filter((a) => a.kind === "board-png").map((a) => a.name);
         if (renders.length) ctx.setRenders(renders);
         const kicad = stored.find((a) => a.kind === "kicad");
@@ -673,6 +687,30 @@ export class RoomCore {
     } catch (e) {
       this.emit({ type: "job", job: card, step: "done", progress: 1, done: true, ok: false });
       return { status: 502, body: { error: `The engine could not apply the edits: ${e instanceof Error ? e.message : String(e)}` } };
+    } finally {
+      this.setMeta("editing", null);
+    }
+  }
+
+  /** The person runs the board tests again from the app (POST /projects/:id/tests),
+   * maybe at other outside temperatures. Refused while anything else works here;
+   * the AI hears the result on its next turn. */
+  async runTests(options: TestOptions): Promise<{ status: 200; body: { ok: boolean; summary: string; checks: CheckResult[] } } | { status: 409 | 502; body: { error: string } }> {
+    const conflict = (error: string) => ({ status: 409 as const, body: { error } });
+    if (this.editing) return conflict("The board is being checked already.");
+    if (this.busy || this.meta("queued") || this.meta("chat_turn")) return conflict("HardHub's AI is working on this project. Run the tests when it has finished.");
+    if (this.buildingForAgent() || this.agentCalls > 0) return conflict("A connected AI is working on this board. Run the tests when it has finished.");
+    const ctx = this.toolContext(false);
+    if (!ctx.lastBuild()) return conflict("There is no built board yet: build it first.");
+    this.setMeta("editing", "1");
+    try {
+      const r = await runTests(ctx, options);
+      if (r.error) return { status: 502, body: { error: r.content } };
+      const range = options.ambient_min !== undefined && options.ambient_max !== undefined ? ` at ${options.ambient_min} to ${options.ambient_max} °C` : "";
+      const note = `The person ran the board tests again${range}: ${testCounts(r.checks)}. test_report has the details.`;
+      this.addNote("notes_chat", note);
+      this.addNote("notes_agent", note);
+      return { status: 200, body: { ok: r.ok, summary: testCounts(r.checks), checks: r.checks } };
     } finally {
       this.setMeta("editing", null);
     }

@@ -72,6 +72,11 @@ export class ProjectRoom extends DurableObject<Env> {
     return { design, design_version: version, last_seq: this.core.lastSeq(), busy: this.core.busy || this.core.editing };
   }
 
+  /** the person runs the board tests again; answers when they have all run */
+  runTests(options: import("@hardhub/protocol").TestOptions) {
+    return this.core.runTests(options);
+  }
+
   /** the person's hand edits to the routed board; answers when they are checked */
   editBoard(req: BoardEditRequest) {
     return this.core.editBoard(req);
