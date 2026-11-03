@@ -38,7 +38,7 @@ export const STAGE_LABEL = {
   circuit: "Circuit",
   board: "Size\u00a0& layers",
   layout: "Layout",
-  checks: "Checks",
+  checks: "Tests",
   view: "3D",
   order: "Order",
 } as const;

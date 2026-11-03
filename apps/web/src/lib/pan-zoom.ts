@@ -53,6 +53,8 @@ export function usePanZoom({
   canPanRef.current = canPan;
   const onViewRef = useRef(onView);
   onViewRef.current = onView;
+  // the person (or a caller showing one spot) has moved the view: a resize keeps it
+  const touched = useRef(false);
 
   const apply = useCallback(() => {
     const v = view.current;
@@ -82,6 +84,7 @@ export function usePanZoom({
       const r = el.getBoundingClientRect();
       const s = Math.min(max, Math.max(min, Math.min((r.width - pad * 2) / w, (r.height - pad * 2) / h)));
       view.current = { s, x: r.width / 2 - (x + w / 2) * s, y: r.height / 2 - (y + h / 2) * s };
+      touched.current = true;
       apply();
     },
     [box, pad, min, max, apply],
@@ -121,8 +124,8 @@ export function usePanZoom({
     if (!el) return;
     // a resized box keeps the drawing fitted only until the person zooms;
     // after that it keeps their view
-    let touched = false;
-    const ro = new ResizeObserver(() => !touched && fit());
+    touched.current = false;
+    const ro = new ResizeObserver(() => !touched.current && fit());
     ro.observe(el);
     const pts = new Map<number, { x: number; y: number }>();
     let pinch: { d: number; s: number; cx: number; cy: number } | null = null;
@@ -162,7 +165,7 @@ export function usePanZoom({
         for (const id of pts.keys()) if (el.hasPointerCapture?.(id) === false) el.setPointerCapture(id);
       }
       pts.set(e.pointerId, p);
-      touched = true;
+      touched.current = true;
       if (pts.size === 2 && pinch) {
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
@@ -185,7 +188,7 @@ export function usePanZoom({
     };
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
-      touched = true;
+      touched.current = true;
       const p = local(e);
       zoomAt(p.x, p.y, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
     };

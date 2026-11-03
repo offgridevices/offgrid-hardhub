@@ -102,6 +102,12 @@ def run(board_path, d, work, out, slug, emit=lambda message, frac, **kw: None, o
     from . import model as MODEL
     model = state['model'] = MODEL.export(board_path, d)
     run.timings['model'] = round(time.time() - t, 2)
+    # where each part really is: the routed board, not what the design asked
+    # (the engine placed the parts the design left unplaced)
+    d = dict(d, placement=dict(d.get('placement') or {}))
+    for p in model['parts']:
+        cur = d['placement'].get(p['ref'], {})
+        d['placement'][p['ref']] = dict(cur, x=p['x'], y=p['y'], side=p['side'], rot=cur.get('rot', p.get('rot', 0)))
 
     # KiCad's own DRC: the build's report when there is one, else a fresh run
     from . import drc as DRC

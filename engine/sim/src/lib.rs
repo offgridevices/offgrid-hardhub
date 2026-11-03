@@ -3,6 +3,7 @@
 //! sends one board model as JSON and gets measurements or a field solution
 //! back; see `dispatch` for the commands.
 
+pub mod amg;
 pub mod geom;
 pub mod index;
 pub mod irdrop;

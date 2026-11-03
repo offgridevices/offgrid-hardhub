@@ -145,8 +145,14 @@ def _regulator_nets(b, ref, reg):
     with_v = [n for n in cands if b.voltage(n) is not None]
     out_net = named_out[0] if named_out else None
     in_net = None
+    pins = b.comps[ref]['pins']
+    if reg.get('pin_out') and pins.get(reg['pin_out']) in b.power and pins.get(reg['pin_in']) in b.power:
+        # the family's datasheet pinout settles it, whatever the voltages say
+        return pins[reg['pin_in']], named_out[0] if named_out else pins[reg['pin_out']]
     if reg.get('vout') is not None and not out_net:
         match = [n for n in with_v if abs(b.voltage(n) - reg['vout']) < 0.05]
+        # two nets at the output voltage: the output is the one without a connector bringing power in
+        match.sort(key=lambda n: any(b.is_connector_source(r) for r in b.refs_on(n)))
         if match:
             out_net = match[0]
     rest = [n for n in with_v if n != out_net]

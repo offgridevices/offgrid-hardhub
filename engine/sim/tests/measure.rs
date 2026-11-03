@@ -233,8 +233,10 @@ fn timing_synthetic() {
         let out = run("measure", json!({"board": b.clone(), "signal_nets": ["SDA", "SCL"], "ref_nets": ["GND"], "hv_nets": ["+3V3"]}));
         println!("measure {n} tracks: {:.1} ms wall, stats {}", t.elapsed().as_secs_f64() * 1e3, out["stats"]);
         let t = std::time::Instant::now();
+        let gnd: Vec<String> = b["pads"].as_array().unwrap().iter().filter(|p| p["net"] == "GND").map(|p| p["ref"].as_str().unwrap().to_string()).collect();
+        let sinks: Vec<Value> = gnd[1..].iter().step_by(5).map(|r| json!({"ref": r, "current": 0.05})).collect();
         let out = run("irdrop", json!({"board": b, "net": "GND", "temp_c": 50,
-            "sources": [{"ref": "R0", "num": "1", "voltage": 0.0}], "sinks": [{"ref": "R6", "current": 0.2}]}));
+            "sources": [{"ref": gnd[0], "voltage": 0.0}], "sinks": sinks}));
         println!("irdrop GND {n}: {:.1} ms wall, stats {}", t.elapsed().as_secs_f64() * 1e3, out["stats"]);
     }
 }

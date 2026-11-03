@@ -13,7 +13,7 @@
 
 use crate::model::{ring, Board};
 use crate::raster::Raster;
-use crate::solve::{pcg, Csr, Laplacian};
+use crate::solve::{pcg_with, Csr, Laplacian, Precond};
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -272,6 +272,7 @@ pub fn run(input: Value) -> Result<Value, String> {
     let mut maps = Vec::new();
     let mut temps_per_source: Vec<Vec<Value>> = vec![Vec::new(); inp.sources.len()];
     let enc = base64::engine::general_purpose::STANDARD;
+    let mut pc: Option<Precond> = None;
     for &ta in &ambients {
         let ta_k = ta + 273.15;
         if !have_guess {
@@ -304,7 +305,12 @@ pub fn run(input: Value) -> Result<Value, String> {
                 rhs[u] = q[u] - (qt + qb) * a_cell + df * theta[u];
             }
             let prev = theta.clone();
-            let st = pcg(&a, &rhs, &mut theta, 1e-9, 5000);
+            // The face terms only move the diagonal a little between Newton
+            // steps and ambients: the first preconditioner serves them all.
+            if pc.is_none() {
+                pc = Some(Precond::for_matrix(&a));
+            }
+            let st = pcg_with(&a, &rhs, &mut theta, 1e-8, 5000, pc.as_ref().unwrap());
             iterations += st.iterations;
             newton_steps += 1;
             let change = theta.iter().zip(&prev).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max);

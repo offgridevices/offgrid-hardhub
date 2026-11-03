@@ -18,7 +18,7 @@ use crate::geom::{seg_closest, BBox, Shape, P};
 use crate::index::Grid;
 use crate::model::{ring, Board};
 use crate::raster::Raster;
-use crate::solve::{pcg, Laplacian};
+use crate::solve::{pcg_with, Laplacian, Precond};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -213,14 +213,17 @@ pub fn run(input: Value) -> Result<Value, String> {
         let l = b.layer_index(&tr.layer).unwrap();
         for (e, q) in [P::from(tr.a), P::from(tr.b)].into_iter().enumerate() {
             let me = track_end[k][e];
-            let mut hits: Vec<Thing> = Vec::new();
+            let mut hits: Vec<(u32, Thing)> = Vec::new();
             grids[l].query(BBox::of_points(&[q]).grow(1e-3), |id| {
                 let (th, ref s) = things[l][id as usize];
                 if !matches!(th, Thing::Track(o) if o == t) && s.point_dist(q) <= 1e-6 {
-                    hits.push(th);
+                    hits.push((id, th));
                 }
             });
-            for th in hits {
+            // a point on a cell corner comes back from four cells
+            hits.sort_unstable_by_key(|h| h.0);
+            hits.dedup_by_key(|h| h.0);
+            for (_, th) in hits {
                 match th {
                     Thing::Pad(pk) => uf.union(me, pad_node[&pk]),
                     Thing::Via(v) => uf.union(me, via_node[&(v, l)]),
@@ -255,17 +258,19 @@ pub fn run(input: Value) -> Result<Value, String> {
         let Some(r) = rasters[l].as_ref() else { return };
         let mut any = false;
         let half = 0.5 * r.d;
-        r.rect_spans(s.bbox.grow(half), |j, i0, i1| {
+        r.rect_spans(s.bbox.grow(1.5 * half), |j, i0, i1| {
             for i in i0..=i1 {
                 let n = cell_node[l][r.idx(i, j)];
-                if n != u32::MAX && s.point_dist(r.centre(i, j)) <= half {
+                // + a hair: a pad drawn exactly against the pour's edge
+                if n != u32::MAX && s.point_dist(r.centre(i, j)) <= half * (1.0 + 1e-6) + 1e-9 {
                     uf.union(node, n);
                     any = true;
                 }
             }
         });
         if !any {
-            if let Some((i, j)) = r.cell_of(s.rep()) {
+            let c = crate::geom::p(0.5 * (s.bbox.x0 + s.bbox.x1), 0.5 * (s.bbox.y0 + s.bbox.y1));
+            if let Some((i, j)) = r.cell_of(c) {
                 let n = cell_node[l][r.idx(i, j)];
                 if n != u32::MAX && s.point_dist(r.centre(i, j)) <= r.d {
                     uf.union(node, n);
@@ -470,7 +475,10 @@ pub fn run(input: Value) -> Result<Value, String> {
         inject(&mut rhs, s, s.t.current);
     }
     let mut x = vec![0.0; nu];
-    let st = pcg(&a, &rhs, &mut x, 1e-11, 20_000);
+    // One preconditioner for both solves (same matrix).  1e-10 relative
+    // residual leaves the drops exact to far below a microvolt.
+    let pc = Precond::for_matrix(&a);
+    let st = pcg_with(&a, &rhs, &mut x, 1e-10, 20_000, &pc);
     let mut iterations = st.iterations;
     let u_of = |x: &[f64], i: usize| -> Option<f64> {
         if let Some(f) = fixed[i] {
@@ -508,7 +516,7 @@ pub fn run(input: Value) -> Result<Value, String> {
         let mut rhs1 = vec![0.0; nu];
         inject(&mut rhs1, &sinks[*wi], 1.0);
         let mut x1 = vec![0.0; nu];
-        let st1 = pcg(&a, &rhs1, &mut x1, 1e-11, 20_000);
+        let st1 = pcg_with(&a, &rhs1, &mut x1, 1e-10, 20_000, &pc);
         iterations += st1.iterations;
         let s = &sinks[*wi];
         let share = 1.0 / s.nodes.len() as f64;

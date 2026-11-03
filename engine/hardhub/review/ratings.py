@@ -181,10 +181,12 @@ FAMILIES = [
     # AMS1117 datasheet (Advanced Monolithic Systems): 1 A output; dropout 1.3 V max at 1 A (1.1 V typical);
     # input 15 V absolute maximum; operating junction -40..125 °C; SOT-223 junction-to-tab 15 °C/W;
     # application circuit 10 µF input, 22 µF output (10 µF minimum for stability)
+    # (pins: SOT-223 / SOT-89 pinout, 1 = GND or ADJ, 2 = output (and the tab), 3 = input)
     ('AMS1117', dict(kind='ldo', current_max=1.0, dropout=1.3, voltage_max=15.0, temp_min=-40, temp_max=125,
-                     theta_jb=15.0, cin=10e-6, cout=10e-6, note='AMS1117 datasheet')),
+                     theta_jb=15.0, cin=10e-6, cout=10e-6, pin_in='3', pin_out='2', note='AMS1117 datasheet')),
     ('LM1117', dict(kind='ldo', current_max=0.8, dropout=1.2, voltage_max=15.0, temp_min=0, temp_max=125,
-                    theta_jb=15.0, cin=10e-6, cout=10e-6, note='TI LM1117 datasheet (0..125 °C junction for the base grade)')),
+                    theta_jb=15.0, cin=10e-6, cout=10e-6, pin_in='3', pin_out='2',
+                    note='TI LM1117 datasheet (0..125 °C junction for the base grade)')),
     # Diodes Inc. AP2112: 600 mA, dropout 400 mV max at 600 mA, 6.5 V absolute maximum input (6 V operating),
     # -40..85 °C ambient, 1 µF in and out
     ('AP2112', dict(kind='ldo', current_max=0.6, dropout=0.4, voltage_max=6.0, temp_min=-40, temp_max=85,
@@ -290,6 +292,8 @@ def regulator(part):
     if kind == 'ldo':
         out['efficiency'] = None
     out['source'] = fam['note'] if fam else 'typical values'
+    if fam and fam.get('pin_in') and re.search(r'SOT-?223|SOT-?89', part.get('footprint', ''), re.I):
+        out['pin_in'], out['pin_out'] = fam['pin_in'], fam['pin_out']
     return out
 
 
@@ -301,6 +305,11 @@ RES_POWER = {'01005': 0.03, '0201': 0.05, '0402': 1 / 16, '0603': 0.1, '0805': 0
              '1812': 0.75, '2010': 0.75, '2512': 1.0}
 RES_VMAX = {'01005': 15.0, '0201': 25.0, '0402': 50.0, '0603': 75.0, '0805': 150.0, '1206': 200.0, '1210': 200.0,
             '1812': 200.0, '2010': 200.0, '2512': 200.0}
+# the most any resistor of that size is made for (high-power and anti-surge series: Panasonic ERJ-P,
+# Vishay CRCW-HP, Yageo RC-P).  With the rating only assumed from the size, a power above this fails
+# anyway: no part of that size would take it
+RES_POWER_ANY = {'01005': 0.05, '0201': 0.1, '0402': 0.2, '0603': 0.25, '0805': 0.5, '1206': 0.75, '1210': 1.0,
+                 '1812': 1.0, '2010': 1.0, '2512': 2.0}
 # temperature rise of a chip resistor on an FR4 board per watt (°C/W), for its own heating
 # (makers' application notes, e.g. Vishay "Thermal management of chip resistors"; rough, board-dependent)
 RES_THETA = {'01005': 600.0, '0201': 500.0, '0402': 400.0, '0603': 250.0, '0805': 170.0, '1206': 100.0, '1210': 80.0,

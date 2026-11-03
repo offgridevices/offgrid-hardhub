@@ -226,12 +226,15 @@ export default function Board2D({
   checks,
   fileUrl,
   save,
+  focus,
 }: {
   design: Design;
   artifacts: Artifact[];
   checks: CheckResult[];
   fileUrl(url: string): string;
   save?: (req: BoardEditRequest) => Promise<BoardEditResult>;
+  /** a spot to show (from a test's "Show on board"): design frame, mm from the board centre */
+  focus?: { x: number; y: number; net?: string; layer?: string } | null;
 }) {
   const images = useLayerImages(design, artifacts, fileUrl);
   const jsonArt = useMemo(() => artifacts.find((a) => a.kind === "board-json"), [artifacts]);
@@ -299,6 +302,24 @@ export default function Board2D({
   });
   /** px on screen, in mm at the current zoom */
   const px = (n: number) => n / (BASE * scale);
+
+  // a spot from a test: zoom to about 14 mm around it, on its layer, marked
+  const [marked, setMarked] = useState(focus ?? null);
+  useEffect(() => setMarked(focus ?? null), [focus]);
+  const mark = marked ? { x: marked.x + W / 2, y: marked.y + H / 2 } : null;
+  const { fitTo } = pz;
+  useEffect(() => {
+    if (!marked || !hasBoard) return;
+    const span = 14 * BASE;
+    const f = requestAnimationFrame(() => fitTo((marked.x + W / 2) * BASE - span / 2, (marked.y + H / 2) * BASE - span / 2, span, span));
+    return () => cancelAnimationFrame(f);
+  }, [marked, W, H, hasBoard, fitTo]);
+  useEffect(() => {
+    const l = focus?.layer;
+    if (!l || !/\.Cu$/.test(l)) return;
+    setActive(l);
+    setHiddenLayers((h) => (h.has(l) ? new Set([...h].filter((x) => x !== l)) : h));
+  }, [focus]);
 
   const copperLayers = geo?.layers ?? images.filter((i) => i.layer.endsWith(".Cu")).map((i) => i.layer);
   const shown = useMemo(() => new Set(copperLayers.filter((l) => !hiddenLayers.has(l))), [copperLayers, hiddenLayers]);
@@ -691,6 +712,13 @@ export default function Board2D({
             </svg>
           )}
           {plots("over")}
+          {mark && (
+            <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" viewBox={`0 0 ${W} ${H}`} aria-hidden="true" data-testid="board-focus">
+              <circle cx={mark.x} cy={mark.y} r={px(16)} fill="none" stroke="var(--ember)" strokeWidth={px(2)} className="hh-pulse" />
+              <circle cx={mark.x} cy={mark.y} r={px(9)} fill="rgba(255,106,0,.15)" stroke="#f1ece0" strokeWidth={px(2)} />
+              <circle cx={mark.x} cy={mark.y} r={px(2.5)} fill="#f1ece0" />
+            </svg>
+          )}
           {geo && (
             <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
               {liveTracks.map((t) => (
@@ -824,6 +852,14 @@ export default function Board2D({
           {note && (
             <Badge tone={note.ok ? "moss" : "clay"} className="h-auto max-w-full whitespace-normal py-1" role="status">
               {note.text}
+            </Badge>
+          )}
+          {!note && !route && marked && (
+            <Badge tone="ember" className="h-auto gap-2 py-1 pr-1" data-testid="focus-note">
+              {[marked.net, marked.layer && layerName(marked.layer)].filter(Boolean).join(" · ") || "The spot the test found"}
+              <button type="button" className="grid size-5 place-items-center rounded-full hover:bg-ember/20" onClick={() => setMarked(null)} aria-label="Clear the mark">
+                <XIcon className="size-3" />
+              </button>
             </Badge>
           )}
           {!note && route && <Badge tone="ember">Click to add a corner · double-click or Enter to finish · Shift for any angle</Badge>}

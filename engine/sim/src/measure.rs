@@ -11,7 +11,7 @@
 //! [`Pip`]).  So the cost follows the copper near each item, not the size of
 //! the pours.
 
-use crate::geom::{angle_between, in_ring, ring_edges, seg_closest, seg_cross_strict, seg_point_dist, shape_gap, BBox, Shape, P};
+use crate::geom::{angle_between, ring_edges, seg_closest, shape_gap, BBox, Shape, P};
 use crate::index::{Grid, Seen};
 use crate::model::{ring, Board};
 use crate::raster::Raster;
@@ -704,13 +704,18 @@ fn joints(cu: &Copper) -> Joints {
             let me = track_obj[&t];
             let mut touches = c.ends.len() > 1;
             let mut tjoins: Vec<(P, P, f64)> = Vec::new();
-            lc.grid.query(BBox::of_points(&[pt]).grow(TOUCH), |id| {
+            // A point on a cell corner is in four cells: dedupe the hits.
+            let mut ids = Vec::new();
+            lc.grid.query(BBox::of_points(&[pt]).grow(TOUCH), |id| ids.push(id));
+            ids.sort_unstable();
+            ids.dedup();
+            for id in ids {
                 let it = &lc.items[id as usize];
                 if it.obj == me || cu.net_of(it.obj) != c.net {
-                    return;
+                    continue;
                 }
                 if it.shape.point_dist(pt) > TOUCH {
-                    return;
+                    continue;
                 }
                 touches = true;
                 let o = &cu.objs[it.obj as usize];
@@ -722,7 +727,7 @@ fn joints(cu: &Copper) -> Joints {
                         tjoins.push((a2, b2, 0.5 * tr.w));
                     }
                 }
-            });
+            }
             if !touches && cu.in_zone_of(c.layer, c.net, pt) {
                 touches = true;
             }
@@ -1156,27 +1161,12 @@ fn courtyards(b: &Board, edges: &Edges) -> (Vec<Value>, Value, Vec<Value>) {
     let polys: Vec<Vec<P>> = b.parts.iter().map(|pt| pt.outline()).collect();
     let boxes: Vec<BBox> = polys.iter().map(|p| BBox::of_points(p)).collect();
     let mut overlaps = Vec::new();
-    let strictly_inside = |q: P, poly: &[P]| in_ring(q, poly) && ring_edges(poly).all(|(a, b)| seg_point_dist(a, b, q) > 1e-4);
     for i in 0..polys.len() {
         for j in i + 1..polys.len() {
             if polys[i].len() < 3 || polys[j].len() < 3 || b.parts[i].side != b.parts[j].side || !boxes[i].overlaps(&boxes[j]) {
                 continue;
             }
-            let (u, v) = (&polys[i], &polys[j]);
-            let mut hit: Option<P> = None;
-            'e: for (a0, a1) in ring_edges(u) {
-                for (b0, b1) in ring_edges(v) {
-                    if seg_cross_strict(a0, a1, b0, b1, 1e-4) {
-                        hit = crate::geom::seg_intersection(a0, a1, b0, b1);
-                        break 'e;
-                    }
-                }
-            }
-            if hit.is_none() {
-                let cu_ = centroid(u);
-                let cv = centroid(v);
-                hit = u.iter().copied().chain([cu_]).find(|&q| strictly_inside(q, v)).or_else(|| v.iter().copied().chain([cv]).find(|&q| strictly_inside(q, u)));
-            }
+            let hit = overlap(&polys[i], &polys[j], boxes[i], boxes[j]);
             if let Some(q) = hit {
                 if overlaps.len() < MAX_LIST {
                     overlaps.push(json!({"refs": [b.parts[i].reference, b.parts[j].reference], "at": at(q)}));
@@ -1213,6 +1203,36 @@ fn courtyards(b: &Board, edges: &Edges) -> (Vec<Value>, Value, Vec<Value>) {
     (overlaps, min, list)
 }
 
+/// Do two courtyards overlap by a real area (not just share an edge, which
+/// is how parts are meant to be packed)?  Rasterised over the overlap of
+/// their boxes, so any simple polygon works, convex or not.  Returns a point
+/// in the shared area.
+fn overlap(u: &[P], v: &[P], bu: BBox, bv: BBox) -> Option<P> {
+    let ib = BBox { x0: bu.x0.max(bv.x0), y0: bu.y0.max(bv.y0), x1: bu.x1.min(bv.x1), y1: bu.y1.min(bv.y1) };
+    if ib.width() <= 1e-6 || ib.height() <= 1e-6 {
+        return None;
+    }
+    let d = (ib.width() * ib.height() / 40_000.0).sqrt().clamp(0.005, 0.1);
+    let mut r = Raster::covering(ib, d);
+    r.fill_rings(&[u.to_vec()], 1);
+    let mut n = 0usize;
+    let mut sum = P::default();
+    let nx = r.nx;
+    let mut spans = Vec::new();
+    r.rings_spans(&[v.to_vec()], |j, i0, i1| spans.push((j, i0, i1)));
+    for (j, i0, i1) in spans {
+        for i in i0..=i1 {
+            if r.v[j * nx + i] != 0 {
+                n += 1;
+                sum = sum.add(r.centre(i, j));
+            }
+        }
+    }
+    // 0.01 mm² of shared area: well above rounding, well below a real clash.
+    (n as f64 * d * d >= 0.01).then(|| sum.mul(1.0 / n as f64))
+}
+
+#[allow(dead_code)]
 fn centroid(v: &[P]) -> P {
     let n = v.len().max(1) as f64;
     let s = v.iter().fold(P::default(), |a, &b| a.add(b));

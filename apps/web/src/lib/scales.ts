@@ -44,7 +44,8 @@ export function niceTicks(lo: number, hi: number, count = 5): number[] {
 export function niceDomain(lo: number, hi: number, count = 5): [number, number] {
   const t = niceTicks(lo, hi, count);
   const step = t.length > 1 ? t[1]! - t[0]! : 1;
-  return [t[0]! > lo ? t[0]! - step : t[0]!, t.at(-1)! < hi ? t.at(-1)! + step : t.at(-1)!];
+  const round = (v: number) => Number(v.toPrecision(12));
+  return [round(t[0]! > lo ? t[0]! - step : t[0]!), round(t.at(-1)! < hi ? t.at(-1)! + step : t.at(-1)!)];
 }
 
 /** decades (1, 10, 100…) inside a log domain */

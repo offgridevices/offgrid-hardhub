@@ -85,7 +85,7 @@ pub fn synthetic(w: f64, h: f64, n_tracks: usize) -> Value {
             let e = [x + pitch_x * 0.8, y + pitch_y * 0.3];
             track(&mut b, layer, net, 0.2, a, m);
             track(&mut b, layer, net, 0.2, m, e);
-            if k % 5 == 0 {
+            if k % 5 == 0 || net == "GND" {
                 via(&mut b, net, e[0], e[1], 0.6, 0.3);
             }
             if k % 3 == 0 {

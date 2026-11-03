@@ -212,3 +212,14 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* "Show on board": a ring that breathes out from the spot a test found */
+@keyframes hh-pulse {
+  from { transform: scale(0.55); opacity: 0.95; }
+  to { transform: scale(1.6); opacity: 0; }
+}
+.hh-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hh-pulse 1.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}

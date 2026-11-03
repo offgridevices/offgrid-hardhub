@@ -557,8 +557,9 @@ def stress_cap_voltage(b, env, pm, op, report):
                                      note=('rating assumed' if assumed else ct) + ('' if how == 'supply' else ', from the simulation')))
         if worst is None or pct / limit > worst[0] / worst[2]:
             worst = (pct, r, limit)
-        msg = 'the %s capacitor %s sees up to %s and is rated %s%s (%.0f %%)' % (
-            _uf(_cap_value(b, r)) if _cap_value(b, r) else '', r, _v(v), _v(rated), ' (assumed)' if assumed else '', pct)
+        cv = _cap_value(b, r)
+        msg = '%s %s sees up to %s and is rated %s%s (%.0f %%)' % (
+            'the %s capacitor' % _uf(cv) if cv else 'capacitor', r, _v(v), _v(rated), ' (assumed)' if assumed else '', pct)
         hard = 100 if ct != 'tantalum' else 80                # tantalums short when pushed past ~80 %
         if pct > hard:
             (warns if assumed else fails).append(msg)

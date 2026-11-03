@@ -8,8 +8,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Artifact, Design } from "@hardhub/protocol";
-import { RotateCcwIcon } from "lucide-react";
-import { loadScene } from "../workers/client";
+import { LayersIcon, PackageOpenIcon, RotateCcwIcon } from "lucide-react";
+import { demoLayerSvgs, loadScene } from "../workers/client";
 import type { SceneData } from "../workers/geometry";
 import { useGeometry } from "../lib/use-geometry";
 import { copperCanvas, layerColor, plotCanvas } from "../lib/layer-canvas";
@@ -20,7 +20,6 @@ import { Badge } from "@/components/ui/badge";
 import { Loader } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 declare global {
@@ -45,16 +44,36 @@ interface Api {
 
 const SILK = ["F.Silkscreen", "B.Silkscreen"];
 
-export default function Viewer3D({ design, artifacts, fileUrl }: { design: Design; artifacts: Artifact[]; fileUrl(u: string): string }) {
+const MODES: readonly string[] = ["assembled", "parts", "layers"];
+
+export default function Viewer3D({
+  design,
+  artifacts,
+  fileUrl,
+  initialMode,
+}: {
+  design: Design;
+  artifacts: Artifact[];
+  fileUrl(u: string): string;
+  /** from the link that opened the view (?view=layers) */
+  initialMode?: string;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [showTop, setShowTop] = useState(true);
   const [showBottom, setShowBottom] = useState(true);
-  const [mode, setMode] = useState<Mode>("assembled");
+  const [mode, setMode] = useState<Mode>(() => (initialMode && MODES.includes(initialMode) ? (initialMode as Mode) : "assembled"));
+  useEffect(() => {
+    if (initialMode && MODES.includes(initialMode)) setMode(initialMode as Mode);
+  }, [initialMode]);
   const [spread, setSpread] = useState(0.6);
   const [plates, setPlates] = useState<Plate[] | null>(null);
   const [off, setOff] = useState<Set<string>>(() => new Set());
+  // putting the layers back brings every layer back for next time
+  useEffect(() => {
+    if (mode !== "layers") setOff(new Set());
+  }, [mode]);
   const api = useRef<Api | null>(null);
 
   const glb = artifacts.find((a) => a.kind === "glb");
@@ -65,12 +84,33 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
     fileUrl,
   );
   const silk = useMemo(() => artifacts.filter((a) => a.kind === "board-svg" && SILK.includes(a.layers?.[0] ?? "") && !a.url.startsWith("mock:")), [artifacts]);
+  // demo mode has no board geometry: its own layer drawings stand in for the plates
+  const demo = !geo && artifacts.some((a) => a.kind === "board-svg" && a.url.startsWith("mock:")) && !!design.board;
+  const plateSize = geo ? { w: geo.size[0], h: geo.size[1] } : design.board ? { w: design.board.width, h: design.board.height } : null;
 
   // the plates are drawn once, the first time the layers are pulled apart
   useEffect(() => {
-    if (mode !== "layers" || plates || !geo) return;
+    if (mode !== "layers" || plates || (!geo && !demo) || !plateSize) return;
     let live = true;
     (async () => {
+      if (!geo) {
+        const svgs = await demoLayerSvgs(design);
+        const urls: string[] = [];
+        const at = (l: string) => {
+          const u = URL.createObjectURL(new Blob([svgs[l]!], { type: "image/svg+xml" }));
+          urls.push(u);
+          return plotCanvas(u, plateSize.w, plateSize.h).catch(() => null);
+        };
+        const copperLayers = Object.keys(svgs).filter((l) => l.endsWith(".Cu"));
+        copperLayers.sort((a, b) => (a === "F.Cu" ? -1 : b === "F.Cu" ? 1 : a === "B.Cu" ? 1 : b === "B.Cu" ? -1 : a.localeCompare(b)));
+        const list = await Promise.all([
+          ...SILK.slice(0, 1).map(async (l) => ({ layer: l, canvas: await at(l), copper: false })),
+          ...copperLayers.map(async (l) => ({ layer: l, canvas: await at(l), copper: true })),
+        ]);
+        urls.forEach((u) => URL.revokeObjectURL(u));
+        if (live) setPlates(list.filter((p): p is Plate => !!p.canvas));
+        return;
+      }
       const copper = geo.layers.map((l) => ({ layer: l, canvas: copperCanvas(geo, l), copper: true }));
       const prints = await Promise.all(
         silk.map(async (a) => ({ layer: a.layers![0]!, canvas: await plotCanvas(fileUrl(a.url), geo.size[0], geo.size[1]).catch(() => null), copper: false })),
@@ -85,7 +125,8 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
     return () => {
       live = false;
     };
-  }, [mode, plates, geo, silk, fileUrl]);
+    // plateSize follows geo and the design's board
+  }, [mode, plates, geo, demo, silk, fileUrl, design]);
   // a new board brings new plates
   useEffect(() => setPlates(null), [geo]);
 
@@ -354,36 +395,49 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
   useEffect(() => api.current?.setVisible("top", showTop), [showTop, status]);
   useEffect(() => api.current?.setVisible("bottom", showBottom), [showBottom, status]);
   useEffect(() => {
-    if (status === "ready" && plates && geo) api.current?.setPlates(plates, { w: geo.size[0], h: geo.size[1] });
-  }, [plates, status, geo]);
+    if (status === "ready" && plates && plateSize) api.current?.setPlates(plates, plateSize);
+    // plateSize is derived from geo and the design
+  }, [plates, status, geo, design]);
   useEffect(() => api.current?.setMode(mode === "layers" && !plates ? "parts" : mode, spread, on), [mode, spread, on, status, plates]);
 
-  const canLayers = !!geo;
+  const canLayers = !!geo || demo;
   const copperCount = geo?.layers.length ?? design.board?.layers ?? 0;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <ViewBar>
-        <ToggleGroup type="single" value={mode} onValueChange={(v) => v && setMode(v as Mode)} aria-label="Arrangement" className="h-8">
-          <ToggleGroupItem value="assembled">Assembled</ToggleGroupItem>
-          <ToggleGroupItem value="parts" data-testid="explode">
-            Parts lifted
-          </ToggleGroupItem>
-          <ToggleGroupItem value="layers" disabled={!canLayers} title={canLayers ? undefined : "Every layer appears with the next board build"} data-testid="explode-layers">
-            Every layer
-          </ToggleGroupItem>
-        </ToggleGroup>
+        {/* one obvious control: pull the layers apart; lifting only the parts is the quieter second */}
+        <Button
+          variant={mode === "layers" ? "default" : "outline"}
+          size="sm"
+          aria-pressed={mode === "layers"}
+          disabled={!canLayers}
+          title={canLayers ? undefined : "Every layer appears with the next board build"}
+          onClick={() => setMode(mode === "layers" ? "assembled" : "layers")}
+          data-testid="explode-layers"
+        >
+          <LayersIcon />
+          {mode === "layers" ? "Put the layers back" : "Pull layers apart"}
+        </Button>
+        <Button variant={mode === "parts" ? "secondary" : "ghost"} size="sm" aria-pressed={mode === "parts"} onClick={() => setMode(mode === "parts" ? "assembled" : "parts")} data-testid="explode">
+          <PackageOpenIcon />
+          {mode === "parts" ? "Put the parts back" : "Lift the parts"}
+        </Button>
         {mode !== "assembled" && (
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Spread
-            <Slider className="w-32" min={0.1} max={1} step={0.01} value={[spread]} onValueChange={([v]) => setSpread(v!)} aria-label="How far apart" />
+          <label className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            How far
+            <Slider className="w-24 sm:w-32" min={0.1} max={1} step={0.01} value={[spread]} onValueChange={([v]) => setSpread(v!)} aria-label="How far apart" />
           </label>
         )}
         <span className="grow" />
-        {copperCount > 0 && <Badge>{copperCount} copper layers</Badge>}
+        {copperCount > 0 && (
+          <Badge tone="ember" data-testid="copper-count">
+            {copperCount} copper {copperCount === 1 ? "layer" : "layers"}
+          </Badge>
+        )}
         <Button variant="ghost" size="sm" onClick={() => api.current?.reset()}>
           <RotateCcwIcon />
-          Reset view
+          <span className="max-sm:sr-only">Reset view</span>
         </Button>
       </ViewBar>
       <div className="flex min-h-0 flex-1 flex-wrap">
@@ -415,7 +469,9 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
           )}
         </div>
         <aside className="flex min-w-0 flex-[1_1_240px] flex-col gap-1 border-l p-3 max-[699px]:border-l-0 max-[699px]:border-t lg:max-w-72" aria-label="What to show">
-          <span className="px-2 pb-1 text-xs font-medium text-muted-foreground">{mode === "layers" ? "Layers, top to bottom" : "Parts"}</span>
+          <span className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+            {mode === "layers" ? `Layers, top to bottom${copperCount ? ` · ${copperCount} of copper` : ""}` : "Parts"}
+          </span>
           <ToggleRow label="Top parts" color="#9aa0a6" checked={showTop} onChange={setShowTop} testId="toggle-top" />
           {mode === "layers" &&
             layerList.map((l) => (
@@ -438,7 +494,7 @@ export default function Viewer3D({ design, artifacts, fileUrl }: { design: Desig
           <ToggleRow label="Bottom parts" color="#6f757a" checked={showBottom} onChange={setShowBottom} testId="toggle-bottom" />
           {mode === "layers" && (
             <p className="mt-2 rounded-lg bg-sunken p-3 text-xs text-soft">
-              Silkscreen sits on the outside: above the top copper and below the bottom copper. Click a layer's name to see it alone; switch them all back on with Assembled.
+              The printing (silkscreen) sits on the outside: above the top copper and below the bottom copper. Tap a layer's name to see it alone; Put the layers back to see the board whole.
             </p>
           )}
         </aside>

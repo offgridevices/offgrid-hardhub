@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sparse symmetric positive-definite solves: CSR matrices and conjugate
-//! gradients preconditioned with an incomplete Cholesky factor, IC(0).
+//! gradients, preconditioned with an incomplete Cholesky factor IC(0) for
+//! small systems and algebraic multigrid (see `amg`) for big ones.
 //!
 //! Both physical problems here (a resistor network with fixed source
 //! voltages, a plate losing heat through its faces) give symmetric M-matrices,
@@ -10,7 +11,10 @@
 /// Compressed sparse rows with sorted columns.
 #[derive(Clone, Debug)]
 pub struct Csr {
+    /// rows
     pub n: usize,
+    /// columns
+    pub m: usize,
     pub rowptr: Vec<usize>,
     pub col: Vec<u32>,
     pub val: Vec<f64>,
@@ -37,7 +41,7 @@ impl Csr {
         for i in 0..n {
             rowptr[i + 1] += rowptr[i];
         }
-        Csr { n, rowptr, col, val }
+        Csr { n, m: n, rowptr, col, val }
     }
 
     pub fn mul(&self, x: &[f64], y: &mut [f64]) {
@@ -91,11 +95,15 @@ impl Laplacian {
     }
 }
 
-enum Precond {
+pub enum Precond {
     Jacobi(Vec<f64>),
     /// Lower factor L (sorted rows, diagonal last in each row).
     Ic(Csr),
+    Amg(crate::amg::Amg),
 }
+
+/// Above this many unknowns multigrid wins over IC(0).
+const AMG_FROM: usize = 3000;
 
 fn ic0(a: &Csr) -> Option<Csr> {
     let n = a.n;
@@ -140,12 +148,25 @@ fn ic0(a: &Csr) -> Option<Csr> {
         }
         val[e - 1] = d.sqrt();
     }
-    Some(Csr { n, rowptr, col, val })
+    Some(Csr { n, m: n, rowptr, col, val })
 }
 
 impl Precond {
+    /// The preconditioner suited to `a`.  Build it once and pass it to
+    /// [`pcg_with`] when solving several systems with (nearly) the same matrix.
+    pub fn for_matrix(a: &Csr) -> Precond {
+        if a.n >= AMG_FROM {
+            return Precond::Amg(crate::amg::Amg::new(a));
+        }
+        match ic0(a) {
+            Some(l) => Precond::Ic(l),
+            None => Precond::Jacobi(a.diag().iter().map(|d| if *d > 0.0 { 1.0 / d } else { 1.0 }).collect()),
+        }
+    }
+
     fn apply(&self, r: &[f64], z: &mut [f64]) {
         match self {
+            Precond::Amg(m) => m.apply(r, z),
             Precond::Jacobi(inv) => {
                 for i in 0..r.len() {
                     z[i] = r[i] * inv[i];
@@ -185,16 +206,22 @@ pub struct SolveStats {
 /// Solve A x = b by preconditioned CG, starting from the x passed in (a warm
 /// start from a previous, similar solve saves most of the iterations).
 pub fn pcg(a: &Csr, b: &[f64], x: &mut [f64], tol: f64, max_it: usize) -> SolveStats {
+    if a.n == 0 {
+        return SolveStats { iterations: 0, rel_residual: 0.0, converged: true };
+    }
+    let pc = Precond::for_matrix(a);
+    pcg_with(a, b, x, tol, max_it, &pc)
+}
+
+/// [`pcg`] with a preconditioner built earlier (it only has to approximate
+/// A: one built for a previous Newton step still works).
+pub fn pcg_with(a: &Csr, b: &[f64], x: &mut [f64], tol: f64, max_it: usize, pc: &Precond) -> SolveStats {
     let n = a.n;
     let bnorm = b.iter().map(|v| v * v).sum::<f64>().sqrt();
     if n == 0 || bnorm == 0.0 {
         x.iter_mut().for_each(|v| *v = 0.0);
         return SolveStats { iterations: 0, rel_residual: 0.0, converged: true };
     }
-    let pc = match ic0(a) {
-        Some(l) => Precond::Ic(l),
-        None => Precond::Jacobi(a.diag().iter().map(|d| if *d > 0.0 { 1.0 / d } else { 1.0 }).collect()),
-    };
     let mut r = vec![0.0; n];
     a.mul(x, &mut r);
     for i in 0..n {
@@ -251,6 +278,39 @@ mod tests {
         let s = pcg(&a, &b, &mut x, 1e-12, 100);
         assert!(s.converged);
         assert!((x[0] - 2.0 / 3.0).abs() < 1e-10 && (x[1] - 1.0 / 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn multigrid_on_a_big_weakly_anchored_grid() {
+        // 300 × 300 diffusion with a weak leak: hundreds of IC(0) iterations,
+        // a few dozen with multigrid.
+        let m = 300;
+        let mut l = Laplacian::new(m * m);
+        for j in 0..m {
+            for i in 0..m {
+                let k = j * m + i;
+                if i + 1 < m {
+                    l.link(k, k + 1, 1.0);
+                }
+                if j + 1 < m {
+                    l.link(k, k + m, 1.0);
+                }
+                l.to_fixed(k, 1e-5);
+            }
+        }
+        let a = l.finish();
+        let mut b = vec![0.0; m * m];
+        b[150 * m + 150] = 1.0;
+        let mut x = vec![0.0; m * m];
+        let s = pcg(&a, &b, &mut x, 1e-10, 500);
+        assert!(s.converged && s.iterations < 60, "{s:?}");
+        let mut r = vec![0.0; m * m];
+        a.mul(&x, &mut r);
+        let res: f64 = r.iter().zip(&b).map(|(p, q)| (p - q).powi(2)).sum::<f64>().sqrt();
+        assert!(res < 1e-9);
+        // total leak equals the injection
+        let leak: f64 = x.iter().map(|v| v * 1e-5).sum();
+        assert!((leak - 1.0).abs() < 1e-6, "{leak}");
     }
 
     #[test]
