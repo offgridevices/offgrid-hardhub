@@ -8,7 +8,7 @@ import { type Llm, LlmError, type StreamSink, type ToolImage } from "../agent/ll
 import type { BridgeEvent } from "../bridge";
 import { type Pending, type TurnEnd, type TurnInput, runTurn } from "../agent/loop";
 import { SYSTEM_PROMPT, chatSystemPrompt } from "../agent/prompt";
-import { type EventInput, type ToolContext, TOOLS, TestRelay, handEditGuard, rememberTests, runTests, runTool, storeArtifacts, testCounts, toolSpecs } from "../agent/tools";
+import { type EventInput, type ToolContext, TOOLS, TestRelay, carryForward, handEditGuard, rememberTests, runTests, runTool, storeArtifacts, testCounts, toolSpecs } from "../agent/tools";
 
 export interface SqlCursor {
   toArray(): Record<string, unknown>[];
@@ -402,6 +402,7 @@ export class RoomCore {
         this.emit(e);
       },
       live: (e) => this.live(e),
+      latestChecks: () => this.latestChecks(),
       lastTests: () => JSON.parse(this.meta("last_tests") ?? "null") as { json?: string; md?: string } | null,
       setLastTests: (t) => this.setMeta("last_tests", JSON.stringify(t)),
       putFile: (name, body, ct) => this.d.putFile(key(name), body, ct),
@@ -668,6 +669,7 @@ export class RoomCore {
         if (line.rejected) return { status: 422, body: { error: line.error ?? "The edits could not be applied." } };
         if (!made) return { status: 502, body: { error: `The engine could not check the edited board${line.error ? `: ${line.error}` : "."}` } };
         // the run's end, then its results as the very next event (clients replace their list with them)
+        line.checks = carryForward(line.checks, this.latestChecks());
         tests.done(line.checks);
         if (line.checks.length) this.emit({ type: "checks", results: line.checks });
         const stored = await storeArtifacts(ctx, job, line.artifacts);

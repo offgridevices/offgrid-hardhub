@@ -116,7 +116,8 @@ class Job:
 
     def circuit_checks(self):
         """The circuit's own checks (pins, parts, sourcing, firmware), so a run
-        that does not build still lists every check the board has."""
+        that does not build still lists them. The few only a build makes
+        (fanout, silkscreen, bom-cpl) the API keeps from the last build."""
         from . import checks
         for r in checks.circuit(self.d):
             self.check(r)

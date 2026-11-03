@@ -244,3 +244,22 @@ describe("while the person's test run is going", () => {
     expect((await running).status).toBe(200);
   });
 });
+
+describe("checks only a build makes", () => {
+  it("stay in the list after a test run, so a failure there never disappears", async () => {
+    const token = await signIn();
+    const { id, core } = await project(token, false);
+    const real = engine.build.bind(engine);
+    engine.build = async function* (d, job, signal, stop) {
+      for await (const line of real(d, job, signal, stop)) {
+        if ("done" in line) yield { ...line, checks: [...line.checks, { id: "bom-cpl", group: "fab" as const, name: "BOM and CPL", why: "w", status: "fail" as const, detail: "U3 missing" }] };
+        else yield line;
+      }
+    };
+    expect((await env.ROOMS.get(id).agentTool("build_board", {})).isError).toBeFalsy();
+    const body = TestRunResult.parse(await (await run(id, {}, token)).json());
+    expect(body.checks.find((c) => c.id === "bom-cpl")?.status).toBe("fail");
+    expect(body.ok).toBe(false);
+    expect(core.latestChecks().find((c) => c.id === "bom-cpl")?.detail).toBe("U3 missing");
+  });
+});

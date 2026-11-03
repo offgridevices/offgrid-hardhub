@@ -715,9 +715,9 @@ export default function Board2D({
           {mark && (
             <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" viewBox={`0 0 ${W} ${H}`} aria-hidden="true" data-testid="board-focus">
               <circle cx={mark.x} cy={mark.y} r={px(26)} fill="none" stroke="var(--ember)" strokeWidth={px(3)} className="hh-pulse" />
-              <circle cx={mark.x} cy={mark.y} r={px(13)} fill="rgba(255,106,0,.18)" stroke="#1b1813" strokeWidth={px(5)} />
-              <circle cx={mark.x} cy={mark.y} r={px(13)} fill="none" stroke="#f1ece0" strokeWidth={px(2.5)} />
-              <circle cx={mark.x} cy={mark.y} r={px(3)} fill="#f1ece0" />
+              <circle cx={mark.x} cy={mark.y} r={px(13)} fill="color-mix(in oklab, var(--ember) 18%, transparent)" stroke="var(--board-bg)" strokeWidth={px(5)} />
+              <circle cx={mark.x} cy={mark.y} r={px(13)} fill="none" stroke="var(--silk)" strokeWidth={px(2.5)} />
+              <circle cx={mark.x} cy={mark.y} r={px(3)} fill="var(--silk)" />
             </svg>
           )}
           {geo && (

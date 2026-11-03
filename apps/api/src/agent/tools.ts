@@ -42,6 +42,8 @@ export interface ToolContext {
   /** the last build that made files: its engine job and its KiCad zip in the file store */
   lastBuild(): { job: string; kicad: string; version?: number } | null;
   setLastBuild(b: { job: string; kicad: string; version?: number }): void;
+  /** the latest stored board and circuit checks */
+  latestChecks(): CheckResult[];
   /** the file names of the latest board test report (json for clients, md for reading) */
   lastTests(): { json?: string; md?: string } | null;
   setLastTests(t: { json?: string; md?: string }): void;
@@ -627,6 +629,17 @@ export function testCounts(checks: CheckResult[]): string {
   return parts.join(", ");
 }
 
+/** Checks only a full build makes (placing the parts, the silkscreen, the order
+ * files). A test run or a hand edit that does not make them again keeps the
+ * build's result, so a failure there never drops out of the list. */
+export const BUILD_ONLY_CHECKS = ["fanout", "silkscreen", "bom-cpl"] as const;
+
+export function carryForward(next: CheckResult[], prev: CheckResult[]): CheckResult[] {
+  const have = new Set(next.map((c) => c.id));
+  const kept = prev.filter((c) => (BUILD_ONLY_CHECKS as readonly string[]).includes(c.id) && !have.has(c.id));
+  return [...next, ...kept];
+}
+
 /** remembers the latest test report among a job's stored files */
 export function rememberTests(ctx: Pick<ToolContext, "setLastTests">, stored: Artifact[]) {
   const json = stored.find((a) => a.kind === "report" && a.name.endsWith("-tests.json"))?.name;
@@ -662,6 +675,8 @@ export async function runTests(
         if (line.step === "test") relay.line(line);
         continue;
       }
+      // what only a build makes is kept from the build, before anything is counted
+      if (line.checks.length) line.checks = carryForward(line.checks, ctx.latestChecks());
       relay.done(line.checks, line.ok || line.checks.length ? undefined : (line.error ?? "the tests could not run"), note);
       if (!line.checks.length) return fail(`The tests could not run${line.error ? `: ${line.error}` : "."}`);
       ctx.emit({ type: "checks", results: line.checks });
@@ -670,7 +685,7 @@ export async function runTests(
       rememberTests(ctx, stored);
       const at = options.ambient_min !== undefined || options.ambient_max !== undefined ? ` at ${options.ambient_min ?? "the design's"} to ${options.ambient_max ?? "the design's"} °C` : "";
       return {
-        ok: line.ok,
+        ok: line.ok && !line.checks.some((c) => c.status === "fail"),
         error: false,
         checks: line.checks,
         ...(note ? { note } : {}),
