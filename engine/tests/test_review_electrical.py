@@ -136,9 +136,19 @@ def test_power_tree_of_the_fixture(c3):
     assert [s['ref'] for s in vb['sinks']] == ['U2'] and vb['load'] == pytest.approx(0.5)
     g = pm['regulators'][0]
     assert (g['ref'], g['in_net'], g['out_net'], g['vin'], g['vout'], g['iout']) == ('U2', 'VBUS', '+3V3', 5, 3.3, 0.5)
+    # heat from the average: (5 − 3.3) V × 0.12 A; tracks and the budget use the 0.5 A peak
+    assert pm['dissipation']['U2']['power'] == pytest.approx(1.7 * 0.12)
+    assert pm['dissipation']['U2']['assumed'] is False
+    assert 'average' in pm['dissipation']['U2']['how']
+
+
+def test_heat_uses_the_peak_when_no_average_is_given(c3):
+    for n in ('+3V3', 'VBUS'):
+        c3['nets'][n].pop('average', None)
+    from hardhub.review import power
+    pm = power.power_model(c3)
     # (5 − 3.3) V × 0.5 A
     assert pm['dissipation']['U2']['power'] == pytest.approx(0.85)
-    assert pm['dissipation']['U2']['assumed'] is False
 
 
 def test_switcher_input_current_and_pass_through():
@@ -249,8 +259,8 @@ def test_ldo_without_headroom_fails(c3):
 
 
 def test_overloaded_ldo_fails(c3):
-    c3['nets']['+3V3']['current'] = 2.0
-    c3['nets']['VBUS']['current'] = 2.0
+    c3['nets']['+3V3'].update(current=2.0, average=2.0)
+    c3['nets']['VBUS'].update(current=2.0, average=2.0)
     res, rep, pm = run_checks(c3)
     assert res['power-budget']['status'] == 'fail' and 'U2' in res['power-budget']['detail']
     assert res['power-budget']['measured']['value'] == pytest.approx(200)

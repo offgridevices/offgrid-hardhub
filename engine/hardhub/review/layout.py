@@ -154,7 +154,7 @@ def checks(d, model, m, drc, report=None):
     out.append(cm)
     add(minimum('edge-clearance', m, 'edge_min', 'closest copper to the edge', L['edge'], drc=drc,
                 fix='Pull the copper at least %.3g mm in from the board edge.' % L['edge']))
-    corners = [c for c in (m or {}).get('corners', []) if c['angle'] > 45.5]
+    corners = [c for c in (m or {}).get('corners', []) if c['angle'] > 45.5 and not _jog(model, c)]
     sharp = [c for c in corners if c['angle'] >= 89.5]
     if m is None:
         add(C.skip('corners-45', 'the geometry measurement could not run'))
@@ -287,6 +287,20 @@ def checks(d, model, m, drc, report=None):
     add(shapes.usb_pair(d))
     add(creepage(d, m))
     return out
+
+
+def _jog(model, c):
+    """A turn at the end of a stub shorter than the track is wide: in the
+    copper it is no corner at all (the router's sliver between two 45° bends)."""
+    at = c.get('at')
+    if not at:
+        return False
+    for t in model['tracks']:
+        if t['layer'] != c.get('layer') or t['net'] != c.get('net'):
+            continue
+        if min(math.dist(t['a'], at), math.dist(t['b'], at)) < 1e-3 and math.dist(t['a'], t['b']) < t['w']:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------- signals

@@ -46,8 +46,10 @@ def test_every_planned_test_reports(built):
     missing = [p['id'] for p in plan if p['id'] not in got]
     assert not missing, missing
     assert set(p['id'] for p in plan) <= set(streamed)
-    skipped = {i: c['detail'] for i, c in got.items() if c['status'] == 'skip'}
+    # 'not run' only for want of data in the design (no stock looked up), never a tool that failed
+    skipped = {i: c['detail'] for i, c in got.items() if c['status'] == 'skip' and 'could not run' in c['detail']}
     assert not skipped, skipped
+    assert {i for i, c in got.items() if c['status'] == 'skip'} <= {'stock-qty'}
     for c in final['checks']:
         assert c['group'] in dict(catalog.AREAS), c
         assert c.get('plain') and c.get('how'), c['id']
@@ -59,11 +61,15 @@ def test_the_clean_board_is_clean(built):
     files, final, _ = built
     c = by_id(final)
     for i in ('shorts', 'routed', 'nets-match', 'drc-errors', 'track-min', 'clearance-min', 'edge-clearance',
-              'via-size', 'drill-min', 'annular-ring', 'hole-to-hole', 'courtyard', 'voltage-drop', 'usb-c-cc',
-              'i2c-pullups', 'heat-board'):
+              'via-size', 'drill-min', 'annular-ring', 'hole-to-hole', 'courtyard', 'usb-c-cc',
+              'i2c-pullups', 'heat-board', 'heat-junction', 'track-heating'):
         assert c[i]['status'] == 'pass', (i, c[i].get('detail'))
+    # the router draws +3V3 at the width its 0.5 A needs and no wider: a few
+    # percent lost on the way to the module at the peak, worth a look, not a failure
+    vd = c['voltage-drop']
+    assert vd['status'] in ('pass', 'warn') and vd['measured']['value'] < 5, vd
     # the measured numbers are HardHub's own drawing rules, inside the fab's
-    assert c['track-min']['measured']['value'] >= 0.15 - 1e-6
+    assert c['track-min']['measured']['value'] >= 0.127 - 1e-6           # necks into small pads, at the fab's floor
     assert c['clearance-min']['measured']['value'] >= 0.15 - 0.01
     assert c['via-size']['measured']['value'] == pytest.approx(0.6, abs=0.01)
     # not applicable here, and said so
@@ -72,18 +78,18 @@ def test_the_clean_board_is_clean(built):
 
 
 def test_the_regulator_heat_is_physical(built):
-    """AMS1117: (5 - 3.3) V x 0.5 A = 0.85 W in a SOT-223 on a small two-layer
-    board. Its tab should sit a few tens of degrees above a 50 °C day, never
-    below the air and never absurdly hot."""
+    """AMS1117: (5 - 3.3) V x 0.12 A average = 0.2 W in a SOT-223 on a small
+    two-layer board (with the module's own 0.4 W nearby). It should sit some
+    degrees above a 50 °C day, never below the air and never absurdly hot."""
     files, final, _ = built
     rep = json.loads((files / art(final, '-tests.json')['name']).read_text())
     assert rep['ambient'] == dict(min=0, max=50, points=[0, 25, 50])
     th = rep['thermal']
     u2 = next(p for p in th['parts'] if p['ref'] == 'U2')
-    assert u2['power'] == pytest.approx(0.85, rel=0.05)
+    assert u2['power'] == pytest.approx(1.7 * 0.12, rel=0.05)
     hot = u2['temps'][-1]
     assert hot['ambient'] == 50
-    assert 55 < hot['board'] < 120, hot
+    assert 52 < hot['board'] < 90, hot
     assert hot['junction'] > hot['board']
     # 25 °C cooler outside: about 25 °C cooler on the board (h depends a little on temperature)
     mid = next(t for t in u2['temps'] if t['ambient'] == 25)
@@ -148,8 +154,8 @@ def test_a_hot_day_and_a_heavy_load_overheat_the_regulator(built, tmp_path):
     from hardhub import pipeline
     files, final, _ = built
     d = copy.deepcopy(fixture('esp32c3-sensor.json'))
-    d['nets']['+3V3']['current'] = 1.0
-    d['nets']['VBUS']['current'] = 1.0
+    d['nets']['+3V3'].update(current=1.0, average=1.0)
+    d['nets']['VBUS'].update(current=1.0, average=1.0)
     zp = (files / art(final, '-kicad.zip')['name']).read_bytes()
     lines = []
     res = pipeline.test(d, io.BytesIO(zp), str(tmp_path / 'work'), str(tmp_path / 'files'), lines.append, job='t',
