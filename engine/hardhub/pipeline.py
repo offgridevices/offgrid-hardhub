@@ -35,9 +35,16 @@ class Stop(Exception):
 class Job:
     steps = STEPS
 
-    def __init__(self, d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None, options=None):
+    def __init__(self, d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None, options=None,
+                 tests=True):
         from . import design as D
         self.d = D.normalize(d)
+        # tests=False: a client from before the board tests (an API rolled back
+        # behind this engine) gets the build it knows: no test step, and its
+        # checks in the old groups, so nothing it cannot read
+        self.tests = tests
+        if not tests:
+            self.steps = [s for s in type(self).steps if s != 'test']
         self.options = options or {}
         self.drc_json = None
         self.report_files, self.test_ids = [], set()
@@ -63,7 +70,8 @@ class Job:
         # a later result for the same check (the test step's, measured on the
         # finished board) replaces an earlier one
         from .review import catalog
-        r = catalog.enrich(r)
+        if self.tests:
+            r = catalog.enrich(r)
         self.checks = [c for c in self.checks if c['id'] != r['id']] + [r]
         return r['status'] != 'fail'
 
@@ -403,8 +411,8 @@ class EditJob(Job):
     edits moved, in the design's frame."""
     steps = EDIT_STEPS
 
-    def __init__(self, d, kicad_zip, edits, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS):
-        super().__init__(d, work, out, emit, job, outputs)
+    def __init__(self, d, kicad_zip, edits, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, tests=True):
+        super().__init__(d, work, out, emit, job, outputs, tests=tests)
         self.kicad_zip, self.edits = kicad_zip, edits
 
     def s_validate(self):
@@ -473,11 +481,11 @@ def test(d, kicad_zip, work, out, emit, job='local', options=None):
         return j.final(False, '%s: %s' % (type(e).__name__, e))
 
 
-def edit(d, kicad_zip, edit_list, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS):
+def edit(d, kicad_zip, edit_list, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, tests=True):
     """Apply hand edits to a built board and redo its checks and files; returns the
     final JobLine. An edit that cannot be applied comes back rejected, nothing changed."""
     from .edits import EditError
-    j = EditJob(d, kicad_zip, edit_list, work, out, emit, job, outputs)
+    j = EditJob(d, kicad_zip, edit_list, work, out, emit, job, outputs, tests=tests)
     try:
         return j.run()
     except EditError as e:
@@ -490,9 +498,9 @@ def edit(d, kicad_zip, edit_list, work, out, emit, job='local', outputs=DEFAULT_
         return j.final(False, '%s: %s' % (type(e).__name__, e))
 
 
-def build(d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None, options=None):
+def build(d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None, options=None, tests=True):
     """Run a build; returns the final JobLine (also on failure)."""
-    j = Job(d, work, out, emit, job, outputs, stop_after, options)
+    j = Job(d, work, out, emit, job, outputs, stop_after, options, tests=tests)
     try:
         return j.run()
     except Stop as e:

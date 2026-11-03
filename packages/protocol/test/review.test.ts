@@ -32,3 +32,12 @@ describe("an older report, with empty fields written as null", () => {
     expect(r.power.tree[0]!.from).toBeUndefined();
   });
 });
+
+describe("what a newer engine may send", () => {
+  it("reads unknown steps, check groups and statuses instead of failing", async () => {
+    const { JobLine, CheckResult } = await import("../src/index");
+    expect(JobLine.safeParse({ step: "simulate-emc", progress: 0.5, message: "new step" }).success).toBe(true);
+    const c = CheckResult.parse({ id: "x", group: "emc", name: "n", why: "w", status: "info" });
+    expect([c.group, c.status]).toEqual(["fab", "skip"]);
+  });
+});

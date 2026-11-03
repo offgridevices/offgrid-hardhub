@@ -70,18 +70,18 @@ def _child(fn, args, q):
         q.put(None)
 
 
-def _build(q, design, job, outputs, stop_after):
+def _build(q, design, job, outputs, stop_after, tests=False):
     from . import pipeline
     base = os.path.join(JOBS, job)
     shutil.rmtree(base, ignore_errors=True)
     work, out = os.path.join(base, 'work'), os.path.join(base, 'files')
-    line = pipeline.build(design, work, out, q.put, job=job, outputs=outputs, stop_after=stop_after)
+    line = pipeline.build(design, work, out, q.put, job=job, outputs=outputs, stop_after=stop_after, tests=tests)
     if os.environ.get('HARDHUB_KEEP_WORK') != '1':
         shutil.rmtree(work, ignore_errors=True)
     q.put(line)
 
 
-def _edit(q, design, job, kicad_zip_b64, edits, outputs):
+def _edit(q, design, job, kicad_zip_b64, edits, outputs, tests=False):
     import base64
     import io
     from . import pipeline
@@ -89,7 +89,7 @@ def _edit(q, design, job, kicad_zip_b64, edits, outputs):
     shutil.rmtree(base, ignore_errors=True)
     work, out = os.path.join(base, 'work'), os.path.join(base, 'files')
     line = pipeline.edit(design, io.BytesIO(base64.b64decode(kicad_zip_b64)), edits, work, out, q.put, job=job,
-                         outputs=outputs)
+                         outputs=outputs, tests=tests)
     if os.environ.get('HARDHUB_KEEP_WORK') != '1':
         shutil.rmtree(work, ignore_errors=True)
     if line.get('rejected'):
@@ -406,9 +406,9 @@ class Handler(BaseHTTPRequestHandler):
                             and math.isfinite(v)}
                     run_child(_test, (req['design'], job, req.get('kicad_zip_b64') or None, opts), BUILD_TIMEOUT, on_line)
                 elif editing:
-                    run_child(_edit, (req['design'], job, req['kicad_zip_b64'], req['edits'], outputs), BUILD_TIMEOUT, on_line)
+                    run_child(_edit, (req['design'], job, req['kicad_zip_b64'], req['edits'], outputs, req.get('tests') is True), BUILD_TIMEOUT, on_line)
                 else:
-                    run_child(_build, (req['design'], job, outputs, req.get('stop_after')), BUILD_TIMEOUT, on_line)
+                    run_child(_build, (req['design'], job, outputs, req.get('stop_after'), req.get('tests') is True), BUILD_TIMEOUT, on_line)
             except TimeoutError as e:
                 chunk(dict(done=True, ok=False, error='build %s' % e, checks=[], artifacts=[], stats={}, placement={}))
                 sent_done[0] = True

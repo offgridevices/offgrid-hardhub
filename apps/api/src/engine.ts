@@ -134,11 +134,13 @@ export class HttpEngine implements Engine {
 
   build(design: Design, job: string, signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine> {
     // png renders too: the agent looks at its own layout through render
-    return this.stream("/build", { design, job, outputs: ["svg", "glb", "png"], ...(stopAfter ? { stop_after: stopAfter } : {}) }, signal);
+    // tests: the engine runs the board tests and sends their lines (an engine
+    // asked by an older API, without it, sends the build that API knows)
+    return this.stream("/build", { design, job, tests: true, outputs: ["svg", "glb", "png"], ...(stopAfter ? { stop_after: stopAfter } : {}) }, signal);
   }
 
   edit(design: Design, job: string, kicadZip: ArrayBuffer, edits: BoardEdit[], signal?: AbortSignal): AsyncIterable<JobLine> {
-    return this.stream("/edit", { design, job, kicad_zip_b64: base64(kicadZip), edits, outputs: ["svg", "glb", "png"] }, signal);
+    return this.stream("/edit", { design, job, tests: true, kicad_zip_b64: base64(kicadZip), edits, outputs: ["svg", "glb", "png"] }, signal);
   }
 
   test(design: Design, job: string, kicadZip: ArrayBuffer, options?: TestOptions, signal?: AbortSignal): AsyncIterable<JobLine> {

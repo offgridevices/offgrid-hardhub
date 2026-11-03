@@ -164,7 +164,7 @@ def test_edit_streams_like_a_build(url, c3):
     g = json.loads(call(url, geo['url'])[2])
     zdata = base64.b64encode(call(url, kzip['url'])[2]).decode()
     via = g['vias'][0]
-    req = dict(design=c3, job='edtest', kicad_zip_b64=zdata, outputs=['svg'],
+    req = dict(design=c3, job='edtest', kicad_zip_b64=zdata, outputs=['svg'], tests=True,
                edits=[dict(op='set_via', id=via['id'], x=via['x'], y=via['y'])])
     code, ctype, body = call(url, '/edit', req)
     lines = [json.loads(l) for l in body.splitlines()]
@@ -213,3 +213,21 @@ def test_board_tests_stream_on_their_own(url, c3):
     assert r['ambient']['min'] == -20 and r['ambient']['max'] == 60
     # no design: refused
     assert call(url, '/test', dict(job='x'))[0] == 400
+
+
+def test_a_client_from_before_the_tests_gets_the_build_it_knows(url, c3):
+    """An API that does not ask for the tests (one rolled back behind this
+    engine) gets no test step, no "na" status and only the old check groups,
+    so its stricter schema reads every line; one that asks gets them all."""
+    old_groups = {'circuit', 'layout', 'fab', 'power', 'thermal', 'firmware'}
+    code, _, body = call(url, '/build', dict(design=c3, job='oldapi', outputs=['svg']))
+    lines = [json.loads(l) for l in body.splitlines()]
+    assert code == 200 and 'test' not in {l.get('step') for l in lines[:-1]}
+    done = lines[-1]
+    assert done['done'] and done['checks']
+    assert {c['group'] for c in done['checks']} <= old_groups, {c['group'] for c in done['checks']}
+    assert {c['status'] for c in done['checks']} <= {'pass', 'fail', 'warn', 'skip'}
+    code, _, body = call(url, '/build', dict(design=c3, job='newapi', outputs=['svg'], tests=True))
+    lines = [json.loads(l) for l in body.splitlines()]
+    assert any(l.get('step') == 'test' and l.get('plan') for l in lines[:-1])
+    assert len(lines[-1]['checks']) > 60

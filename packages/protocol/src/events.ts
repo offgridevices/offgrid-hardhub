@@ -73,10 +73,12 @@ export type CheckGroup = z.infer<typeof CheckGroup>;
 // skip: it could not run, and detail says why.
 export const CheckResult = z.object({
   id: z.string(),
-  group: CheckGroup,
+  // a group or status this client does not know yet (a newer engine) reads as
+  // "fab" and "skip" rather than failing the whole message
+  group: CheckGroup.catch("fab"),
   name: z.string(),
   why: z.string(),
-  status: z.enum(["pass", "fail", "warn", "skip", "na"]),
+  status: z.enum(["pass", "fail", "warn", "skip", "na"]).catch("skip"),
   detail: z.string().optional(),
   plain: z.string().optional(), // what is tested, for someone who has never made a board
   how: z.string().optional(), // how it was tested

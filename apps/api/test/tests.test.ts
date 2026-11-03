@@ -185,7 +185,7 @@ describe("a test run always ends", () => {
     expect((await core.agentTool("build_board", {})).isError).toBeFalsy();
     const r = await core.agentTool("run_tests", {});
     expect(r.isError).toBe(true);
-    expect(r.content).toMatch(/wait_for_build/);
+    expect(r.content).toMatch(/runs the board tests itself\. Call wait_for_build/);
     expect(engine.tests).toHaveLength(0);
     void id;
   });

@@ -72,7 +72,9 @@ export type TestOptions = z.infer<typeof TestOptions>;
 
 export const JobLine = z.union([
   z.object({
-    step: z.enum(BuildSteps),
+    // any step name: an engine newer than this API may add steps, and their
+    // progress lines must not break a build (BuildSteps lists today's)
+    step: z.string(),
     progress: z.number(),
     message: z.string(),
     // the test step: plan comes first (every check it will run), then one result per finished check

@@ -75,7 +75,8 @@ export type BoardEditOutcome =
 /** notes kept for the AI that has not heard them yet, at most this many */
 const NOTES = 20;
 
-/** agent tools that change the design: not while an agent's build runs from it */
+/** agent tools that change the design or test the board: not while an agent's
+ * build runs (it works from the design as it was, and makes a new board) */
 const CHANGES_DESIGN = new Set(["update_design", "set_stage", "write_firmware", "run_tests"]);
 
 let counter = 0;
@@ -436,7 +437,13 @@ export class RoomCore {
     if (name === "build_board") return this.startAgentBuild(input);
     // the build works from the design as it was when it started
     if (CHANGES_DESIGN.has(name) && this.buildingForAgent())
-      return { content: "A board build is running from the current design. Call wait_for_build, then make the change.", isError: true };
+      return {
+        content:
+          name === "run_tests"
+            ? "A board build is running, and it runs the board tests itself. Call wait_for_build for its results."
+            : "A board build is running from the current design. Call wait_for_build, then make the change.",
+        isError: true,
+      };
     this.agentCalls++;
     try {
       const r = await runTool({ id: shortId("x"), name, input }, this.toolContext(true), new AbortController().signal);
