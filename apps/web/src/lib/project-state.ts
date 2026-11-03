@@ -143,6 +143,9 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
       if (s.testRun?.phase === "done" && !s.testRun.settled) {
         n.checks = e.results;
         n.testRun = { ...s.testRun, settled: true };
+        // the chat's card counts what the Tests tab lists: the circuit's own checks too
+        const run = s.testRun.run;
+        n.items = s.items.map((it) => (it.kind === "tests" && it.id === run ? { ...it, total: e.results.length } : it));
         break;
       }
       // results arrive per job; a later result for the same check replaces it
