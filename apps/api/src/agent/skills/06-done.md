@@ -1,6 +1,6 @@
 # Done means
 
-Every build runs the board tests: about 80 checks an experienced engineer makes
+Every build runs the board tests: about 90 checks an experienced engineer makes
 before ordering, each with what it found, the number it measured against its
 limit, where on the board, and how to fix it. They cover connections and
 shorts, copper widths and gaps, holes and vias, printing, solder mask,
