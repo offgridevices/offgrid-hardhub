@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+[package]
+name = "hardhub-sim"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "HardHub board-test solvers: DFM geometry measurements, DC voltage drop, board heat"
+publish = false
+
+[lib]
+name = "hardhub_sim"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hardhub-sim"
+path = "src/main.rs"
+
+# Exact versions, each a stable release at least two weeks old when pinned.
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+# Scalar engine only: the maps are a few kB, SIMD buys nothing here.
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
+
+# The physics tests solve real grids; unoptimised builds make them crawl.
+[profile.test]
+opt-level = 2

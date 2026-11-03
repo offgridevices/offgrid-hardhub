@@ -1,5 +1,5 @@
 // The REST API (packages/protocol/src/api.ts) and the WebSocket entry.
-import { BoardEditRequest, type Connections, LlmProvider, LlmSettings, OAuthApprove, type ProjectDetail } from "@hardhub/protocol";
+import { BoardEditRequest, TestOptions, type Connections, LlmProvider, LlmSettings, OAuthApprove, type ProjectDetail } from "@hardhub/protocol";
 import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { cors } from "hono/cors";
@@ -313,6 +313,16 @@ app.post("/projects/:id/board/edits", auth, async (c) => {
   const p = await owned(c);
   const req = BoardEditRequest.parse(await c.req.json());
   const r = await room(c.env, p.id).editBoard(req);
+  return c.json(r.body, r.status);
+});
+
+// the board tests again on the last built board, at the outside temperatures
+// asked for: answers once they have all run (live meanwhile as test_run
+// events). 409 while anything else works here, or before there is a board
+app.post("/projects/:id/tests", auth, async (c) => {
+  const p = await owned(c);
+  const opts = TestOptions.parse(await c.req.json().catch(() => ({})));
+  const r = await room(c.env, p.id).runTests(opts);
   return c.json(r.body, r.status);
 });
 

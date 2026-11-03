@@ -15,7 +15,7 @@ import { useApp } from "../lib/app";
 import { AI_SETUP_NOTE, useDismissed } from "../lib/dismissed";
 import { navigate, onLink } from "../lib/router";
 import { useProject } from "../lib/use-project";
-import { isKeyError } from "../lib/project-state";
+import { isKeyError, testsRunning } from "../lib/project-state";
 import { STAGE_LABEL, STAGE_TONE, usd } from "../lib/format";
 import { providerInfo, modelLabel } from "../config/llm";
 import { centreIn } from "../lib/edge-fade";
@@ -32,7 +32,7 @@ const loaders = {
   parts: once(() => import("../panes/parts")),
   circuit: once(() => import("../panes/circuit")),
   board: once(() => import("../panes/board2d")),
-  checks: once(() => import("../panes/checks")),
+  checks: once(() => import("../panes/tests")),
   order: once(() => import("../panes/order")),
 };
 const Overview = lazy(loaders.overview);
@@ -40,7 +40,7 @@ const Parts = lazy(loaders.parts);
 const Circuit = lazy(loaders.circuit);
 const Board2D = lazy(loaders.board);
 const Viewer3D = lazy(() => import("../panes/viewer3d"));
-const Checks = lazy(loaders.checks);
+const Tests = lazy(loaders.checks);
 const Order = lazy(loaders.order);
 
 // one menu: each view, with an icon, marked done or current as the design
@@ -51,10 +51,25 @@ const TABS = [
   { id: "circuit", label: "Schematic", icon: <WaypointsIcon /> },
   { id: "board", label: "Layout", icon: <LayoutDashboardIcon /> },
   { id: "3d", label: "3D", icon: <BoxIcon /> },
-  { id: "checks", label: "Checks", icon: <CircleCheckBigIcon /> },
+  // the id stays "checks" so links from before the full test suite still work
+  { id: "checks", label: "Tests", icon: <CircleCheckBigIcon /> },
   { id: "order", label: "Order", icon: <PackageIcon /> },
 ] as const satisfies readonly { id: string; label: string; icon: ReactNode }[];
 type Tab = (typeof TABS)[number]["id"];
+
+// what a link into a view can carry besides the tab: a spot on the board
+// (?tab=board&focus=x,y&net=SCL, design frame) or the 3D arrangement (?view=layers)
+const EXTRA = ["focus", "ref", "net", "layer", "view"] as const;
+type Extra = Partial<Record<(typeof EXTRA)[number], string>>;
+const readExtra = (): Extra => {
+  const q = new URLSearchParams(location.search);
+  return Object.fromEntries(EXTRA.flatMap((k) => (q.get(k) ? [[k, q.get(k)!]] : [])));
+};
+function parseFocus(e: Extra) {
+  const [x, y] = (e.focus ?? "").split(",").map(Number);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !e.focus) return null;
+  return { x: x!, y: y!, ref: e.ref, net: e.net, layer: e.layer };
+}
 
 // the tab that shows what a stage produced
 const STAGE_TAB: Record<Stage, Tab> = {
@@ -97,11 +112,17 @@ export default function Workspace({ id }: { id: string }) {
   // the tab lives in React state (so a transition can keep the current tab on
   // screen until the next one is ready) and is mirrored into the URL
   const [tabParam, setTabParam] = useState(() => new URLSearchParams(location.search).get("tab"));
-  const setTab = useCallback((t: string) => {
+  const [extra, setExtra] = useState<Extra>(readExtra);
+  const setTab = useCallback((t: string, more: Extra = {}) => {
     const q = new URLSearchParams(location.search);
     q.set("tab", t);
+    for (const k of EXTRA) q.delete(k);
+    for (const [k, v] of Object.entries(more)) if (v) q.set(k, v);
     history.replaceState(null, "", `${location.pathname}?${q}`);
-    startTransition(() => setTabParam(t));
+    startTransition(() => {
+      setTabParam(t);
+      setExtra(more);
+    });
   }, []);
   useEffect(() => {
     const idle = window.requestIdleCallback ?? ((f: () => void) => setTimeout(f, 300));
@@ -190,6 +211,14 @@ export default function Workspace({ id }: { id: string }) {
 
   const fileUrl = useCallback((u: string) => backend.fileUrl(id, u), [backend, id]);
   const saveEdits = useCallback((req: BoardEditRequest) => backend.editBoard(id, req), [backend, id]);
+  const runTests = useCallback((r: { min: number; max: number }) => backend.runTests(id, { ambient_min: r.min, ambient_max: r.max }), [backend, id]);
+  const showOnBoard = useCallback(
+    (w: { x: number; y: number; refs?: string[]; net?: string; layer?: string }) =>
+      setTab("board", { focus: `${+w.x.toFixed(3)},${+w.y.toFixed(3)}`, ref: w.refs?.[0], net: w.net, layer: w.layer }),
+    [setTab],
+  );
+  const openLayers3d = useCallback(() => setTab("3d", { view: "layers" }), [setTab]);
+  const focus = useMemo(() => parseFocus(extra), [extra]);
   const design = detail?.design;
 
   const main = useMemo(() => {
@@ -202,15 +231,27 @@ export default function Workspace({ id }: { id: string }) {
       case "circuit":
         return <Circuit design={design} />;
       case "board":
-        return <Board2D design={design} artifacts={state.artifacts} checks={state.checks} fileUrl={fileUrl} save={saveEdits} />;
+        return <Board2D design={design} artifacts={state.artifacts} checks={state.checks} fileUrl={fileUrl} save={saveEdits} focus={focus} />;
       case "3d":
-        return <Viewer3D design={design} artifacts={state.artifacts} fileUrl={fileUrl} />;
+        return <Viewer3D design={design} artifacts={state.artifacts} fileUrl={fileUrl} initialMode={extra.view} />;
       case "checks":
-        return <Checks checks={state.checks} />;
+        return (
+          <Tests
+            design={design}
+            checks={state.checks}
+            testRun={state.testRun}
+            artifacts={state.artifacts}
+            fileUrl={fileUrl}
+            busy={state.busy}
+            onRun={runTests}
+            onShow={showOnBoard}
+            onOpen3d={openLayers3d}
+          />
+        );
       case "order":
         return <Order design={design} artifacts={state.artifacts} fileUrl={fileUrl} />;
     }
-  }, [tab, design, state.artifacts, state.checks, fileUrl, saveEdits]);
+  }, [tab, design, state.artifacts, state.checks, state.testRun, state.busy, fileUrl, saveEdits, runTests, showOnBoard, openLayers3d, focus, extra.view]);
 
   if (error)
     return (
@@ -232,6 +273,7 @@ export default function Workspace({ id }: { id: string }) {
 
   const fullBleed = tab === "board" || tab === "3d" || tab === "circuit";
   const failing = state.checks.some((c) => c.status === "fail");
+  const testing = testsRunning(state);
   const hasOrder = state.artifacts.some((a) => a.kind === "gerbers");
 
   return (
@@ -277,7 +319,8 @@ export default function Workspace({ id }: { id: string }) {
         >
           {TABS.map((t) => {
             const progress = tabProgress(t.id, stage);
-            const fail = t.id === "checks" && failing;
+            const live = t.id === "checks" && testing;
+            const fail = t.id === "checks" && failing && !live;
             const selected = tab === t.id;
             return (
               <Tooltip key={t.id}>
@@ -294,7 +337,10 @@ export default function Workspace({ id }: { id: string }) {
                   >
                     {t.icon}
                     <span className="min-[700px]:sr-only">{t.label}</span>
-                    {(progress || fail) && (
+                    {live ? (
+                      // the tests running: a small turning ring where the dot sits
+                      <span aria-hidden="true" className="absolute right-1 top-1 size-2.5 animate-spin rounded-full border-[1.5px] border-ember border-t-transparent [animation-duration:1.2s]" data-testid="tests-live" />
+                    ) : (progress || fail) && (
                       <span
                         aria-hidden="true"
                         className={cn(
@@ -303,7 +349,8 @@ export default function Workspace({ id }: { id: string }) {
                         )}
                       />
                     )}
-                    {fail && <span className="sr-only"> (a check failed)</span>}
+                    {fail && <span className="sr-only"> (a test failed)</span>}
+                    {live && <span className="sr-only"> (tests running)</span>}
                     {progress === "current" && <span className="sr-only"> (current stage)</span>}
                   </button>
                 </TooltipTrigger>

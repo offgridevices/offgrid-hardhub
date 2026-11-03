@@ -37,15 +37,62 @@ export const Comparison = z.object({
 });
 export type Comparison = z.infer<typeof Comparison>;
 
+// Where on the board a check found something: board mm from the centre, y
+// down (the design's frame, as view_board and move_parts use it)
+export const CheckWhere = z.object({
+  x: z.number(),
+  y: z.number(),
+  layer: z.string().optional(),
+  refs: z.array(z.string()).optional(),
+  net: z.string().optional(),
+  note: z.string().optional(),
+});
+export type CheckWhere = z.infer<typeof CheckWhere>;
+
+// The number a check measured, against its limit: passes when value op limit
+export const CheckMeasure = z.object({
+  label: z.string(), // "narrowest track"
+  value: z.number(),
+  unit: z.string(), // "mm", "°C", "V", "A", "W", "%", "mV", "Ω"
+  limit: z.number().optional(),
+  op: z.enum([">=", "<="]).optional(),
+});
+export type CheckMeasure = z.infer<typeof CheckMeasure>;
+
+// The area of the board a check belongs to, in display order. "circuit" and
+// "layout" are from before the full test suite (old results still parse).
+export const CHECK_GROUPS = [
+  "connections", "copper", "holes", "silkscreen", "mask", "placement", "power", "thermal", "stress", "signals", "firmware", "sourcing", "fab",
+  "circuit", "layout",
+] as const;
+export const CheckGroup = z.enum(CHECK_GROUPS);
+export type CheckGroup = z.infer<typeof CheckGroup>;
+
+// One test the board went through. A miss is written exactly like a pass.
+// status na: the test does not apply to this board (no USB, no high voltage);
+// skip: it could not run, and detail says why.
 export const CheckResult = z.object({
   id: z.string(),
-  group: z.enum(["circuit", "layout", "fab", "power", "thermal", "firmware"]),
+  // a group or status this client does not know yet (a newer engine) reads as
+  // "fab" and "skip" rather than failing the whole message
+  group: CheckGroup.catch("fab"),
   name: z.string(),
   why: z.string(),
-  status: z.enum(["pass", "fail", "warn", "skip"]),
+  status: z.enum(["pass", "fail", "warn", "skip", "na"]).catch("skip"),
   detail: z.string().optional(),
+  plain: z.string().optional(), // what is tested, for someone who has never made a board
+  how: z.string().optional(), // how it was tested
+  tool: z.string().optional(), // "KiCad 10 DRC", "ngspice", "HardHub solver (Rust)"
+  source: z.string().optional(), // where the rule comes from ("IPC-2221", "JLCPCB capabilities (2026)")
+  fix: z.string().optional(), // what to change (fail and warn)
+  measured: CheckMeasure.optional(),
+  where: z.array(CheckWhere).max(20).optional(),
 });
 export type CheckResult = z.infer<typeof CheckResult>;
+
+/** a check a test run will make, before it has run (the live view lists them all) */
+export const CheckPlan = z.object({ id: z.string(), group: CheckGroup, name: z.string() });
+export type CheckPlan = z.infer<typeof CheckPlan>;
 
 export const Artifact = z.object({
   // board-json: the routed board's vector geometry (BoardGeometry, board.ts), for editing it by hand
@@ -75,6 +122,27 @@ export const ServerEvent = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("stage"), stage: Stage }),
   z.object({ ...base, type: z.literal("job"), job: z.string(), step: z.string(), progress: z.number().min(0).max(1), done: z.boolean(), ok: z.boolean().optional() }),
   z.object({ ...base, type: z.literal("checks"), results: z.array(CheckResult) }),
+  // a run of the board tests, live: "start" (stored) lists every check in
+  // plan; "check" (live, not stored, like a text delta: it carries the seq of
+  // the last stored event) is one finished check and what runs next; "done"
+  // (stored) ends it. The full results follow as a stored "checks" event and
+  // the report files as "artifacts".
+  z.object({
+    ...base,
+    type: z.literal("test_run"),
+    run: z.string(),
+    phase: z.enum(["start", "check", "done"]),
+    live: z.boolean().optional(),
+    label: z.string().optional(), // what is running now, in plain words
+    progress: z.number().min(0).max(1).optional(),
+    plan: z.array(CheckPlan).optional(),
+    result: CheckResult.optional(),
+    ok: z.boolean().optional(),
+    summary: z.string().optional(),
+    // done: something the person should know about this run, in plain words
+    // ("the board was built from an earlier design: build it again")
+    note: z.string().optional(),
+  }),
   z.object({ ...base, type: z.literal("artifacts"), artifacts: z.array(Artifact) }),
   // the person edited the routed board by hand (POST /projects/:id/board/edits); summary is plain words
   z.object({ ...base, type: z.literal("board_edit"), id: z.string(), summary: z.string(), edits: z.number().int().nonnegative(), ok: z.boolean() }),

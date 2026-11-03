@@ -10,12 +10,23 @@ that would make it invalid is refused with the reasons; fix and resend.
   line: `mpn`, `maker`, `kind`, `value`, `description`, KiCad `footprint`
   ("Library:Name"; standard KiCad libraries, or "hh:<name>" for the fab's own
   footprint of that LCSC part), `lifecycle`, `sourcing` (`lcsc`, `tier`,
-  `stock`, `prices`, `checked_at`), `assembled`.
+  `stock`, `prices`, `checked_at`), `assembled`, and `ratings` from the
+  datasheet (`temp_min`, `temp_max` °C; `voltage_max` V; `current_max` A;
+  `power_max` W; `theta_jb` °C/W; `dropout` V for linear regulators;
+  `efficiency` for switchers; `source`: where you read them).
 - `components`: one per placed part: `ref` (U1, R3, C12, J1...), `part`,
   `block`, and `pins`: footprint pad number -> net name, or null for a pin left
   open on purpose. Every copper pad of the footprint must appear.
 - `nets`: only for nets that need more than a name: `kind` (power, ground),
-  `voltage`, `current` (sets track width), `width`, `diff_pair`.
+  `voltage`, `current` (the most it carries for more than a moment: sets track
+  widths and voltage drop), `average` (its typical current over time, from the
+  datasheet: sets the heat; a Wi-Fi chip averages far below its peak), `width`,
+  `diff_pair`, `source` (the ref of the part that supplies a power net).
+- `components[].power`: watts the part turns into heat at full load, when the
+  datasheet says (otherwise the tests estimate it).
+- `environment`: where the board lives: `ambient_min` and `ambient_max` (°C
+  outside the board; 0 to 50 if unset), `place` (indoor, outdoor, vehicle,
+  industrial), `enclosed` (in a closed box). Set it in the idea stage.
 - `board`: `width`, `height`, `layers`, `holes`, `layer_roles` (which inner
   layers are planes, and of which net), `keepouts` (antenna area), fab options.,
   `silkscreen`: `outlines` (each part's outline and pin-1 mark), `refs` (each

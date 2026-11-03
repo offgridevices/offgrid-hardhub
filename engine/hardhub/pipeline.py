@@ -2,7 +2,10 @@
 """From a design to a routed, checked board and its fab files.
 
     validate -> footprints -> place -> route -> miter -> pour -> drc
-             -> verify -> fab -> render
+             -> verify -> test -> fab -> render
+
+`test` is the board test suite (hardhub.review): every check made before a
+board is ordered, streamed one result at a time.
 
 Every step reports progress through `emit` (protocol JobLine) and its time
 in the final stats (t_<step>, seconds).  A gate that fails stops the build
@@ -17,9 +20,11 @@ import shutil
 import sys
 import time
 
-STEPS = ['validate', 'footprints', 'place', 'route', 'miter', 'pour', 'drc', 'verify', 'fab', 'render']
+STEPS = ['validate', 'footprints', 'place', 'route', 'miter', 'pour', 'drc', 'verify', 'test', 'fab', 'render']
 # a hand-edited board: the edits, the zones refilled, then the end of a build
-EDIT_STEPS = ['validate', 'pour', 'drc', 'verify', 'fab', 'render']
+EDIT_STEPS = ['validate', 'pour', 'drc', 'verify', 'test', 'fab', 'render']
+# the board tests again on a built board, nothing remade but the report
+TEST_STEPS = ['validate', 'verify', 'test']
 DEFAULT_OUTPUTS = ('svg', 'glb')               # 'png' and 'step' only when asked: they are slow
 
 
@@ -30,9 +35,19 @@ class Stop(Exception):
 class Job:
     steps = STEPS
 
-    def __init__(self, d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None):
+    def __init__(self, d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None, options=None,
+                 tests=True):
         from . import design as D
         self.d = D.normalize(d)
+        # tests=False: a client from before the board tests (an API rolled back
+        # behind this engine) gets the build it knows: no test step, and its
+        # checks in the old groups, so nothing it cannot read
+        self.tests = tests
+        if not tests:
+            self.steps = [s for s in type(self).steps if s != 'test']
+        self.options = options or {}
+        self.drc_json = None
+        self.report_files, self.test_ids = [], set()
         self.work, self.out, self.emit_line = work, out, emit
         self.job, self.outputs, self.stop_after = job, set(outputs or ()), stop_after
         self.checks, self.artifacts, self.stats, self.placement = [], [], {}, {}
@@ -41,9 +56,9 @@ class Job:
         os.makedirs(out, exist_ok=True)
 
     # ------------------------------------------------------------ plumbing
-    def emit(self, step, message, frac=0.0):
+    def emit(self, step, message, frac=0.0, **extra):
         i = self.steps.index(step)
-        self.emit_line(dict(step=step, progress=round((i + frac) / len(self.steps), 3), message=message))
+        self.emit_line(dict(step=step, progress=round((i + frac) / len(self.steps), 3), message=message, **extra))
 
     def art(self, kind, path, **kw):
         name = os.path.basename(path)
@@ -52,10 +67,27 @@ class Job:
         self.artifacts.append(a)
 
     def check(self, r):
-        self.checks.append(r)
+        # a later result for the same check (the test step's, measured on the
+        # finished board) replaces an earlier one
+        from .review import catalog
+        if self.tests:
+            r = catalog.enrich(r)
+        self.checks = [c for c in self.checks if c['id'] != r['id']] + [r]
         return r['status'] != 'fail'
 
     def final(self, ok, error=None, rejected=False):
+        if self.report_files:
+            # the report with every check made, including the steps after the test step
+            try:
+                from . import review
+                review.refresh(self.report_files, self.checks, self.d)
+                for a in self.artifacts:
+                    p = os.path.join(self.out, a['name'])
+                    if a['kind'] == 'report' and os.path.exists(p):
+                        a['bytes'] = os.path.getsize(p)
+            except Exception:                                 # noqa: BLE001 -- the step's own report stands
+                import traceback
+                traceback.print_exc(file=sys.stderr)
         line = dict(done=True, ok=ok, checks=self.checks, artifacts=self.artifacts, stats=self.stats,
                     placement=self.placement)
         if error:
@@ -75,7 +107,16 @@ class Job:
             self.emit(step, 'done in %.1f s' % self.stats['t_' + step], 1.0)
             if step == self.stop_after:
                 break
-        return self.final(all(c['status'] != 'fail' for c in self.checks))
+        return self.final(self.made_ok())
+
+    def made_ok(self):
+        """ok means the board was made right: its own steps (placing, routing,
+        DRC, the copper against the circuit, the order files) passed. A board
+        test that fails (a part low on stock, a capacitor near its rating) is
+        reported by the test run, not as a failed build. A run that only tests
+        (TestJob) has no build to make: there every failure counts."""
+        gates = [c for c in self.checks if c['id'] not in self.test_ids or self.steps == TEST_STEPS]
+        return all(c['status'] != 'fail' for c in gates)
 
     # ------------------------------------------------------------ steps
     def s_validate(self):
@@ -102,6 +143,14 @@ class Job:
             ok = self.check(r) and ok
         if not ok:
             raise Stop('circuit checks failed')
+
+    def circuit_checks(self):
+        """The circuit's own checks (pins, parts, sourcing, firmware), so a run
+        that does not build still lists them. The few only a build makes
+        (fanout, silkscreen, bom-cpl) the API keeps from the last build."""
+        from . import checks
+        for r in checks.circuit(self.d):
+            self.check(r)
 
     def s_place(self):
         import pcbnew
@@ -193,16 +242,17 @@ class Job:
         rules.write_rules(self.routed)
         rules.set_stackup(self.routed, bd['layers'], mask=bd['mask_color'], finish=bd['finish'],
                           thickness=bd['thickness'], oz_outer=bd['copper_oz']['outer'], oz_inner=bd['copper_oz']['inner'])
-        e, w, u = K.drc(self.routed, os.path.join(self.work, 'drc.json'))
+        self.drc_json = os.path.join(self.work, 'drc.json')
+        e, w, u = K.drc(self.routed, self.drc_json)
         self.stats.update(drc_errors=len(e), drc_warnings=len(w), unconnected=len(u))
         desc = lambda vs: '; '.join('%s: %s' % (v.get('type'), v.get('description')) for v in vs[:6])
         self.check(dict(id='routed', group='layout', name='Every connection is routed',
                         why='an unrouted connection is a wire that is not there',
                         status='pass' if not u else 'fail', **({'detail': '%d left' % len(u)} if u else {})))
-        self.check(dict(id='drc-errors', group='fab', name="DRC with the fab's own limits: 0 errors",
+        self.check(dict(id='drc-errors', group='fab', name="KiCad's design rules, with the fab's limits: no errors",
                         why='the fab rejects or mis-builds what breaks its rules',
                         status='pass' if not e else 'fail', **({'detail': desc(e)} if e else {})))
-        self.check(dict(id='drc-warnings', group='fab', name='DRC: 0 warnings',
+        self.check(dict(id='drc-warnings', group='fab', name="KiCad's design rules: no warnings",
                         why='a warning is a rule bent; HardHub ships boards with none',
                         status='pass' if not w else 'warn', **({'detail': desc(w)} if w else {})))
 
@@ -221,13 +271,6 @@ class Job:
                         status='pass' if not sharp else 'warn',
                         **({'detail': '%d left, first at %s' % (len(sharp), ', '.join('(%.1f, %.1f) %s' % (c[3], c[4], c[2]) for c in sharp[:3]))} if sharp else {})))
         self.check_widths()
-        for id_, group, name, why in (
-                ('sim-power', 'power', 'Supply transients and regulator stability simulated',
-                 'a supply that rings or sags resets the board under load'),
-                ('sim-thermal', 'thermal', 'Heat simulated on the routed board at worst-case load',
-                 'the routed board runs hotter than the same design before routing')):
-            self.check(dict(id=id_, group=group, name=name, why=why, status='skip',
-                            detail='not run: the engine does not simulate yet'))
         b = pcbnew.LoadBoard(self.routed)
         self.stats['tracks'] = sum(1 for t in b.GetTracks() if t.GetClass() == 'PCB_TRACK')
         self.stats['vias'] = sum(1 for t in b.GetTracks() if t.GetClass() == 'PCB_VIA')
@@ -274,6 +317,36 @@ class Job:
         if thin:
             self.check(dict(id='net-width', group='layout', name='Tracks at the width their net asks for',
                             why='the design gave these nets a width', status='warn', detail='; '.join(thin[:6])))
+
+    def s_test(self):
+        """The board tests (hardhub.review): each result is streamed as it
+        is known, with the plan first, so a client shows the checklist live."""
+        from . import review
+
+        def emit(message, frac, plan=None, result=None):
+            extra = {}
+            if plan is not None:
+                extra['plan'] = plan
+            if result is not None:
+                extra['result'] = result
+            self.emit('test', message, frac, **extra)
+        try:
+            results, files = review.run(self.routed, self.d, os.path.join(self.work, 'test'), self.out, self.slug,
+                                        emit=emit, options=self.options, drc_json=self.drc_json)
+        except Exception as e:                            # noqa: BLE001 -- the tests never stop a build
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            self.check(dict(id='board-tests', group='fab', name='The board tests ran', status='skip',
+                            why='every test before ordering runs here', detail='%s: %s' % (type(e).__name__, str(e)[:300])))
+            return
+        for r in results:
+            self.check(r)
+        self.test_ids = {r['id'] for r in results}
+        self.report_files = files
+        for f in files:
+            self.art('report', f)
+        self.stats['tests'] = len(results)
+        self.stats['tests_failed'] = sum(1 for r in results if r['status'] == 'fail')
 
     def s_fab(self):
         import csv
@@ -338,8 +411,8 @@ class EditJob(Job):
     edits moved, in the design's frame."""
     steps = EDIT_STEPS
 
-    def __init__(self, d, kicad_zip, edits, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS):
-        super().__init__(d, work, out, emit, job, outputs)
+    def __init__(self, d, kicad_zip, edits, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, tests=True):
+        super().__init__(d, work, out, emit, job, outputs, tests=tests)
         self.kicad_zip, self.edits = kicad_zip, edits
 
     def s_validate(self):
@@ -357,6 +430,7 @@ class EditJob(Job):
             p = os.path.splitext(src)[0] + ext
             if os.path.exists(p):
                 shutil.copy(p, os.path.splitext(self.routed)[0] + ext)
+        self.circuit_checks()
         counts, self.placement = edits.apply(self.routed, self.edits, self.d)
         self.stats.update({'edits_' + k: v for k, v in counts.items()})
         self.emit('validate', 'applied %d edits' % sum(counts.values()), 0.9)
@@ -366,11 +440,52 @@ class EditJob(Job):
         pass
 
 
-def edit(d, kicad_zip, edit_list, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS):
+class TestJob(EditJob):
+    """The board tests again on a built board (its KiCad zip), at the
+    outside temperatures asked for: the circuit's pad-for-pad check, then the
+    whole test suite with a fresh DRC. Nothing is placed, routed or remade
+    but the report."""
+    steps = TEST_STEPS
+
+    def __init__(self, d, kicad_zip, work, out, emit, job='local', options=None):
+        Job.__init__(self, d, work, out, emit, job, (), options=options)
+        self.kicad_zip, self.edits = kicad_zip, []
+
+    def s_validate(self):
+        from . import design as D, fab, view
+        errs = D.require_board(self.d)
+        if errs:
+            raise Stop('; '.join(errs))
+        self.slug = fab.slug(self.d['name'])
+        src = view.board_path(os.path.join(self.work, 'in'), self.kicad_zip)
+        if src is None:
+            raise Stop('the KiCad zip holds no board')
+        self.routed = os.path.join(self.work, self.slug + '.kicad_pcb')
+        for ext in ('.kicad_pcb', '.kicad_pro', '.kicad_dru'):
+            p = os.path.splitext(src)[0] + ext
+            if os.path.exists(p):
+                shutil.copy(p, os.path.splitext(self.routed)[0] + ext)
+        self.circuit_checks()
+
+
+def test(d, kicad_zip, work, out, emit, job='local', options=None):
+    """The board tests on a built board; returns the final JobLine."""
+    j = TestJob(d, kicad_zip, work, out, emit, job, options)
+    try:
+        return j.run()
+    except Stop as e:
+        return j.final(False, str(e))
+    except Exception as e:                                   # noqa: BLE001 -- the client must hear about it
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return j.final(False, '%s: %s' % (type(e).__name__, e))
+
+
+def edit(d, kicad_zip, edit_list, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, tests=True):
     """Apply hand edits to a built board and redo its checks and files; returns the
     final JobLine. An edit that cannot be applied comes back rejected, nothing changed."""
     from .edits import EditError
-    j = EditJob(d, kicad_zip, edit_list, work, out, emit, job, outputs)
+    j = EditJob(d, kicad_zip, edit_list, work, out, emit, job, outputs, tests=tests)
     try:
         return j.run()
     except EditError as e:
@@ -383,9 +498,9 @@ def edit(d, kicad_zip, edit_list, work, out, emit, job='local', outputs=DEFAULT_
         return j.final(False, '%s: %s' % (type(e).__name__, e))
 
 
-def build(d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None):
+def build(d, work, out, emit, job='local', outputs=DEFAULT_OUTPUTS, stop_after=None, options=None, tests=True):
     """Run a build; returns the final JobLine (also on failure)."""
-    j = Job(d, work, out, emit, job, outputs, stop_after)
+    j = Job(d, work, out, emit, job, outputs, stop_after, options, tests=tests)
     try:
         return j.run()
     except Stop as e:

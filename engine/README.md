@@ -7,7 +7,7 @@ both. It runs as an HTTP service on port 8080 inside one Docker image, the
 same on a Mac and as a Cloudflare Container.
 
 ```
-validate -> footprints -> place -> route -> miter -> pour -> drc -> verify -> fab -> render
+validate -> footprints -> place -> route -> miter -> pour -> drc -> verify -> test -> fab -> render
 ```
 
 | Step | What happens |
@@ -20,11 +20,12 @@ validate -> footprints -> place -> route -> miter -> pour -> drc -> verify -> fa
 | pour | ground on both outer layers, stitching vias every 3 mm; whatever the pours leave unjoined is routed again with the pours in place |
 | drc | KiCad DRC: errors, warnings and unconnected items must all be 0 |
 | verify | copper equals the design pad for pad; corners; every part on the board |
+| test | the board tests (`hardhub/review`, every test listed in `docs/board-tests.md`): KiCad's DRC findings sorted into the checklist; the copper measured by `hardhub-sim` (Rust, `engine/sim`); the power tree, part ratings and sourcing; ngspice simulations (operating point at each outside temperature, supply impedance, load step); voltage drop and heat solved on the routed copper; streamed one result per line (`plan` first, then `result`); the report as `<slug>-tests.json` and `<slug>-tests.md` |
 | fab | Gerber zip, JLCPCB BOM + CPL, PCBWay BOM, netlist CSV, IPC-D-356, the KiCad files |
 | render | per-layer SVG (board area only); `board.json`, the board as vector geometry in the SVGs' own frame (tracks, vias, parts and pads, filled zones: `geometry.py`); a GLB in metres, centred on the origin, meshopt-compressed (the viewer needs meshopt's decoder); PNG and STEP when asked; last, the order package: one zip with a README naming each file's upload slot at JLCPCB and PCBWay and the board settings to pick, the flat Gerber zip under `board/`, BOM + CPL under `assembly/jlcpcb/` and `assembly/pcbway/`, the IPC netlist, and the STEP model under `3d/` when made |
 
 A board edited by hand (`POST /edit`, `edits.py`) runs `validate -> pour ->
-drc -> verify -> fab -> render`: the edits applied to the built board's
+drc -> verify -> test -> fab -> render`: the edits applied to the built board's
 KiCad file in order (move a track's ends, draw a track, move, add or delete
 a via, move or flip a part), the zones refilled, then the same checks and
 files as a build, without placing or routing again.
@@ -66,6 +67,7 @@ The contract is `packages/protocol/src/engine.ts`.
 | `POST /quote {design, qty: [5, 100]}` | estimated price for 2, 4, 6, 8 layers (and the design's own), dated basis |
 | `POST /build {design, job, stop_after?, outputs?}` | NDJSON stream: one line per step, then `{done, ok, checks, artifacts, stats, placement}` |
 | `POST /edit {design, job, kicad_zip_b64, edits, outputs?}` | a built board edited by hand (`BoardEdit`, `packages/protocol/src/board.ts`): streamed like `/build`; `placement` holds the parts moved, in the design's frame; an edit naming an item, layer or point the board lacks changes nothing (`rejected: true`, `error` says which) |
+| `POST /test {design, job, kicad_zip_b64?, options?: {ambient_min, ambient_max}}` | the board tests alone on a built board (the zip sent, under a new job name, or the job's own board): steps `validate -> verify -> test`, streamed like `/build`, with a fresh DRC; the report files as artifacts |
 | `GET /jobs/:job/files/:name` | an output file |
 | `DELETE /jobs/:job` | forget a job's files |
 
@@ -154,6 +156,8 @@ pinned; downloads are checked against their published sha256.
 | Freerouting jars | 2.5.0 is the jar its Linux bundle carries (same build); the bundle is x64 only | runs on either processor |
 | OpenJDK (Eclipse Temurin) | 25.0.4.1 | the Java Freerouting 2.5 is built and shipped with; runs 1.9 too |
 | Node.js | 22.23.3 LTS | runs gltf-transform |
+| Rust | 1.98.1 (official image, by digest), crates serde, serde_json, base64 pinned in `sim/Cargo.lock` | builds `hardhub-sim`; its tests run in the image build |
+| ngspice | Ubuntu 24.04's package (42) | the board tests' circuit simulations |
 | @gltf-transform/cli | 4.5.1, lockfile `tools/gltf/package-lock.json` | centres and meshopt-compresses the GLB (the C3 fixture's: 3.7 MB to 0.40 MB) |
 | shapely | 2.2.0 | geometry |
 | numpy | 2.5.4 | shapely's arrays |
@@ -180,7 +184,9 @@ No web framework: the service is the standard library's
 * A ground or plane pad with no room for a via beside it gets one in the
   pad if it fits (reported: order filled, capped vias), else it is left to
   the repair route, which may not reach it.
-* No simulations yet (ngspice, thermal): offgrid-hardware runs them per
-  board; the engine reports them as not run rather than passed.
+* The simulations are first-order: heat is a thin plate cooled by natural
+  convection and radiation (no air flow; a closed box as a factor), the
+  supply simulations model each regulator simply, and part ratings missing
+  from the design come from typical values. Each result says what it assumed.
 * KiCad 10 warns that its SWIG Python API (pcbnew) is deprecated in favour
   of the IPC API; the engine will need moving when KiCad drops it.

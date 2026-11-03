@@ -17,3 +17,5 @@ test-results/
 # ./hardhub's local state: the Claude Code bridge's token, pid and log
 .hardhub/
 .pnpm-store/
+# Rust build output (engine/sim)
+target/

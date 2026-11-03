@@ -52,6 +52,8 @@
   --layer-in3: #8cc084;
   --layer-in4: #4fd1c5;
   --silk: #f1ece0;
+  --paste: #b9b0a0; /* solder paste: tin grey */
+  --core: #c9a86a; /* FR4, the board's glass-fibre core */
   --board-bg: #100d0a;
   --sheet: #f4efe3;
   --sheet-ink: #3a2e22;
@@ -87,6 +89,8 @@
     --gold-text: #7a5410;
     --plum-text: #66406f;
     --clay-text: #a8381a;
+    --paste: #8f877a;
+    --core: #b08d4e;
     color-scheme: light;
   }
 }
@@ -117,6 +121,8 @@
   --gold-text: #7a5410;
   --plum-text: #66406f;
   --clay-text: #a8381a;
+  --paste: #8f877a;
+  --core: #b08d4e;
   color-scheme: light;
 }
 
@@ -211,4 +217,15 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* "Show on board": a ring that breathes out from the spot a test found */
+@keyframes hh-pulse {
+  from { transform: scale(0.55); opacity: 0.95; }
+  to { transform: scale(1.6); opacity: 0; }
+}
+.hh-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hh-pulse 1.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
 }

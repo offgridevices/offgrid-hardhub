@@ -51,6 +51,22 @@ export const Sourcing = z.object({
 
 export const PartKind = z.enum(["U", "R", "C", "L", "D", "LED", "Q", "J", "SW", "Y", "F", "FB", "TP", "H", "MOD", "other"]);
 
+// What a part is rated for, from its datasheet. The board tests compare the
+// simulated board with these; a missing one is filled from typical values for
+// the kind of part, and the test says it was assumed.
+export const Ratings = z.object({
+  temp_min: z.number().optional(), // °C, lowest operating temperature
+  temp_max: z.number().optional(), // °C, highest operating temperature
+  voltage_max: z.number().positive().optional(), // V: a capacitor's rated voltage, a chip's maximum supply
+  current_max: z.number().positive().optional(), // A: a regulator's output, a connector pin, an LED, a fuse
+  power_max: z.number().positive().optional(), // W: resistors, LEDs
+  theta_jb: z.number().positive().optional(), // °C/W, junction to board (chips)
+  dropout: z.number().nonnegative().optional(), // V, linear regulators
+  efficiency: z.number().min(0.1).max(1).optional(), // switching regulators
+  source: z.string().max(200).optional(), // "datasheet p. 4"
+});
+export type Ratings = z.infer<typeof Ratings>;
+
 export const Part = z.object({
   mpn: z.string(),
   maker: z.string(),
@@ -67,6 +83,7 @@ export const Part = z.object({
   // false: fitted by hand or not fitted (test points, mounting holes)
   assembled: z.boolean().default(true),
   sourcing: Sourcing.optional(),
+  ratings: Ratings.optional(),
 });
 export type Part = z.infer<typeof Part>;
 
@@ -77,15 +94,18 @@ export const Component = z.object({
   // footprint pad number -> net name; null = deliberately left open
   pins: z.record(z.string(), z.string().nullable()),
   note: z.string().optional(),
+  power: z.number().nonnegative().optional(), // W this part turns into heat at full load (datasheet); else estimated
 });
 export type Component = z.infer<typeof Component>;
 
 export const Net = z.object({
   kind: z.enum(["signal", "power", "ground"]).default("signal"),
   voltage: z.number().optional(),
-  current: z.number().nonnegative().optional(), // continuous amps, sets track width
+  current: z.number().nonnegative().optional(), // the most it carries for more than a moment (amps): sets track widths and voltage drop
+  average: z.number().nonnegative().optional(), // typical current over time (a radio transmits in bursts): sets the heat; default current
   width: z.number().positive().optional(), // explicit track width, mm
   diff_pair: z.string().optional(), // the other half's net name
+  source: z.string().regex(/^[A-Z]+\d+$/).optional(), // power nets: the part that supplies it (regulator, connector)
   note: z.string().optional(),
 });
 export type Net = z.infer<typeof Net>;
@@ -170,6 +190,15 @@ export const Firmware = z.object({
   files: z.record(z.string(), z.string()).default({}), // path -> contents
 });
 
+// Where the board lives: the board tests simulate it at these outside temperatures
+export const Environment = z.object({
+  ambient_min: z.number().min(-60).max(150).default(0), // °C
+  ambient_max: z.number().min(-60).max(150).default(50), // °C
+  place: z.enum(["indoor", "outdoor", "vehicle", "industrial"]).optional(),
+  enclosed: z.boolean().default(false), // in a closed box: it cools less
+});
+export type Environment = z.infer<typeof Environment>;
+
 export const Design = z.object({
   schema: z.literal(1).default(1),
   name: z.string().default("Untitled board"),
@@ -185,6 +214,7 @@ export const Design = z.object({
   board: Board.optional(),
   placement: z.record(z.string(), Placement).default({}),
   firmware: Firmware.default({ platform: "none", pins: [], files: {} }),
+  environment: Environment.optional(),
 });
 export type Design = z.infer<typeof Design>;
 

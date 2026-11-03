@@ -16,9 +16,12 @@ Checks that run against a demo build served on `:4173`
 (`VITE_MOCK=1 pnpm --filter @hardhub/web build -- --outDir dist-mock`, then
 `vite preview --outDir dist-mock --port 4173`):
 
-* `node scripts/shots.mjs http://127.0.0.1:4173 OUT [phone|tablet|desktop]` —
+* `node scripts/shots.mjs http://127.0.0.1:4173 OUT [phone|tablet|desktop] [light|dark]` —
   every screen at 390×844, 768×1024 and 1440×900, light and dark; reports
-  console errors and sideways scroll.
+  console errors and sideways scroll. The board tests are shot on the demo's
+  room sensor (`/p/demo-sensor?tab=checks`): the list, an opened row, the
+  heat map, power, part ratings, a live run, "Show on board" and the layers
+  pulled apart in 3D.
 * `node scripts/perf.mjs http://127.0.0.1:4173` — first contentful paint and
   3D frame times.
 * `node scripts/perf-glb.mjs http://127.0.0.1:4173 /board.glb` — the 3D view

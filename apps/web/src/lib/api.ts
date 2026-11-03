@@ -18,6 +18,8 @@ import {
   type LlmSettings,
   BoardEditResult,
   type BoardEditRequest,
+  TestRunResult,
+  type TestOptions,
 } from "@hardhub/protocol";
 import type { z } from "zod";
 import { ApiError, type Backend, type LinkStatus, type ProjectLink } from "./backend";
@@ -50,6 +52,9 @@ export function wsUrl(base: string, path: string, token: string | null, after: n
 }
 
 type Fetch = typeof fetch;
+
+/** events the server broadcasts without storing them: they carry the seq of the last stored one */
+export const isLive = (e: ServerEvent) => (e.type === "assistant_text" && !e.done) || (e.type === "test_run" && e.phase === "check");
 
 export class ApiClient implements Backend {
   readonly kind = "api" as const;
@@ -181,6 +186,9 @@ export class ApiClient implements Backend {
   editBoard(projectId: string, req: BoardEditRequest) {
     return this.req("POST", `/projects/${encodeURIComponent(projectId)}/board/edits`, req, BoardEditResult);
   }
+  runTests(projectId: string, options: TestOptions) {
+    return this.req("POST", `/projects/${encodeURIComponent(projectId)}/tests`, options, TestRunResult);
+  }
   fileUrl(_projectId: string, url: string) {
     // artifact urls are API-relative (/projects/:id/files/:name); <img> and
     // download links cannot send a header, so the token rides in the query
@@ -219,9 +227,10 @@ export class ApiClient implements Backend {
         } catch {
           return; // a newer server may send event types this client doesn't know
         }
-        // a live text delta carries the seq of the last stored event: pass it on
-        // without advancing; any stored event already seen is replay overlap
-        if (!(parsed.type === "assistant_text" && !parsed.done)) {
+        // a live text delta (or a live test result) carries the seq of the last
+        // stored event: pass it on without advancing; any stored event already
+        // seen is replay overlap
+        if (!isLive(parsed)) {
           if (parsed.seq <= last) return;
           last = parsed.seq;
         }

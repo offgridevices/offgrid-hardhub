@@ -3,7 +3,9 @@
 // it runs. A bad call comes back as a plain error the model can fix.
 import {
   type Artifact,
+  type CheckPlan,
   type CheckResult,
+  type TestOptions,
   Comparison,
   Design,
   Firmware,
@@ -29,6 +31,8 @@ export interface ToolContext {
   /** stores a new design version and tells every client */
   saveDesign(design: Design, summary: string): number;
   emit(e: EventInput): void;
+  /** send to every open client without storing it (live progress, like text deltas) */
+  live(e: EventInput): void;
   putFile(name: string, body: ReadableStream | ArrayBuffer, contentType: string): Promise<void>;
   getFile(name: string): Promise<ArrayBuffer | null>;
   nextJob(): string;
@@ -36,8 +40,13 @@ export interface ToolContext {
   renders(): string[];
   setRenders(names: string[]): void;
   /** the last build that made files: its engine job and its KiCad zip in the file store */
-  lastBuild(): { job: string; kicad: string } | null;
-  setLastBuild(b: { job: string; kicad: string }): void;
+  lastBuild(): { job: string; kicad: string; version?: number } | null;
+  setLastBuild(b: { job: string; kicad: string; version?: number }): void;
+  /** the latest stored board and circuit checks */
+  latestChecks(): CheckResult[];
+  /** the file names of the latest board test report (json for clients, md for reading) */
+  lastTests(): { json?: string; md?: string } | null;
+  setLastTests(t: { json?: string; md?: string }): void;
   /** what the person changed by hand on the last built board (POST /projects/:id/board/edits), oldest first */
   handEdits(): string[];
   /** the model can look at images */
@@ -72,7 +81,11 @@ const UpdateInput = z.object({
   patch: z.array(PatchOp).min(1).max(200),
 });
 
-const BUILD_STEPS = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "fab", "render"] as const;
+const BUILD_STEPS = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "test", "fab", "render"] as const;
+// where a build may stop early. Not at "test": that board is never kept (no
+// KiCad zip until fab), so its results would describe a board nobody has;
+// run_tests tests the built board without building again
+const STOP_AFTER = BUILD_STEPS.filter((s) => s !== "test") as [string, ...string[]];
 
 const FIRMWARE_PATH = /^(?!.*\.\.)[\w][\w./-]{0,119}$/;
 
@@ -209,7 +222,7 @@ export const TOOLS = {
     description:
       "Lay out, route and check the board in KiCad: place parts (yours, plus automatic placement for unplaced ones), route, 45-degree corners, ground pour, DRC with the fab's limits, net check, fab files, renders. Takes minutes. Needs design.board. If the person has edited the board by hand, ask them before building again: a build re-routes the board and loses their edits.",
     schema: z.object({
-      stop_after: z.enum(BUILD_STEPS).optional().describe("stop early, e.g. after place to review placement"),
+      stop_after: z.enum(STOP_AFTER).optional().describe("stop early, e.g. after place to review placement (to test the built board again, use run_tests)"),
       discard_hand_edits: z
         .boolean()
         .optional()
@@ -217,34 +230,42 @@ export const TOOLS = {
     }),
     label: (i) => (i.stop_after ? `Building the board (up to ${i.stop_after})` : "Building the board"),
     async run(i, ctx, _call, signal) {
-      const { design } = ctx.design();
+      const { design, version } = ctx.design();
       if (!design.board) return { content: "The design has no board yet: set /board (size, layers) first.", isError: true };
       // a build that stops before the fab files leaves the last board as it is
-      const replaces = !i.stop_after || BUILD_STEPS.indexOf(i.stop_after) >= BUILD_STEPS.indexOf("fab");
+      const replaces = !i.stop_after || BUILD_STEPS.indexOf(i.stop_after as (typeof BUILD_STEPS)[number]) >= BUILD_STEPS.indexOf("fab");
       const refused = replaces ? handEditGuard(ctx, i.discard_hand_edits) : null;
       if (refused) return { content: refused, isError: true };
       const job = ctx.nextJob();
+      const tests = new TestRelay(ctx, job);
+      // a run that started always ends, however the build does (stopped, an engine error)
+      try {
       for await (const line of ctx.engine.build(design, job, signal, i.stop_after)) {
         if (!("done" in line)) {
-          ctx.emit({ type: "job", job, step: line.step, progress: line.progress, done: false });
+          if (line.step === "test") tests.line(line);
+          else ctx.emit({ type: "job", job, step: line.step, progress: line.progress, done: false });
           continue;
         }
         ctx.emit({ type: "job", job, step: "done", progress: 1, done: true, ok: line.ok });
+        tests.done(line.checks);
         if (line.checks.length) ctx.emit({ type: "checks", results: line.checks });
         const stored = await storeArtifacts(ctx, job, line.artifacts);
         if (stored.length) ctx.emit({ type: "artifacts", artifacts: stored });
+        rememberTests(ctx, stored);
         const renders = stored.filter((a) => a.kind === "board-png").map((a) => a.name);
         if (renders.length) ctx.setRenders(renders);
         const kicad = stored.find((a) => a.kind === "kicad");
-        if (kicad) ctx.setLastBuild({ job, kicad: kicad.name });
         // keep the engine's placement for parts the design left unplaced
         const added = Object.entries(line.placement).filter(([ref]) => !(ref in design.placement));
+        let builtFrom = version;
         if (added.length) {
           const cur = ctx.design().design;
           const next = { ...cur, placement: { ...cur.placement } };
           for (const [ref, p] of added) next.placement[ref] = { ...p, locked: false };
-          ctx.saveDesign(next, `Placed ${added.length} parts automatically`);
+          // that save only records where the board already has them: it is still this board's design
+          builtFrom = ctx.saveDesign(next, `Placed ${added.length} parts automatically`);
         }
+        if (kicad) ctx.setLastBuild({ job, kicad: kicad.name, version: builtFrom });
         const stats = Object.entries(line.stats).map(([k, v]) => `${k} ${v}`).join(", ");
         return {
           content: [
@@ -252,12 +273,16 @@ export const TOOLS = {
             stats && `Stats: ${stats}.`,
             summarizeChecks(line.checks),
             stored.length ? `Files: ${stored.map((a) => a.name).join(", ")}.` : "",
+            ctx.lastTests()?.md ? "test_report gives every board test with where and how to fix." : "",
             renders.length ? "Call render to look at the board." : "",
           ]
             .filter(Boolean)
             .join("\n"),
           isError: !line.ok,
         };
+      }
+      } finally {
+        tests.done([], "the build stopped before the tests finished");
       }
       return { content: "The engine stopped without a result.", isError: true };
     },
@@ -359,6 +384,34 @@ export const TOOLS = {
       if (outside.length) return { content: `${outside.join(", ")} would be off the ${b!.width} x ${b!.height} mm board.`, isError: true };
       const version = ctx.saveDesign({ ...design, placement }, i.summary);
       return { content: `Saved as version ${version}. Run build_board to lay out and route the board again.` };
+    },
+  }),
+
+  run_tests: tool({
+    description:
+      "Run the whole board test suite again on the last built board, without building it again: connections and shorts, copper widths and gaps, holes and vias, printing, solder mask, placement, power (power tree, voltage drop in the copper, supply impedance and load step in ngspice), heat (the whole board solved at each outside temperature), every part against its ratings, signals, sourcing and manufacturing. The person watches each test finish live in the app. Use after a hand edit, or to test other outside temperatures (ambient_min / ambient_max in °C; default the design's environment, else 0 to 50). Every build already runs these tests.",
+    schema: z.object({
+      ambient_min: z.number().min(-60).max(150).optional().describe("coldest outside temperature, °C"),
+      ambient_max: z.number().min(-60).max(150).optional().describe("hottest outside temperature, °C"),
+    }),
+    label: (i) => (i.ambient_min !== undefined || i.ambient_max !== undefined ? `Testing the board at ${i.ambient_min ?? "?"} to ${i.ambient_max ?? "?"} °C` : "Testing the board"),
+    async run(i, ctx, _call, signal) {
+      const r = await runTests(ctx, i, signal);
+      return { content: r.content, ...(r.ok ? {} : { isError: r.error }) };
+    },
+  }),
+
+  test_report: tool({
+    description:
+      "Read the latest board test report: every test with what it found, the measured value against its limit, where on the board (mm from the centre) and how to fix it, plus the heat table. only: problems (default: what fails or needs a look), all, or one area (connections, copper, holes, silkscreen, mask, placement, power, thermal, stress, signals, firmware, sourcing, fab).",
+    schema: z.object({ only: z.string().max(40).default("problems") }),
+    label: () => "Reading the test report",
+    async run(i, ctx) {
+      const t = ctx.lastTests();
+      if (!t?.md) return { content: "No test report yet: build_board (or run_tests) makes one.", isError: true };
+      const buf = await ctx.getFile(t.md);
+      if (!buf) return { content: "The test report is missing from storage: run_tests makes it again.", isError: true };
+      return { content: filterReport(withStoredChecks(new TextDecoder().decode(buf), ctx.latestChecks()), i.only) };
     },
   }),
 
@@ -464,11 +517,15 @@ export function handEditGuard(ctx: Pick<ToolContext, "handEdits">, discard?: boo
 
 export function summarizeChecks(results: CheckResult[]): string {
   if (!results.length) return "No checks ran.";
-  const count = (s: CheckResult["status"]) => results.filter((r) => r.status === s).length;
-  const notPass = results.filter((r) => r.status === "fail" || r.status === "warn");
+  const count = (st: CheckResult["status"]) => results.filter((r) => r.status === st).length;
+  const at = (r: CheckResult) => (r.where?.length ? ` At ${r.where.slice(0, 3).map((w) => `(${w.x.toFixed(1)}, ${w.y.toFixed(1)})${w.refs?.length ? ` ${w.refs.join(",")}` : ""}`).join("; ")}.` : "");
+  const line = (r: CheckResult) => `${r.status === "fail" ? "FAIL" : "WARN"} ${r.name} [${r.id}]${r.detail ? `: ${r.detail}` : ""}.${at(r)}${r.fix ? ` Fix: ${r.fix}` : ""}`;
+  // what fails first, then what needs a look
+  const notPass = [...results.filter((r) => r.status === "fail"), ...results.filter((r) => r.status === "warn")];
   return [
-    `Checks: ${count("pass")} pass, ${count("fail")} fail, ${count("warn")} warn, ${count("skip")} skipped.`,
-    ...notPass.slice(0, 20).map((r) => `${r.status.toUpperCase()} ${r.name}${r.detail ? `: ${r.detail}` : ""}`),
+    `Checks: ${count("pass")} pass, ${count("fail")} fail, ${count("warn")} warn, ${count("skip")} skipped${count("na") ? `, ${count("na")} do not apply` : ""}.`,
+    ...notPass.slice(0, 25).map(line),
+    ...(notPass.length > 25 ? [`... and ${notPass.length - 25} more (test_report).`] : []),
   ].join("\n");
 }
 
@@ -532,4 +589,161 @@ function base64(buf: ArrayBuffer): string {
   let s = "";
   for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
   return btoa(s);
+}
+
+// ------------------------------------------------------------------ board tests
+
+/** Turns the engine's test-step lines into test_run events: the plan (stored),
+ * one live event per finished test (not stored: a late client sees the result
+ * in the stored checks event at the end), then done (stored). */
+export class TestRelay {
+  private started = false;
+  private total = 0;
+  private count = 0;
+  constructor(
+    private readonly ctx: Pick<ToolContext, "emit" | "live">,
+    private readonly run: string,
+  ) {}
+
+  line(l: { message: string; plan?: CheckPlan[]; result?: CheckResult }) {
+    if (l.plan && !this.started) {
+      this.started = true;
+      this.total = l.plan.length;
+      this.ctx.emit({ type: "test_run", run: this.run, phase: "start", plan: l.plan, label: l.message, progress: 0 });
+      return;
+    }
+    if (!this.started) return;
+    if (l.result) this.count++;
+    const progress = this.total ? Math.min(1, this.count / this.total) : 0;
+    this.ctx.live({ type: "test_run", run: this.run, phase: "check", live: true, label: l.message, progress, ...(l.result ? { result: l.result } : {}) });
+  }
+
+  done(checks: CheckResult[], failed?: string, note?: string) {
+    if (!this.started) return;
+    this.started = false;
+    const ok = !failed && !checks.some((c) => c.status === "fail");
+    this.ctx.emit({ type: "test_run", run: this.run, phase: "done", ok, progress: 1, summary: failed ?? testCounts(checks), ...(note ? { note } : {}) });
+  }
+}
+
+export function testCounts(checks: CheckResult[]): string {
+  const n = (s: CheckResult["status"]) => checks.filter((c) => c.status === s).length;
+  const parts = [`${n("pass")} pass`, `${n("fail")} to fix`, `${n("warn")} to look at`];
+  if (n("skip")) parts.push(`${n("skip")} not run`);
+  return parts.join(", ");
+}
+
+/** Checks only a full build makes (placing the parts, the silkscreen, the order
+ * files). A test run or a hand edit that does not make them again keeps the
+ * build's result, so a failure there never drops out of the list. */
+export const BUILD_ONLY_CHECKS = ["fanout", "silkscreen", "bom-cpl"] as const;
+
+export function carryForward(next: CheckResult[], prev: CheckResult[]): CheckResult[] {
+  const have = new Set(next.map((c) => c.id));
+  const kept = prev.filter((c) => (BUILD_ONLY_CHECKS as readonly string[]).includes(c.id) && !have.has(c.id));
+  return [...next, ...kept];
+}
+
+/** remembers the latest test report among a job's stored files */
+export function rememberTests(ctx: Pick<ToolContext, "setLastTests">, stored: Artifact[]) {
+  const json = stored.find((a) => a.kind === "report" && a.name.endsWith("-tests.json"))?.name;
+  const md = stored.find((a) => a.kind === "report" && a.name.endsWith("-tests.md"))?.name;
+  if (json || md) ctx.setLastTests({ ...(json ? { json } : {}), ...(md ? { md } : {}) });
+}
+
+/** The board tests on the last built board (engine POST /test), streamed live
+ * as test_run events; the results and the report are stored like a build's. */
+export async function runTests(
+  ctx: ToolContext,
+  options: TestOptions,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; error: boolean; content: string; checks: CheckResult[]; note?: string }> {
+  const fail = (content: string) => ({ ok: false, error: true, content, checks: [] as CheckResult[] });
+  const last = ctx.lastBuild();
+  if (!last) return fail("No built board yet: run build_board first.");
+  const zip = await ctx.getFile(last.kicad);
+  if (!zip) return fail("The last build's board file is missing: run build_board again.");
+  const { design, version } = ctx.design();
+  // the tests read the design's numbers (currents, ratings) on the board as last built
+  const changed = last.version !== undefined && last.version !== version;
+  const stale = changed
+    ? `Note: the design changed after this board was built (version ${last.version}, now ${version}): these tests use the new design's numbers on the old copper. build_board brings the board up to date.`
+    : "";
+  // the same, for the person: the Tests tab and the chat show it beside the results
+  const note = changed ? "The design has changed since this board was built, so some tests compare the new design with the old board. Build the board again to test it as it is now." : undefined;
+  const job = ctx.nextJob();
+  const relay = new TestRelay(ctx, job);
+  try {
+    for await (const line of ctx.engine.test(design, job, zip, options, signal)) {
+      if (!("done" in line)) {
+        if (line.step === "test") relay.line(line);
+        continue;
+      }
+      // what only a build makes is kept from the build, before anything is counted
+      if (line.checks.length) line.checks = carryForward(line.checks, ctx.latestChecks());
+      relay.done(line.checks, line.ok || line.checks.length ? undefined : (line.error ?? "the tests could not run"), note);
+      if (!line.checks.length) return fail(`The tests could not run${line.error ? `: ${line.error}` : "."}`);
+      ctx.emit({ type: "checks", results: line.checks });
+      const stored = await storeArtifacts(ctx, job, line.artifacts);
+      if (stored.length) ctx.emit({ type: "artifacts", artifacts: stored });
+      rememberTests(ctx, stored);
+      const at = options.ambient_min !== undefined || options.ambient_max !== undefined ? ` at ${options.ambient_min ?? "the design's"} to ${options.ambient_max ?? "the design's"} °C` : "";
+      return {
+        ok: line.ok && !line.checks.some((c) => c.status === "fail"),
+        error: false,
+        checks: line.checks,
+        ...(note ? { note } : {}),
+        content: [`Board tests${at}: ${testCounts(line.checks)}.`, stale, summarizeChecks(line.checks), "test_report gives the full report."].filter(Boolean).join("\n"),
+      };
+    }
+  } catch (e) {
+    relay.done([], e instanceof Error ? e.message : String(e));
+    if (e instanceof EngineError) return fail(e.message);
+    throw e;
+  }
+  relay.done([], "the engine stopped without a result");
+  return fail("The engine stopped without a result.");
+}
+
+const AREA_LABEL: Record<string, string> = {
+  connections: "Connections", copper: "Copper and tracks", holes: "Holes and vias", silkscreen: "Printed labels",
+  mask: "Solder mask and paste", placement: "Parts and assembly", power: "Power", thermal: "Heat", stress: "Part ratings",
+  signals: "Signals", firmware: "Firmware", sourcing: "Buying the parts", fab: "Manufacturing",
+};
+
+/** The report with any stored check it does not mention (the ones a test run
+ * keeps from the build), written the way the engine writes them, so
+ * test_report lists every check the person sees. */
+export function withStoredChecks(md: string, checks: CheckResult[]): string {
+  const missing = checks.filter((c) => !md.includes(`\`${c.id}\``));
+  if (!missing.length) return md;
+  const area = (c: CheckResult) => AREA_LABEL[c.group] ?? c.group;
+  const block = (c: CheckResult) =>
+    [`### ${c.name} (${area(c)}, \`${c.id}\`)`, c.detail && `- Found: ${c.detail}`, c.fix && `- Fix: ${c.fix}`, `- Why: ${c.why}.`].filter(Boolean).join("\n");
+  const out = [md.trimEnd()];
+  for (const [title, st] of [["To fix before ordering", "fail"], ["To look at", "warn"], ["Not run", "skip"]] as const) {
+    const rs = missing.filter((c) => c.status === st);
+    if (rs.length) out.push("", `## ${title}, from the build (${rs.length})`, "", ...rs.map(block).flatMap((b) => [b, ""]));
+  }
+  const rest = missing.filter((c) => c.status === "pass" || c.status === "na");
+  if (rest.length) out.push("", `## Passed or does not apply, from the build (${rest.length})`, "", ...rest.map((c) => `- ${c.name} (${area(c)}, \`${c.id}\`)${c.detail ? `: ${c.detail}` : ""}`));
+  return out.join("\n") + "\n";
+}
+
+/** the report, cut to what was asked: problems (fails, warnings, not run), all, or one area */
+export function filterReport(md: string, only: string): string {
+  const LIMIT = 60_000;
+  const cut = (t: string) => (t.length > LIMIT ? `${t.slice(0, LIMIT)}\n... (cut: ask for one area)` : t);
+  if (only === "all") return cut(md);
+  const sections = md.split(/\n(?=## )/);
+  const head = sections[0] ?? "";
+  if (only === "problems") return cut([head, ...sections.filter((x) => /^## (To fix|To look at|Not run|Heat)/.test(x))].join("\n"));
+  const key = only.toLowerCase();
+  const label = AREA_LABEL[key] ?? Object.values(AREA_LABEL).find((l) => l.toLowerCase() === key);
+  if (!label) return `No area "${only}". Areas: ${Object.keys(AREA_LABEL).join(", ")}; or problems, all.`;
+  const tag = `(${label}, \``;
+  // the area's problems (### blocks) and its passed and not-applicable lines
+  const blocks = md.split(/\n(?=### )/).filter((b) => b.startsWith("### ") && b.includes(tag)).map((b) => b.split(/\n(?=## )/)[0]!);
+  const passed = md.split("\n").filter((l) => l.startsWith("- ") && l.includes(tag) && !blocks.some((b) => b.includes(l)));
+  return cut([head, `## ${label}`, ...blocks, ...(passed.length ? ["", "Passed or does not apply:", ...passed] : [])].join("\n"));
 }

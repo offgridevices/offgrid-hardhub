@@ -33,6 +33,7 @@ export function fakeR2() {
 
 export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: FakeEngine = new FakeEngine()) {
   const rooms = new Map<string, RoomCore>();
+  const frames = new Map<string, string[]>();
   // the person's own Claude Code, for chat-turn tests (null: the built-in AI)
   let chat: (owner: string) => Promise<ChatRunner | null> = async () => null;
   const core = (id: string) => {
@@ -42,7 +43,11 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
         id,
         (r = new RoomCore({
           sql: doSql(),
-          broadcast: () => {},
+          broadcast: (f) => {
+            const list = frames.get(id) ?? [];
+            list.push(f);
+            frames.set(id, list);
+          },
           llm: async () => {
             throw new Error("no llm in http tests");
           },
@@ -65,6 +70,8 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
     rooms,
     core,
     engine,
+    /** every frame a room broadcast, live ones included */
+    frames: (id: string) => frames.get(id) ?? [],
     setChat: (fn: typeof chat) => {
       chat = fn;
     },
@@ -91,6 +98,7 @@ export function fakeRooms(env: { FILES: ReturnType<typeof fakeR2> }, engine: Fak
       agentResults: async () => ({ artifacts: core(id).latestArtifacts(), checks: core(id).latestChecks() }),
       agentFile: async (name: string) => core(id).file(name),
       editBoard: async (req: Parameters<RoomCore["editBoard"]>[0]) => core(id).editBoard(req),
+      runTests: async (opts: Parameters<RoomCore["runTests"]>[0]) => core(id).runTests(opts),
     }),
   };
 }

@@ -16,6 +16,8 @@ import type {
   AuthStatus,
   BoardEditRequest,
   BoardEditResult,
+  TestOptions,
+  TestRunResult,
 } from "@hardhub/protocol";
 
 export type LinkStatus = "connecting" | "open" | "closed";
@@ -55,6 +57,9 @@ export interface Backend {
   oauthApprove(answer: OAuthApprove): Promise<{ redirect: string }>;
   /** hand edits to the routed board: applied in KiCad, then every check runs again */
   editBoard(projectId: string, req: BoardEditRequest): Promise<BoardEditResult>;
+  /** the board tests again on the last built board, at these outside
+   * temperatures; live as test_run events, resolved once every test has run */
+  runTests(projectId: string, options: TestOptions): Promise<TestRunResult>;
   /** URL a browser element (<img>, fetch, download link) can load. */
   fileUrl(projectId: string, url: string): string;
   connect(

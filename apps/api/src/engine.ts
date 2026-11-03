@@ -9,6 +9,7 @@ import {
   JobLine,
   Quote,
   type Design,
+  type TestOptions,
 } from "@hardhub/protocol";
 import { z } from "zod";
 import type { Env } from "./env";
@@ -90,6 +91,8 @@ export interface Engine {
   build(design: Design, job: string, signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine>;
   /** a built board (its KiCad zip) edited by hand, then checked and its files made again; streamed like build */
   edit(design: Design, job: string, kicadZip: ArrayBuffer, edits: BoardEdit[], signal?: AbortSignal): AsyncIterable<JobLine>;
+  /** the board tests alone on a built board (its KiCad zip), under a new job name; streamed like build */
+  test(design: Design, job: string, kicadZip: ArrayBuffer, options?: TestOptions, signal?: AbortSignal): AsyncIterable<JobLine>;
   file(job: string, name: string): Promise<Response>;
   view(job: string, opts: ViewOptions, kicadZip?: ArrayBuffer): Promise<ArrayBuffer | NeedBoard>;
   inspect(job: string, opts: InspectOptions, kicadZip?: ArrayBuffer): Promise<Record<string, unknown> | NeedBoard>;
@@ -131,14 +134,20 @@ export class HttpEngine implements Engine {
 
   build(design: Design, job: string, signal?: AbortSignal, stopAfter?: string): AsyncIterable<JobLine> {
     // png renders too: the agent looks at its own layout through render
-    return this.stream("/build", { design, job, outputs: ["svg", "glb", "png"], ...(stopAfter ? { stop_after: stopAfter } : {}) }, signal);
+    // tests: the engine runs the board tests and sends their lines (an engine
+    // asked by an older API, without it, sends the build that API knows)
+    return this.stream("/build", { design, job, tests: true, outputs: ["svg", "glb", "png"], ...(stopAfter ? { stop_after: stopAfter } : {}) }, signal);
   }
 
   edit(design: Design, job: string, kicadZip: ArrayBuffer, edits: BoardEdit[], signal?: AbortSignal): AsyncIterable<JobLine> {
-    return this.stream("/edit", { design, job, kicad_zip_b64: base64(kicadZip), edits, outputs: ["svg", "glb", "png"] }, signal);
+    return this.stream("/edit", { design, job, tests: true, kicad_zip_b64: base64(kicadZip), edits, outputs: ["svg", "glb", "png"] }, signal);
   }
 
-  private async *stream(path: "/build" | "/edit", body: unknown, signal?: AbortSignal): AsyncIterable<JobLine> {
+  test(design: Design, job: string, kicadZip: ArrayBuffer, options?: TestOptions, signal?: AbortSignal): AsyncIterable<JobLine> {
+    return this.stream("/test", { design, job, kicad_zip_b64: base64(kicadZip), options: options ?? {} }, signal);
+  }
+
+  private async *stream(path: "/build" | "/edit" | "/test", body: unknown, signal?: AbortSignal): AsyncIterable<JobLine> {
     const r = await this.fetch(path, {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -264,6 +264,29 @@ const ItemView = memo(function ItemView({
           </div>
         </div>
       );
+    case "tests": {
+      // a test run: the plan filling as checks land, then what came back
+      const done = Math.round(item.progress * item.total);
+      return (
+        <div className="flex flex-col gap-2 rounded-xl border bg-card px-3.5 py-3" data-testid="test-run" data-done={item.done}>
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex min-w-0 items-center gap-2 font-medium">
+              {!item.done && <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin text-ember-text [animation-duration:1.4s]" aria-hidden="true" />}
+              {item.done ? (item.ok === false ? "Tests done · some things to fix" : "Tests done") : "Testing the board"}
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.done ? `${item.total} tests` : `${done} of ${item.total}`}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10">
+            <span
+              className={cn("block h-full rounded-full transition-[width] duration-300", item.done ? (item.ok === false ? "bg-clay" : "bg-moss") : "bg-ember")}
+              style={{ width: `${Math.round(item.progress * 100)}%` }}
+            />
+          </div>
+          <span className="truncate text-xs text-muted-foreground">{item.done ? item.summary : item.label}</span>
+          {item.done && item.note && <span className="text-xs text-gold-text">{item.note}</span>}
+        </div>
+      );
+    }
     case "edit":
       return (
         <div className="mx-auto flex w-fit items-center gap-2 rounded-full bg-foreground/[0.05] px-3 py-1 text-xs text-muted-foreground" data-testid="board-edit">

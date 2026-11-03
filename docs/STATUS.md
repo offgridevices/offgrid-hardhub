@@ -1,5 +1,39 @@
 # Status
 
+## Board tests (3 Nov 2026)
+
+Every build, hand edit and test run now runs the board test suite
+(`engine/hardhub/review`, the Rust solver `engine/sim`, ngspice): about 90
+tests in 13 areas, listed in [board-tests.md](board-tests.md). Measured in a
+Linux cloud container on the ESP32-C3 sensor fixture (2 layers, 25 parts),
+with KiCad 10.0.7 from KiCad's own Docker image (this container could not
+reach KiCad's Ubuntu package site; CI builds the engine from the real recipe).
+
+| What | How | Result |
+|---|---|---|
+| The whole suite on a real build | `engine/tests/test_review.py` | 87 tests in **0.6 s** of an 18 s build (routing is 11 s); every planned test reports; nothing "not run" for want of a tool |
+| Flaws drawn on purpose are caught where they are | the same file: a track 0.05 mm from another net, a 0.1 mm track, a loose right-angle L | gap **fail** with the place within 1.5 mm of where it was drawn; track width **fail** at 0.1 mm; corner **warn** at the corner; loose end **warn**; DRC **fail** |
+| A heavy load on a hot day | the board at 1 A on a 70 °C day | the regulator's silicon past 125 °C: **fail**, with the reason ((5 − 3.3) V × 1 A) and the fix |
+| The heat is physical | the fixture at 0 / 25 / 50 °C | regulator board 68 °C on a 50 °C day at its 0.2 W average; 25 °C cooler outside gives ~25 °C cooler on the board |
+| The Rust solver against physics | `cargo test` in `engine/sim` (34 tests) | one track = ρL/(wt) within 1 %; parallel paths halve; a copper pour = sheet resistance × L/W within 3 %; uniform heating = q/(h_top + h_bottom); a point source matches the analytic K0 decay within 5 %; heat in = heat out within 1 %; clearance, corners, acid traps, shorts on hand-made geometry |
+| The Rust solver against KiCad | four real KiCad boards exported and compared with `kicad-cli pcb drc` | dangling vias identical; no false shorts |
+| Electrical rules and ngspice | `engine/tests/test_review_electrical.py` (30 tests, ngspice 42 and 44) | a 6.3 V capacitor on 12 V, a 100 Ω 0402 across 5 V, an LED on 10 Ω, missing USB-C CC resistors, no decoupling, an LDO without headroom, 2 A from a 1 A LDO, 12 V into an AP2112, no I2C pull-ups, a floating EN: each caught; a 1k/1k divider simulates to 1.65 V and 2.72 mW |
+| The test runs, live | API tests (`apps/api/test/tests.test.ts`), web reducer tests | each finished test goes out live (not stored), the run's start and end are stored; a run always ends (a stopped build, an engine error, a restart); results replace the list only when they follow the run |
+| The engine's report reads in the app | `packages/protocol/test/review.test.ts` on a report the engine wrote | parses; older reports with empty fields too |
+| Unit tests | `pnpm -r test`, engine tests in the image | protocol 3, API 98, web 61; engine 75 pass, 1 skipped (Print Hub board not in the container) |
+
+What the fixture's own tests found (a real board's findings, left as they are):
+the module's 3.3 V capacitor 21.5 mm from its pin; the sensor at the board
+edge; a via in the regulator's small ground pad; 3.5 % lost in the 3.3 V copper
+at the 0.5 A peak; no fuse or surge protection on USB power; the 22 µF and 10 µF
+ceramics keep about a third of their value at their voltage.
+
+Not verified: arm64 build of the Rust stage (no emulation here; no
+architecture-specific code); part ratings and JLCPCB limits checked against
+the makers' own pages (those sites were blocked: values from memory and search
+results are marked "assumed" in the tests); the tests on boards of 4+ layers
+beyond one 4-layer build of the fixture.
+
 Phase 1, as of 28 Oct 2026. What works, how it was checked, and what has not
 been checked yet. Every figure below was measured on the commit that adds this
 file, in a Linux cloud container (Docker, no GPU), with the earlier amd64-only
@@ -65,5 +99,5 @@ the model left a chat stuck for good.
 
 - The engine routes 2- and 4-layer boards well. 6+ layers, impedance-controlled
   and length-matched nets are not handled yet.
-- Simulations (supply transients, heat) are listed as "not run".
+- Simulations are first-order: the thermal model is a thin plate (no air flow, no enclosure beyond a factor); regulators in the supply simulations are simple models, said so in each result.
 - Sign-in is email and password, with no email service; only the first account (the owner's) can be made unless `ALLOW_SIGNUP=1`. A lost password is set with `./hardhub reset-password`.

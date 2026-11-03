@@ -7,6 +7,26 @@ and assemble it.
 
 > The model proposes. It doesn't decide.
 
+## Board tests
+
+Every board HardHub builds goes through about 90 tests before you order it: the
+checklist an experienced electrical engineer works through on screen. They cover:
+
+- **Connections:** no shorts or opens, and copper that matches the circuit pad for pad.
+- **Copper:** narrowest track and gap, distance to the edge, 45° corners, acid traps.
+- **Holes and vias:** size, copper ring, spacing, mounting-hole room.
+- **Printing and solder mask:** line width, text height, nothing printed on pads.
+- **Placement:** decoupling capacitors next to their chip, antenna at the edge, connectors on the edge.
+- **Power:** the power tree, voltage drop solved on the real copper, and supply
+  impedance and load step simulated in ngspice.
+- **Heat:** the whole board solved at each outside temperature.
+- **Part ratings:** every part against its datasheet ratings, derated for temperature.
+- **Signals, sourcing and manufacturing.**
+
+The Tests tab shows them filling in live, each in plain words: what was tested, the
+number against its limit, where on the board, and how to fix it. The AI gets the same
+results as a fix list. [docs/board-tests.md](docs/board-tests.md) lists every test.
+
 ## Run it on your computer
 
 You need Docker: [Docker Desktop](https://www.docker.com/products/docker-desktop/),
@@ -134,7 +154,8 @@ Cloudflare sign-in for deploys).
 | `apps/web` | the web app: React, Vite, three.js; works from phone to desktop |
 | `apps/api` | Cloudflare Worker, a Durable Object per project, D1, R2, the AI agent loop, and the MCP server with its OAuth sign-in |
 | `packages/protocol` | the shared contract: the design document, events, REST, engine |
-| `engine` | KiCad 10 + Freerouting in Docker (arm64 and amd64): design → placed, routed, checked board → fab files |
+| `engine` | KiCad 10 + Freerouting + ngspice in Docker (arm64 and amd64): design → placed, routed, tested board → fab files; `engine/hardhub/review` is the board test suite |
+| `engine/sim` | `hardhub-sim`, the Rust solver the board tests use: copper measurement, voltage drop on the real copper, heat across the board |
 | `bridge` | the helper that runs your own Claude Code for HardHub's chat (local only) |
 | `e2e` | end-to-end tests and the scripted stand-in for Claude |
 | `docs/PLAN.md` | the plan of record and the decisions behind it |

@@ -12,10 +12,17 @@ import {
   type ServerEvent,
   type Session,
   type Stage,
+  type CheckResult,
+  type TestOptions,
+  type TestRunResult,
 } from "@hardhub/protocol";
-import type { Backend, LinkStatus, ProjectLink } from "./backend";
+import { ApiError, type Backend, type LinkStatus, type ProjectLink } from "./backend";
+import { isLive } from "./api";
 import { usbHubDesign } from "../fixtures/usb-hub";
-import { gardenHistory, hubHistory, replyScript, type ScriptStep } from "../fixtures/script";
+import { sensorDesign } from "../fixtures/sensor";
+import { planOf, runLabel, runSummary, sensorChecks, sensorReport } from "../fixtures/sensor-tests";
+import { gardenHistory, hubHistory, replyScript, sensorHistory, type ScriptStep } from "../fixtures/script";
+import { DEFAULT_RANGE, type Range } from "./tests";
 
 interface MockProject {
   summary: ProjectSummary;
@@ -23,6 +30,18 @@ interface MockProject {
   events: ServerEvent[];
   listeners: Set<(e: ServerEvent) => void>;
   busy: boolean;
+  /** the board tests are running */
+  testing?: boolean;
+  /** this project's tests are the sensor's full suite (else its own checks, replayed) */
+  suite?: "sensor";
+  runs?: number;
+}
+
+/** a JSON file a browser can fetch, without a server */
+function jsonUrl(v: unknown): string {
+  const text = JSON.stringify(v);
+  if (typeof URL.createObjectURL === "function") return URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  return `data:application/json,${encodeURIComponent(text)}`;
 }
 
 const t0 = Date.parse("2026-10-17T14:58:00Z");
@@ -61,6 +80,27 @@ export class MockBackend implements Backend {
       events: hub,
       listeners: new Set(),
       busy: false,
+    });
+    // the room sensor: built and tested, with its report
+    const range = { min: sensorDesign.environment?.ambient_min ?? 0, max: sensorDesign.environment?.ambient_max ?? 50 };
+    const checks = sensorChecks(range);
+    const sensor = stamp(
+      sensorHistory({
+        plan: planOf(checks),
+        checks,
+        summary: runSummary(checks),
+        label: runLabel(checks[0]!, range),
+        reportUrl: jsonUrl(sensorReport(range, checks, "2026-11-02T11:02:00Z")),
+      }),
+    );
+    this.projects.set("demo-sensor", {
+      summary: { id: "demo-sensor", name: "Room climate sensor", stage: lastStage(sensor), created_at: "2026-11-02T10:00:00Z", updated_at: "2026-11-02T11:02:00Z" },
+      design: sensorDesign,
+      events: sensor,
+      listeners: new Set(),
+      busy: false,
+      suite: "sensor",
+      runs: 1,
     });
     const garden = stamp(gardenHistory);
     this.projects.set("demo-garden", {
@@ -186,10 +226,62 @@ export class MockBackend implements Backend {
     return url;
   }
 
+  /**
+   * The board tests, live: the plan, then one finished check every ~60 ms
+   * (the heat and supply simulations take a little longer, as they do for
+   * real), then the end, the full results and the report.
+   */
+  async runTests(projectId: string, options: TestOptions): Promise<TestRunResult> {
+    const p = this.get(projectId);
+    if (p.busy || p.testing) throw new ApiError(409, "The board is busy: wait for the AI or the running tests to finish.");
+    if (!p.events.some((e) => e.type === "artifacts" && e.artifacts.some((a) => a.kind === "board-svg" || a.kind === "board-json")))
+      throw new ApiError(409, "There is no built board to test yet.");
+    const range: Range = { min: options.ambient_min ?? DEFAULT_RANGE.min, max: options.ambient_max ?? DEFAULT_RANGE.max };
+    let checks: CheckResult[];
+    if (p.suite === "sensor") checks = sensorChecks(range);
+    else {
+      // a project without the demo suite runs its own last results again
+      const last = [...p.events].reverse().find((e) => e.type === "checks");
+      checks = last && last.type === "checks" ? last.results : [];
+    }
+    const run = `run-${Date.now().toString(36)}`;
+    const plan = planOf(checks);
+    p.testing = true;
+    this.push(p, { type: "test_run", run, phase: "start", label: checks[0] ? runLabel(checks[0], range) : "Getting ready", progress: 0, plan });
+    const slow = new Set(["heat-parts-hot", "pdn", "drc-errors", "voltage-drop", "stress-cap-voltage", "track-heating"]);
+    for (let i = 0; i < checks.length; i++) {
+      const next = checks[i + 1];
+      await new Promise((r) => setTimeout(r, i ? (slow.has(checks[i]!.id) ? 520 : 60) : 400));
+      this.push(p, {
+        type: "test_run",
+        run,
+        phase: "check",
+        live: true,
+        result: checks[i],
+        progress: (i + 1) / checks.length,
+        label: next ? runLabel(next, range) : "Writing the report",
+      });
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    const summary = runSummary(checks);
+    const ok = !checks.some((c) => c.status === "fail");
+    this.push(p, { type: "test_run", run, phase: "done", progress: 1, ok, summary });
+    this.push(p, { type: "checks", results: checks });
+    if (p.suite === "sensor") {
+      p.runs = (p.runs ?? 1) + 1;
+      this.push(p, {
+        type: "artifacts",
+        artifacts: [{ kind: "report", name: `b${p.runs}-room-climate-tests.json`, url: jsonUrl(sensorReport(range, checks)), bytes: 41_000 }],
+      });
+    }
+    p.testing = false;
+    return { ok, summary, checks };
+  }
+
   private push(p: MockProject, e: ScriptStep) {
     const { delay: _d, ...rest } = e;
-    // like the server: a live text delta is not stored and carries the seq of the last stored event
-    const delta = rest.type === "assistant_text" && !rest.done;
+    // like the server: a live text delta (or live test result) is not stored and carries the seq of the last stored event
+    const delta = isLive(rest as ServerEvent);
     const ev = { ...rest, seq: delta ? p.events.length - 1 : p.events.length, at: new Date().toISOString() } as ServerEvent;
     if (!delta) p.events.push(ev);
     if (ev.type === "stage") p.summary = { ...p.summary, stage: ev.stage };

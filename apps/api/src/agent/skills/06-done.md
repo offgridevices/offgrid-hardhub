@@ -1,5 +1,25 @@
 # Done means
 
+Every build runs the board tests: about 90 checks an experienced engineer makes
+before ordering, each with what it found, the number it measured against its
+limit, where on the board, and how to fix it. They cover connections and
+shorts, copper widths and gaps, holes and vias, printing, solder mask,
+placement, power (the power tree, voltage drop in the real copper, supply
+impedance and a load step simulated in ngspice), heat (the whole board solved
+at each outside temperature), every part against its ratings, signals,
+sourcing and manufacturing. The person watches them finish live in the Tests
+tab.
+
+- Read what fails and needs a look in the build result; `test_report` gives
+  them all (or one area). Fix every failure, rebuild, and repeat until none
+  fails. A warning is fixed or explained to the person in one plain sentence.
+- `run_tests` runs them again without rebuilding: after the person's hand
+  edits, or at other outside temperatures.
+- The tests are only as good as the numbers in the design: set
+  `environment` from what the person told you (where the board lives), each
+  power net's `current` and `source`, and each part's `ratings` from its
+  datasheet. "ratings-known" lists what was assumed.
+
 A board is ready to order only when all of these hold. Report them as a
 checklist: what was tested, how, the result. A check that cannot fail is no check.
 
@@ -9,7 +29,9 @@ checklist: what was tested, how, the result. A check that cannot fail is no chec
 - Every track corner 45 degrees or less.
 - Power budget: every regulator, switch and connector within its rating with
   margin, at the worst case (hottest room, full load, stalled load).
-- Heat: no part past its rating in its enclosure; say what was assumed.
+- Heat: no part past its rating at the hottest outside temperature, in its
+  enclosure; say what was assumed.
+- Every board test passes, or each one left is explained to the person.
 - Firmware pin map matches the circuit, if firmware was written.
 - Every requirement marked met, unmet, or written down as a limit.
 - The board's name and revision printed on it, and every part named on the
