@@ -90,6 +90,8 @@ describe("run_tests and test_report (the AI's tools)", () => {
     const r = await room.agentTool("run_tests", { ambient_max: 40 });
     expect(r.content).toMatch(/Board tests at the design's to 40 °C: 1 pass, 1 to fix/);
     expect(r.content).toMatch(/FAIL Board below 105 °C \[heat-board\]: 118 °C\. Fix: spread the heat/);
+    // the build placed U1 itself and saved that: the board is still current
+    expect(r.content).not.toMatch(/design changed/);
     const rep = await room.agentTool("test_report", {});
     expect(rep.isError).toBeFalsy();
     expect(rep.content).toMatch(/To fix before ordering/);
@@ -176,5 +178,16 @@ describe("a test run always ends", () => {
     expect(r.content).toMatch(/wait_for_build/);
     expect(engine.tests).toHaveLength(0);
     void id;
+  });
+});
+
+describe("a board older than its design", () => {
+  it("run_tests says the copper is from an earlier design", async () => {
+    const token = await signIn();
+    const { id, core } = await project(token);
+    const d = core.design().design;
+    core.saveDesign({ ...d, summary: "changed after the build" }, "Changed the summary");
+    const r = await env.ROOMS.get(id).agentTool("run_tests", {});
+    expect(r.content).toMatch(/the design changed after this board was built/);
   });
 });

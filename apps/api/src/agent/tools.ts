@@ -249,15 +249,17 @@ export const TOOLS = {
         const renders = stored.filter((a) => a.kind === "board-png").map((a) => a.name);
         if (renders.length) ctx.setRenders(renders);
         const kicad = stored.find((a) => a.kind === "kicad");
-        if (kicad) ctx.setLastBuild({ job, kicad: kicad.name, version });
         // keep the engine's placement for parts the design left unplaced
         const added = Object.entries(line.placement).filter(([ref]) => !(ref in design.placement));
+        let builtFrom = version;
         if (added.length) {
           const cur = ctx.design().design;
           const next = { ...cur, placement: { ...cur.placement } };
           for (const [ref, p] of added) next.placement[ref] = { ...p, locked: false };
-          ctx.saveDesign(next, `Placed ${added.length} parts automatically`);
+          // that save only records where the board already has them: it is still this board's design
+          builtFrom = ctx.saveDesign(next, `Placed ${added.length} parts automatically`);
         }
+        if (kicad) ctx.setLastBuild({ job, kicad: kicad.name, version: builtFrom });
         const stats = Object.entries(line.stats).map(([k, v]) => `${k} ${v}`).join(", ");
         return {
           content: [

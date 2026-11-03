@@ -87,7 +87,8 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
         except sim.SimError as e:
             drops.append(dict(net=name, error=str(e)))
             continue
-        pct = 100 * r['worst_mv'] / 1000 / n['voltage']
+        # a drop is a loss of magnitude: a -5 V rail that reaches -4.5 V lost 10 %
+        pct = 100 * abs(r['worst_mv']) / 1000 / abs(n['voltage'])
         drops.append(dict(net=name, source=n['source'], voltage=n['voltage'], current=sum(s['current'] for s in sinks),
                           worst_mv=r['worst_mv'], pct=pct, worst=r.get('worst'), sinks=r.get('sinks', []),
                           resistance_mohm=r.get('resistance_mohm')))
