@@ -195,3 +195,16 @@ describe("a finished run's results", () => {
     expect(s.checks.map((x) => x.id).sort()).toEqual(["lcsc", "pins-pads", "shorts"]);
   });
 });
+
+describe("a run's note", () => {
+  it("reaches the run and its chat card", () => {
+    const at = "2026-11-03T00:00:00Z";
+    const s = replay([
+      ServerEvent.parse({ seq: 0, at, type: "test_run", run: "b3", phase: "start", plan: [] }),
+      ServerEvent.parse({ seq: 1, at, type: "test_run", run: "b3", phase: "done", ok: true, summary: "1 pass", note: "Build the board again." }),
+    ]);
+    expect(s.testRun?.note).toBe("Build the board again.");
+    const card = s.items.find((i) => i.kind === "tests");
+    expect(card?.kind === "tests" && card.note).toBe("Build the board again.");
+  });
+});

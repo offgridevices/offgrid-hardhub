@@ -710,7 +710,7 @@ export class RoomCore {
   /** The person runs the board tests again from the app (POST /projects/:id/tests),
    * maybe at other outside temperatures. Refused while anything else works here;
    * the AI hears the result on its next turn. */
-  async runTests(options: TestOptions): Promise<{ status: 200; body: { ok: boolean; summary: string; checks: CheckResult[] } } | { status: 409 | 502; body: { error: string } }> {
+  async runTests(options: TestOptions): Promise<{ status: 200; body: { ok: boolean; summary: string; note?: string; checks: CheckResult[] } } | { status: 409 | 502; body: { error: string } }> {
     const conflict = (error: string) => ({ status: 409 as const, body: { error } });
     if (this.editing) return conflict("The board is being checked already.");
     if (this.busy || this.meta("queued") || this.meta("chat_turn")) return conflict("HardHub's AI is working on this project. Run the tests when it has finished.");
@@ -722,10 +722,10 @@ export class RoomCore {
       const r = await runTests(ctx, options);
       if (r.error) return { status: 502, body: { error: r.content } };
       const range = options.ambient_min !== undefined && options.ambient_max !== undefined ? ` at ${options.ambient_min} to ${options.ambient_max} °C` : "";
-      const note = `The person ran the board tests again${range}: ${testCounts(r.checks)}. test_report has the details.`;
-      this.addNote("notes_chat", note);
-      this.addNote("notes_agent", note);
-      return { status: 200, body: { ok: r.ok, summary: testCounts(r.checks), checks: r.checks } };
+      const said = `The person ran the board tests again${range}: ${testCounts(r.checks)}.${r.note ? " The design has changed since the board was built, so the results mix the new design with the old copper: offer to build it again." : ""} test_report has the details.`;
+      this.addNote("notes_chat", said);
+      this.addNote("notes_agent", said);
+      return { status: 200, body: { ok: r.ok, summary: testCounts(r.checks), ...(r.note ? { note: r.note } : {}), checks: r.checks } };
     } finally {
       this.setMeta("editing", null);
     }

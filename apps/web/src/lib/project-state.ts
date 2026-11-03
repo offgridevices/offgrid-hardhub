@@ -13,7 +13,7 @@ export type ChatItem =
   | { kind: "job"; id: string; job: string; step: string; progress: number; done: boolean; ok?: boolean }
   | { kind: "edit"; id: string; summary: string; ok: boolean }
   // a run of the board tests: one card that fills as checks finish
-  | { kind: "tests"; id: string; label: string; progress: number; total: number; done: boolean; ok?: boolean; summary?: string }
+  | { kind: "tests"; id: string; label: string; progress: number; total: number; done: boolean; ok?: boolean; summary?: string; note?: string }
   | { kind: "error"; id: string; message: string; retryable: boolean };
 
 /** the board tests running now, or the last run: each check as it finishes */
@@ -27,6 +27,8 @@ export interface TestRun {
   results: Record<string, CheckResult>;
   ok?: boolean;
   summary?: string;
+  /** something the person should know about the run (the board is older than the design) */
+  note?: string;
   /** the run's full results have arrived (the "checks" event after done) */
   settled?: boolean;
 }
@@ -162,7 +164,7 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
       } else {
         // done: the full results follow as a "checks" event
         const r = s.testRun?.run === e.run ? s.testRun : { run: e.run, phase: "done" as const, label: "", progress: 1, plan: [], results: {} };
-        n.testRun = { ...r, phase: "done", progress: 1, label: e.label ?? r.label, ok: e.ok, summary: e.summary };
+        n.testRun = { ...r, phase: "done", progress: 1, label: e.label ?? r.label, ok: e.ok, summary: e.summary, ...(e.note ? { note: e.note } : {}) };
         const was = s.items.find((it) => it.kind === "tests" && it.id === e.run);
         n.items = upsert(s.items, {
           kind: "tests",
@@ -173,6 +175,7 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
           done: true,
           ok: e.ok,
           summary: e.summary,
+          ...(e.note ? { note: e.note } : {}),
         });
       }
       break;

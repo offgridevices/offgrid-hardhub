@@ -283,6 +283,7 @@ const ItemView = memo(function ItemView({
             />
           </div>
           <span className="truncate text-xs text-muted-foreground">{item.done ? item.summary : item.label}</span>
+          {item.done && item.note && <span className="text-xs text-gold-text">{item.note}</span>}
         </div>
       );
     }

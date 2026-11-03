@@ -190,6 +190,20 @@ describe("a board older than its design", () => {
     const r = await env.ROOMS.get(id).agentTool("run_tests", {});
     expect(r.content).toMatch(/the design changed after this board was built/);
   });
+
+  it("the person is told too, in the result and on the run itself", async () => {
+    const token = await signIn();
+    const { id, core } = await project(token);
+    const fresh = TestRunResult.parse(await (await run(id, {}, token)).json());
+    expect(fresh.note).toBeUndefined();
+    const d = core.design().design;
+    core.saveDesign({ ...d, nets: { ...d.nets, V12: { kind: "power", voltage: 12 } } }, "Added a 12 V supply");
+    const before = core.lastSeq();
+    const body = TestRunResult.parse(await (await run(id, {}, token)).json());
+    expect(body.note).toMatch(/Build the board again/);
+    const done = core.events(before, 1000).events.find((e) => e.type === "test_run" && e.phase === "done");
+    expect(done?.type === "test_run" && done.note).toMatch(/changed since this board was built/);
+  });
 });
 
 describe("the order files", () => {

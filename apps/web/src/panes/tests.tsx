@@ -114,6 +114,7 @@ export default function Tests({ design, checks, testRun, artifacts, fileUrl, bus
         <VerdictCard
           n={n}
           run={live ? testRun : null}
+          note={live ? undefined : testRun?.note}
           tested={report || env ? tested : null}
           place={env?.place ?? null}
           hasSims={has}
@@ -247,6 +248,7 @@ const PARTS: { s: keyof Omit<Counts, "total">; label: (n: number) => string }[] 
 function VerdictCard({
   n,
   run,
+  note,
   tested,
   place,
   hasSims,
@@ -255,6 +257,8 @@ function VerdictCard({
 }: {
   n: Counts;
   run: TestRun | null;
+  /** what the person should know about the last run (the board is older than the design) */
+  note?: string | undefined;
   /** the outside temperatures the results are for, when known (older results do not say) */
   tested: Range | null;
   place: Parameters<typeof rangeText>[1];
@@ -313,6 +317,13 @@ function VerdictCard({
         </div>
         {children}
       </div>
+
+      {note && (
+        <p className="flex items-start gap-2 rounded-lg bg-gold/10 px-3 py-2 text-sm text-gold-text" data-testid="run-note">
+          <CircleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>{note}</span>
+        </p>
+      )}
 
       {run ? (
         <div className="flex flex-col gap-1.5">
@@ -417,7 +428,7 @@ function RunControl({
       <div className="flex w-full flex-wrap items-center gap-2 @xl:w-auto @xl:flex-nowrap">
         <Select value={choice} onValueChange={setChoice} disabled={busy}>
           <SelectTrigger
-            className="h-9 min-w-0 flex-1 overflow-hidden @xl:w-56 @xl:flex-none [&>[data-slot=select-value]]:min-w-0 [&>[data-slot=select-value]]:truncate"
+            className="h-9 min-w-0 flex-1 basis-full overflow-hidden @md:basis-0 @xl:w-56 @xl:flex-none [&>[data-slot=select-value]]:min-w-0 [&>[data-slot=select-value]]:truncate"
             aria-label="Where the board will live"
             data-testid="range"
           >

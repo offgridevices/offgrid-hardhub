@@ -137,6 +137,9 @@ export const ServerEvent = z.discriminatedUnion("type", [
     result: CheckResult.optional(),
     ok: z.boolean().optional(),
     summary: z.string().optional(),
+    // done: something the person should know about this run, in plain words
+    // ("the board was built from an earlier design: build it again")
+    note: z.string().optional(),
   }),
   z.object({ ...base, type: z.literal("artifacts"), artifacts: z.array(Artifact) }),
   // the person edited the routed board by hand (POST /projects/:id/board/edits); summary is plain words

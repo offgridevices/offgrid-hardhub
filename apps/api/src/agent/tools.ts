@@ -612,11 +612,11 @@ export class TestRelay {
     this.ctx.live({ type: "test_run", run: this.run, phase: "check", live: true, label: l.message, progress, ...(l.result ? { result: l.result } : {}) });
   }
 
-  done(checks: CheckResult[], failed?: string) {
+  done(checks: CheckResult[], failed?: string, note?: string) {
     if (!this.started) return;
     this.started = false;
     const ok = !failed && !checks.some((c) => c.status === "fail");
-    this.ctx.emit({ type: "test_run", run: this.run, phase: "done", ok, progress: 1, summary: failed ?? testCounts(checks) });
+    this.ctx.emit({ type: "test_run", run: this.run, phase: "done", ok, progress: 1, summary: failed ?? testCounts(checks), ...(note ? { note } : {}) });
   }
 }
 
@@ -640,7 +640,7 @@ export async function runTests(
   ctx: ToolContext,
   options: TestOptions,
   signal?: AbortSignal,
-): Promise<{ ok: boolean; error: boolean; content: string; checks: CheckResult[] }> {
+): Promise<{ ok: boolean; error: boolean; content: string; checks: CheckResult[]; note?: string }> {
   const fail = (content: string) => ({ ok: false, error: true, content, checks: [] as CheckResult[] });
   const last = ctx.lastBuild();
   if (!last) return fail("No built board yet: run build_board first.");
@@ -648,9 +648,12 @@ export async function runTests(
   if (!zip) return fail("The last build's board file is missing: run build_board again.");
   const { design, version } = ctx.design();
   // the tests read the design's numbers (currents, ratings) on the board as last built
-  const stale = last.version !== undefined && last.version !== version
+  const changed = last.version !== undefined && last.version !== version;
+  const stale = changed
     ? `Note: the design changed after this board was built (version ${last.version}, now ${version}): these tests use the new design's numbers on the old copper. build_board brings the board up to date.`
     : "";
+  // the same, for the person: the Tests tab and the chat show it beside the results
+  const note = changed ? "The design has changed since this board was built, so some tests compare the new design with the old board. Build the board again to test it as it is now." : undefined;
   const job = ctx.nextJob();
   const relay = new TestRelay(ctx, job);
   try {
@@ -659,7 +662,7 @@ export async function runTests(
         if (line.step === "test") relay.line(line);
         continue;
       }
-      relay.done(line.checks, line.ok || line.checks.length ? undefined : (line.error ?? "the tests could not run"));
+      relay.done(line.checks, line.ok || line.checks.length ? undefined : (line.error ?? "the tests could not run"), note);
       if (!line.checks.length) return fail(`The tests could not run${line.error ? `: ${line.error}` : "."}`);
       ctx.emit({ type: "checks", results: line.checks });
       const stored = await storeArtifacts(ctx, job, line.artifacts);
@@ -670,6 +673,7 @@ export async function runTests(
         ok: line.ok,
         error: false,
         checks: line.checks,
+        ...(note ? { note } : {}),
         content: [`Board tests${at}: ${testCounts(line.checks)}.`, stale, summarizeChecks(line.checks), "test_report gives the full report."].filter(Boolean).join("\n"),
       };
     }

@@ -143,5 +143,5 @@ export const OAuthRedirect = z.object({ redirect: z.string() });
 export type OAuthRedirect = z.infer<typeof OAuthRedirect>;
 
 // POST /projects/:id/tests -> 200 TestRunResult, once every test has run
-export const TestRunResult = z.object({ ok: z.boolean(), summary: z.string(), checks: z.array(CheckResult) });
+export const TestRunResult = z.object({ ok: z.boolean(), summary: z.string(), note: z.string().optional(), checks: z.array(CheckResult) });
 export type TestRunResult = z.infer<typeof TestRunResult>;
