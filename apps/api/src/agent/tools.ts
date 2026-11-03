@@ -411,7 +411,7 @@ export const TOOLS = {
       if (!t?.md) return { content: "No test report yet: build_board (or run_tests) makes one.", isError: true };
       const buf = await ctx.getFile(t.md);
       if (!buf) return { content: "The test report is missing from storage: run_tests makes it again.", isError: true };
-      return { content: filterReport(new TextDecoder().decode(buf), i.only) };
+      return { content: filterReport(withStoredChecks(new TextDecoder().decode(buf), ctx.latestChecks()), i.only) };
     },
   }),
 
@@ -710,6 +710,25 @@ const AREA_LABEL: Record<string, string> = {
   mask: "Solder mask and paste", placement: "Parts and assembly", power: "Power", thermal: "Heat", stress: "Part ratings",
   signals: "Signals", firmware: "Firmware", sourcing: "Buying the parts", fab: "Manufacturing",
 };
+
+/** The report with any stored check it does not mention (the ones a test run
+ * keeps from the build), written the way the engine writes them, so
+ * test_report lists every check the person sees. */
+export function withStoredChecks(md: string, checks: CheckResult[]): string {
+  const missing = checks.filter((c) => !md.includes(`\`${c.id}\``));
+  if (!missing.length) return md;
+  const area = (c: CheckResult) => AREA_LABEL[c.group] ?? c.group;
+  const block = (c: CheckResult) =>
+    [`### ${c.name} (${area(c)}, \`${c.id}\`)`, c.detail && `- Found: ${c.detail}`, c.fix && `- Fix: ${c.fix}`, `- Why: ${c.why}.`].filter(Boolean).join("\n");
+  const out = [md.trimEnd()];
+  for (const [title, st] of [["To fix before ordering", "fail"], ["To look at", "warn"], ["Not run", "skip"]] as const) {
+    const rs = missing.filter((c) => c.status === st);
+    if (rs.length) out.push("", `## ${title}, from the build (${rs.length})`, "", ...rs.map(block).flatMap((b) => [b, ""]));
+  }
+  const rest = missing.filter((c) => c.status === "pass" || c.status === "na");
+  if (rest.length) out.push("", `## Passed or does not apply, from the build (${rest.length})`, "", ...rest.map((c) => `- ${c.name} (${area(c)}, \`${c.id}\`)${c.detail ? `: ${c.detail}` : ""}`));
+  return out.join("\n") + "\n";
+}
 
 /** the report, cut to what was asked: problems (fails, warnings, not run), all, or one area */
 export function filterReport(md: string, only: string): string {

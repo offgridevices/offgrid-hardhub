@@ -40,6 +40,7 @@ class Job:
         self.d = D.normalize(d)
         self.options = options or {}
         self.drc_json = None
+        self.report_files, self.test_ids = [], set()
         self.work, self.out, self.emit_line = work, out, emit
         self.job, self.outputs, self.stop_after = job, set(outputs or ()), stop_after
         self.checks, self.artifacts, self.stats, self.placement = [], [], {}, {}
@@ -67,6 +68,18 @@ class Job:
         return r['status'] != 'fail'
 
     def final(self, ok, error=None, rejected=False):
+        if self.report_files:
+            # the report with every check made, including the steps after the test step
+            try:
+                from . import review
+                review.refresh(self.report_files, self.checks, self.d)
+                for a in self.artifacts:
+                    p = os.path.join(self.out, a['name'])
+                    if a['kind'] == 'report' and os.path.exists(p):
+                        a['bytes'] = os.path.getsize(p)
+            except Exception:                                 # noqa: BLE001 -- the step's own report stands
+                import traceback
+                traceback.print_exc(file=sys.stderr)
         line = dict(done=True, ok=ok, checks=self.checks, artifacts=self.artifacts, stats=self.stats,
                     placement=self.placement)
         if error:
@@ -86,7 +99,16 @@ class Job:
             self.emit(step, 'done in %.1f s' % self.stats['t_' + step], 1.0)
             if step == self.stop_after:
                 break
-        return self.final(all(c['status'] != 'fail' for c in self.checks))
+        return self.final(self.made_ok())
+
+    def made_ok(self):
+        """ok means the board was made right: its own steps (placing, routing,
+        DRC, the copper against the circuit, the order files) passed. A board
+        test that fails (a part low on stock, a capacitor near its rating) is
+        reported by the test run, not as a failed build. A run that only tests
+        (TestJob) has no build to make: there every failure counts."""
+        gates = [c for c in self.checks if c['id'] not in self.test_ids or self.steps == TEST_STEPS]
+        return all(c['status'] != 'fail' for c in gates)
 
     # ------------------------------------------------------------ steps
     def s_validate(self):
@@ -311,6 +333,8 @@ class Job:
             return
         for r in results:
             self.check(r)
+        self.test_ids = {r['id'] for r in results}
+        self.report_files = files
         for f in files:
             self.art('report', f)
         self.stats['tests'] = len(results)

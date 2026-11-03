@@ -4,7 +4,7 @@
 import { Design, ServerEvent, TestRunResult } from "@hardhub/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/http";
-import { TOOLS, filterReport, summarizeChecks } from "../src/agent/tools";
+import { TOOLS, filterReport, summarizeChecks, withStoredChecks } from "../src/agent/tools";
 import { type TestEnv, testEnv } from "./support/env";
 import { FakeEngine } from "./support/room";
 
@@ -271,5 +271,21 @@ describe("checks only a build makes", () => {
     expect(body.checks.find((c) => c.id === "bom-cpl")?.status).toBe("fail");
     expect(body.ok).toBe(false);
     expect(core.latestChecks().find((c) => c.id === "bom-cpl")?.detail).toBe("U3 missing");
+  });
+});
+
+describe("test_report lists every check the person sees", () => {
+  it("adds stored checks the engine's report does not mention, failures first", () => {
+    const md = "# Board tests\n\n1 test.\n\n## Passed (1)\n\n- No shorts (Connections, `shorts`)\n";
+    const full = withStoredChecks(md, [
+      { id: "shorts", group: "connections", name: "No shorts", why: "w", status: "pass" },
+      { id: "drc-errors", group: "fab", name: "KiCad's design rules: no errors", why: "the fab rejects it", status: "fail", detail: "clearance at (3, 4)", fix: "move the track" },
+      { id: "nets-match", group: "connections", name: "Copper equals the circuit", why: "w", status: "pass" },
+    ]);
+    expect(full.match(/`shorts`/g)).toHaveLength(1);
+    const problems = filterReport(full, "problems");
+    expect(problems).toMatch(/### KiCad's design rules: no errors \(Manufacturing, `drc-errors`\)/);
+    expect(problems).toMatch(/Fix: move the track/);
+    expect(filterReport(full, "connections")).toMatch(/Copper equals the circuit/);
   });
 });

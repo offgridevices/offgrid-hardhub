@@ -185,3 +185,29 @@ def test_supplies_with_no_stated_current_still_get_heat_and_drop_tests(built, tm
     for i in ('voltage-drop', 'track-heating', 'via-current', 'heat-parts-hot', 'heat-junction', 'heat-board'):
         assert 'could not run' not in (c[i].get('detail') or ''), (i, c[i])
     assert c['heat-board']['status'] in ('pass', 'warn')
+
+
+def test_the_report_holds_every_check_the_job_made(built):
+    """What the AI reads lists what the person sees: the circuit checks, DRC,
+    nets and the order files too, not only the test step's own."""
+    files, final, _ = built
+    md = (files / art(final, '-tests.md')['name']).read_text()
+    for i in ('pins-pads', 'nets-match', 'drc-errors', 'bom-cpl', 'shorts', 'heat-board'):
+        assert '`%s`' % i in md, i
+    rep = json.loads((files / art(final, '-tests.json')['name']).read_text())
+    assert sum(rep['summary'][k] for k in ('pass', 'fail', 'warn', 'skip', 'na')) == len(final['checks'])
+
+
+def test_a_failing_board_test_is_not_a_failed_build(tmp_path):
+    """ok means the board was made right; a test that fails (stock, ratings) is
+    the test run's to report. A run that only tests counts every failure."""
+    from hardhub import pipeline
+    j = pipeline.Job(fixture('esp32c3-sensor.json'), str(tmp_path / 'w'), str(tmp_path / 'o'), lambda x: None)
+    j.checks = [dict(id='drc-errors', status='pass'), dict(id='stock-qty', status='fail')]
+    j.test_ids = {'stock-qty'}
+    assert j.made_ok()
+    j.checks[0]['status'] = 'fail'
+    assert not j.made_ok()
+    t = pipeline.TestJob(fixture('esp32c3-sensor.json'), None, str(tmp_path / 'w2'), str(tmp_path / 'o2'), lambda x: None)
+    t.checks, t.test_ids = [dict(id='stock-qty', status='fail')], {'stock-qty'}
+    assert not t.made_ok()

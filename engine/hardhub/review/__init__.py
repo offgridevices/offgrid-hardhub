@@ -304,6 +304,23 @@ def _no_nulls(x):
     return x
 
 
+def refresh(files, checks, d):
+    """Writes the report again with every check the job made, not only the
+    test step's own (the circuit checks, DRC, nets, BOM/CPL...), so what the
+    AI reads (<slug>-tests.md) is the list the person sees."""
+    js = next((f for f in files if f.endswith('-tests.json')), None)
+    md = next((f for f in files if f.endswith('-tests.md')), None)
+    if not js or not md or not os.path.exists(js):
+        return
+    rep = json.load(open(js))
+    rep['summary'] = summary(checks)
+    with open(js, 'w') as f:
+        json.dump(rep, f, separators=(',', ':'))
+    from .. import design as D
+    with open(md, 'w') as f:
+        f.write(markdown(checks, rep, D.normalize(d)))
+
+
 def markdown(results, rep, d):
     """The report for people and AIs: what to fix first, with where and how."""
     s = rep['summary']
