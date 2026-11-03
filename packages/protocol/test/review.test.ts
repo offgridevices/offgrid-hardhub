@@ -1,11 +1,9 @@
 // A report exactly as the engine wrote it (the ESP32-C3 sensor board, built in
 // KiCad with the board tests): the web app must be able to read it. Remake it
 // with the engine's test step when the report changes shape.
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { TestReport } from "../src/review";
-
-const raw = JSON.parse(readFileSync(new URL("./fixtures/sensor-tests.json", import.meta.url), "utf8"));
+import raw from "./fixtures/sensor-tests.json";
 
 describe("the engine's test report", () => {
   it("parses with the schema the clients use", () => {
@@ -20,5 +18,17 @@ describe("the engine's test report", () => {
     expect(atob(r.thermal!.maps[0]!.u8).length).toBe(nx * ny);
     expect(r.power.tree.map((n) => n.net).sort()).toEqual(["+3V3", "VBUS"]);
     expect(r.board.stackup.filter((s) => s.kind === "copper")).toHaveLength(2);
+  });
+});
+
+describe("an older report, with empty fields written as null", () => {
+  it("still parses, the empty fields read as missing", () => {
+    const old = structuredClone(raw) as { thermal: { parts: Record<string, unknown>[] }; power: { tree: Record<string, unknown>[] }; tools: Record<string, unknown> };
+    old.thermal.parts[0]!.how = null;
+    old.power.tree[0]!.from = null;
+    old.tools["hardhub-sim"] = { name: "hardhub-sim", version: "0.1.0" };
+    const r = TestReport.parse(old);
+    expect(r.thermal!.parts[0]!.how).toBeUndefined();
+    expect(r.power.tree[0]!.from).toBeUndefined();
   });
 });

@@ -7,6 +7,9 @@
 // Frame: board mm from the centre, y down (the design's frame).
 import { z } from "zod";
 
+/** a field that may be missing; null (as older engines wrote it) reads as missing */
+const opt = <T extends z.ZodType>(t: T) => z.preprocess((v) => (v === null ? undefined : v), t.optional());
+
 export const StackLayer = z.object({
   name: z.string(), // "F.Cu", "Core", "F.Mask"
   kind: z.enum(["silk", "mask", "paste", "copper", "dielectric"]),
@@ -33,20 +36,20 @@ export const PartHeat = z.object({
   ref: z.string(),
   power: z.number(), // W
   temps: z.array(z.object({ ambient: z.number(), board: z.number(), junction: z.number().optional() })),
-  temp_max: z.number().nullish(),
-  temp_min: z.number().nullish(),
-  assumed: z.boolean().nullish(), // the rating or the power was a typical value, not from the datasheet
-  how: z.string().nullish(), // how its heat was worked out ("LDO: (5 V - 3.3 V) x 0.5 A")
+  temp_max: opt(z.number()),
+  temp_min: opt(z.number()),
+  assumed: opt(z.boolean()), // the rating or the power was a typical value, not from the datasheet
+  how: opt(z.string()), // how its heat was worked out ("LDO: (5 V - 3.3 V) x 0.5 A")
 });
 export type PartHeat = z.infer<typeof PartHeat>;
 
 export const PowerNode = z.object({
   net: z.string(),
-  voltage: z.number().nullish(),
-  source: z.string().nullish(), // the ref feeding it
-  from: z.string().nullish(), // the net that source takes power from
-  load: z.number().nullish(), // A drawn
-  capacity: z.number().nullish(), // A the source can give
+  voltage: opt(z.number()),
+  source: opt(z.string()), // the ref feeding it
+  from: opt(z.string()), // the net that source takes power from
+  load: opt(z.number()), // A drawn
+  capacity: opt(z.number()), // A the source can give
 });
 
 export const PowerDrop = z.object({

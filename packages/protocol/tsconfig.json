@@ -1,1 +1,1 @@
-{ "extends": "../../tsconfig.base.json", "compilerOptions": { "noEmit": true, "types": [] }, "include": ["src", "scripts", "test"] }
+{ "extends": "../../tsconfig.base.json", "compilerOptions": { "noEmit": true, "types": [], "resolveJsonModule": true }, "include": ["src", "scripts", "test"] }
