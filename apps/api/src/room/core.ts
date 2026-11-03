@@ -138,9 +138,14 @@ export class RoomCore {
   get busy() {
     return this.meta("busy") === "1";
   }
-  /** a hand edit of the board is being applied and checked */
+  /** a hand edit of the board is being applied and checked, or the person's
+   * own test run is going: either way the board is not to be touched */
   get editing() {
-    return this.meta("editing") === "1";
+    return this.meta("editing") !== null;
+  }
+  /** what is holding the board, in plain words, for whoever has to wait */
+  private holding(): string {
+    return this.meta("editing") === "tests" ? "HardHub is running the board tests" : "The person is editing the board by hand and HardHub is checking it";
   }
 
   init(projectId: string, ownerId: string, name: string) {
@@ -331,7 +336,8 @@ export class RoomCore {
       return false;
     }
     if (this.editing) {
-      this.d.broadcast(JSON.stringify({ type: "error", message: "HardHub is checking your edits to the board. Send your message when it has finished.", retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
+      const why = this.meta("editing") === "tests" ? "HardHub is running the board tests" : "HardHub is checking your edits to the board";
+      this.d.broadcast(JSON.stringify({ type: "error", message: `${why}. Send your message when it has finished.`, retryable: true, seq: this.lastSeq(), at: new Date().toISOString() }));
       return false;
     }
     if (this.buildingForAgent() || this.agentCalls > 0) {
@@ -447,7 +453,7 @@ export class RoomCore {
   private agentRefusal(fromChat = false): AgentResult | null {
     // the chat's own Claude Code works inside the turn that is running
     if (fromChat) return this.meta("chat_turn") ? null : { content: "This chat turn has ended.", isError: true };
-    if (this.editing) return { content: "The person is editing the board by hand and HardHub is checking it. Try again in a minute.", isError: true };
+    if (this.editing) return { content: `${this.holding()}. Try again in a minute.`, isError: true };
     return this.busy || this.meta("queued")
       ? { content: "HardHub's own AI is answering a message in this project. Try again when it has finished.", isError: true }
       : null;
@@ -635,7 +641,7 @@ export class RoomCore {
    * Refused while the AI, a connected agent or a build is working here. */
   async editBoard(req: BoardEditRequest): Promise<BoardEditOutcome> {
     const conflict = (error: string): BoardEditOutcome => ({ status: 409, body: { error } });
-    if (this.editing) return conflict("Your last edits are still being checked.");
+    if (this.editing) return conflict(this.meta("editing") === "tests" ? "The board tests are running. Edit the board when they have finished." : "Your last edits are still being checked.");
     if (this.busy || this.meta("queued") || this.meta("chat_turn")) return conflict("HardHub's AI is working on this project. Edit the board when it has finished.");
     if (this.buildingForAgent() || this.agentCalls > 0) return conflict("A connected AI is working on this board. Edit it when it has finished.");
     const ctx = this.toolContext(false);
@@ -712,12 +718,12 @@ export class RoomCore {
    * the AI hears the result on its next turn. */
   async runTests(options: TestOptions): Promise<{ status: 200; body: { ok: boolean; summary: string; note?: string; checks: CheckResult[] } } | { status: 409 | 502; body: { error: string } }> {
     const conflict = (error: string) => ({ status: 409 as const, body: { error } });
-    if (this.editing) return conflict("The board is being checked already.");
+    if (this.editing) return conflict(this.meta("editing") === "tests" ? "The board tests are already running." : "Your edits to the board are being checked. Run the tests when that has finished.");
     if (this.busy || this.meta("queued") || this.meta("chat_turn")) return conflict("HardHub's AI is working on this project. Run the tests when it has finished.");
     if (this.buildingForAgent() || this.agentCalls > 0) return conflict("A connected AI is working on this board. Run the tests when it has finished.");
     const ctx = this.toolContext(false);
     if (!ctx.lastBuild()) return conflict("There is no built board yet: build it first.");
-    this.setMeta("editing", "1");
+    this.setMeta("editing", "tests");
     try {
       const r = await runTests(ctx, options);
       if (r.error) return { status: 502, body: { error: r.content } };

@@ -82,6 +82,7 @@ export class FakeEngine implements Engine {
   async *test(_design: Design, job: string, zip: ArrayBuffer, options?: unknown): AsyncIterable<JobLine> {
     this.tests.push({ job, zip: zip.byteLength, options });
     yield { step: "validate", progress: 0.1, message: "reading the board" };
+    if (this.hold) await this.hold;
     yield { step: "test", progress: 0.2, message: "Planning 2 tests", plan: [{ id: "shorts", group: "connections", name: "No shorts" }, { id: "heat-board", group: "thermal", name: "Board below 105 °C" }] };
     yield { step: "test", progress: 0.5, message: "Measuring", result: { id: "shorts", group: "connections", name: "No shorts", why: "a short burns", status: "pass" } };
     yield { step: "test", progress: 0.9, message: "Simulating heat", result: { id: "heat-board", group: "thermal", name: "Board below 105 °C", why: "FR4 softens", status: "fail", detail: "118 °C", fix: "spread the heat" } };

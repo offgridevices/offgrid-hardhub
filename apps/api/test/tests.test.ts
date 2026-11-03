@@ -226,3 +226,21 @@ describe("the order files", () => {
     expect(kinds.filter((k) => k === "report")).toHaveLength(2);
   });
 });
+
+describe("while the person's test run is going", () => {
+  it("others are told the board tests are running, not that edits are being checked", async () => {
+    const token = await signIn();
+    const { id } = await project(token);
+    let release!: () => void;
+    engine.hold = new Promise<void>((r) => (release = r));
+    const running = run(id, {}, token);
+    await new Promise((r) => setTimeout(r, 20));
+    const r = await env.ROOMS.get(id).agentTool("get_design", {});
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/running the board tests/);
+    expect((await run(id, {}, token)).status).toBe(409);
+    release();
+    engine.hold = null;
+    expect((await running).status).toBe(200);
+  });
+});
