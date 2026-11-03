@@ -309,7 +309,7 @@ function VerdictCard({
               ) : (
                 <>
                   {sub && <span>{sub}{tested ? " · " : ""}</span>}
-                  {tested && <span className="text-muted-foreground">Tested at {rangeText(tested, place)} outside</span>}
+                  {tested && <span className="text-muted-foreground">Tested at {rangeText(tested, place)}{rangeText(tested, place).includes(",") ? "" : " outside"}</span>}
                 </>
               )}
             </p>

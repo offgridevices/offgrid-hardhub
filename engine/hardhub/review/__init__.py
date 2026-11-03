@@ -339,11 +339,12 @@ def markdown(results, rep, d):
     rs = [r for r in results if r['status'] == 'pass']
     if rs:
         lines += ['## Passed (%d)' % len(rs), '']
-        lines += ['- %s%s' % (r['name'], ': ' + r['detail'] if r.get('detail') else '') for r in rs]
+        # each line tagged with its area and id, like the blocks above, so one area can be read alone
+        lines += ['- %s (%s, `%s`)%s' % (r['name'], areas.get(r['group'], r['group']), r['id'], ': ' + r['detail'] if r.get('detail') else '') for r in rs]
         lines.append('')
     rs = [r for r in results if r['status'] == 'na']
     if rs:
-        lines += ['## Does not apply (%d)' % len(rs), ''] + ['- %s: %s' % (r['name'], r.get('detail', '')) for r in rs] + ['']
+        lines += ['## Does not apply (%d)' % len(rs), ''] + ['- %s (%s, `%s`): %s' % (r['name'], areas.get(r['group'], r['group']), r['id'], r.get('detail', '')) for r in rs] + ['']
     th = rep.get('thermal')
     if th and th.get('parts'):
         lines += ['## Heat', '', '| Part | Power | Board temperature by outside temperature | Rated |', '|---|---|---|---|']

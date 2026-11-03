@@ -157,6 +157,10 @@ describe("what the AI reads", () => {
     expect(filterReport(md, "thermal")).not.toMatch(/Shorts/);
     expect(filterReport(md, "problems")).not.toMatch(/Passed/);
     expect(filterReport(md, "nope")).toMatch(/No area/);
+    // an area's passes come too, tagged the way the engine writes them
+    const withPasses = md + "\n- Narrowest track is wide enough (Copper and tracks, `track-min`): 0.15 mm\n- No shorts (Connections, `shorts`)";
+    expect(filterReport(withPasses, "copper")).toMatch(/Narrowest track is wide enough/);
+    expect(filterReport(withPasses, "copper")).not.toMatch(/No shorts/);
   });
 });
 

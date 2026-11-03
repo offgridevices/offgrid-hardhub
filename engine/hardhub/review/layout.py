@@ -603,7 +603,8 @@ class _Shapes:
         mods = []
         for c in d['components']:
             p = d['parts'].get(c['part'], {})
-            if re.search(r'antenna|wi-?fi|ble|bluetooth|lora|zigbee|thread', p.get('description', '') + ' ' + p.get('mpn', ''), re.I) \
+            # whole words: "BLE" is a radio, "adjustable" and "programmable" are not
+            if re.search(r'\b(antenna|wi-?fi|ble|bluetooth|lora|zigbee|thread)\b', p.get('description', '') + ' ' + p.get('mpn', ''), re.I) \
                     and p.get('kind') in ('MOD', 'U'):
                 mods.append(c['ref'])
         if not mods:

@@ -25,3 +25,17 @@ def test_a_negative_rail_loses_its_drop_as_a_share_of_its_size(monkeypatch):
     vd = next(r for r in out if r['id'] == 'voltage-drop')
     assert vd['status'] == 'fail' and vd['measured']['value'] == 10.0, vd
     assert rep['drop'][0]['pct'] == 10.0
+
+
+def test_only_a_radio_counts_as_a_radio():
+    """'BLE' is a radio; 'adjustable' and 'programmable' only contain the letters."""
+    from hardhub.review.layout import _Shapes
+    m = model()
+    for desc, want in (('Adjustable LDO regulator, SOT-23-5', 'na'), ('Programmable clock generator', 'na'),
+                       ('Wi-Fi + BLE module, ESP32-C3', None)):
+        d = dict(components=[dict(ref='U1', part='P', pins={})], parts=dict(P=dict(kind='U', description=desc, mpn='X')))
+        r = _Shapes(m).antenna(d, None)
+        if want:
+            assert r['status'] == want, (desc, r)
+        else:
+            assert r['status'] != 'na', (desc, r)

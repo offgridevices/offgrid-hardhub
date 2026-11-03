@@ -722,6 +722,9 @@ export function filterReport(md: string, only: string): string {
   const key = only.toLowerCase();
   const label = AREA_LABEL[key] ?? Object.values(AREA_LABEL).find((l) => l.toLowerCase() === key);
   if (!label) return `No area "${only}". Areas: ${Object.keys(AREA_LABEL).join(", ")}; or problems, all.`;
-  const blocks = md.split(/\n(?=### )/).filter((b) => b.startsWith("### ") && b.includes(`(${label}, \``));
-  return cut([head, `## ${label}`, ...blocks.map((b) => b.split(/\n(?=## )/)[0])].join("\n"));
+  const tag = `(${label}, \``;
+  // the area's problems (### blocks) and its passed and not-applicable lines
+  const blocks = md.split(/\n(?=### )/).filter((b) => b.startsWith("### ") && b.includes(tag)).map((b) => b.split(/\n(?=## )/)[0]!);
+  const passed = md.split("\n").filter((l) => l.startsWith("- ") && l.includes(tag) && !blocks.some((b) => b.includes(l)));
+  return cut([head, `## ${label}`, ...blocks, ...(passed.length ? ["", "Passed or does not apply:", ...passed] : [])].join("\n"));
 }
