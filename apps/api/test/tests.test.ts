@@ -124,6 +124,12 @@ describe("run_tests and test_report (the AI's tools)", () => {
     expect(core.events(-1, 1000).events.some((e) => e.type === "job" && e.step === "test")).toBe(false);
   });
 
+  it("a build cannot stop at the test step (that board is never kept)", () => {
+    expect(TOOLS.build_board.schema.safeParse({ stop_after: "test" }).success).toBe(false);
+    expect(TOOLS.build_board.schema.safeParse({ stop_after: "verify" }).success).toBe(true);
+    expect(TOOLS.build_board.schema.safeParse({ stop_after: "fab" }).success).toBe(true);
+  });
+
   it("are offered to connected agents", () => {
     expect(TOOLS.run_tests.schema.safeParse({ ambient_min: -40, ambient_max: 85 }).success).toBe(true);
     expect(TOOLS.run_tests.schema.safeParse({ ambient_max: 500 }).success).toBe(false);

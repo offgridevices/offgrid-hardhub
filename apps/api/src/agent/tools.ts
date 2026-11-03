@@ -82,6 +82,10 @@ const UpdateInput = z.object({
 });
 
 const BUILD_STEPS = ["validate", "footprints", "place", "route", "miter", "pour", "drc", "verify", "test", "fab", "render"] as const;
+// where a build may stop early. Not at "test": that board is never kept (no
+// KiCad zip until fab), so its results would describe a board nobody has;
+// run_tests tests the built board without building again
+const STOP_AFTER = BUILD_STEPS.filter((s) => s !== "test") as [string, ...string[]];
 
 const FIRMWARE_PATH = /^(?!.*\.\.)[\w][\w./-]{0,119}$/;
 
@@ -218,7 +222,7 @@ export const TOOLS = {
     description:
       "Lay out, route and check the board in KiCad: place parts (yours, plus automatic placement for unplaced ones), route, 45-degree corners, ground pour, DRC with the fab's limits, net check, fab files, renders. Takes minutes. Needs design.board. If the person has edited the board by hand, ask them before building again: a build re-routes the board and loses their edits.",
     schema: z.object({
-      stop_after: z.enum(BUILD_STEPS).optional().describe("stop early, e.g. after place to review placement"),
+      stop_after: z.enum(STOP_AFTER).optional().describe("stop early, e.g. after place to review placement (to test the built board again, use run_tests)"),
       discard_hand_edits: z
         .boolean()
         .optional()
@@ -229,7 +233,7 @@ export const TOOLS = {
       const { design, version } = ctx.design();
       if (!design.board) return { content: "The design has no board yet: set /board (size, layers) first.", isError: true };
       // a build that stops before the fab files leaves the last board as it is
-      const replaces = !i.stop_after || BUILD_STEPS.indexOf(i.stop_after) >= BUILD_STEPS.indexOf("fab");
+      const replaces = !i.stop_after || BUILD_STEPS.indexOf(i.stop_after as (typeof BUILD_STEPS)[number]) >= BUILD_STEPS.indexOf("fab");
       const refused = replaces ? handEditGuard(ctx, i.discard_hand_edits) : null;
       if (refused) return { content: refused, isError: true };
       const job = ctx.nextJob();
