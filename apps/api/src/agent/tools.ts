@@ -552,6 +552,7 @@ export function contentType(name: string): string {
       zip: "application/zip",
       csv: "text/csv; charset=utf-8",
       json: "application/json",
+      md: "text/markdown; charset=utf-8",
       step: "model/step",
       stp: "model/step",
       txt: "text/plain; charset=utf-8",
