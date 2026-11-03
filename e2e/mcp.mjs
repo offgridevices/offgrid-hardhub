@@ -145,6 +145,11 @@ try {
   const bt = textOf(build);
   check(!build.isError && bt.startsWith("Build finished."), "build_board runs KiCad to the end", `${waits} waits; ${bt.split("\n").find((l) => l.startsWith("Checks:")) ?? bt.slice(0, 120)}`);
   check(/Checks: \d+ pass, 0 fail/.test(bt), "the built board passes its checks", bt.split("\n").filter((l) => /^(FAIL|Checks)/.test(l)).join(" | "));
+  // the board tests again, at other outside temperatures, and the report with where and how to fix
+  const tr = await client.callTool({ name: "run_tests", arguments: { project, ambient_min: -20, ambient_max: 60 } });
+  check(/^Board tests at -20 to 60 °C: \d+ pass/.test(textOf(tr)), "run_tests runs the board tests at -20 to 60 °C", textOf(tr).split("\n")[0]);
+  const rep = textOf(await client.callTool({ name: "test_report", arguments: { project, only: "thermal" } }));
+  check(/# Board tests/.test(rep) && /Heat/.test(rep), "test_report reads the heat tests", rep.split("\n").slice(0, 3).join(" | "));
 
   const render = await client.callTool({ name: "render", arguments: { project } });
   const images = (render.content ?? []).filter((c) => c.type === "image");

@@ -508,3 +508,29 @@ def skip(id, why, **kw):
 
 def na(id, why, **kw):
     return result(id, 'na', detail=why, **kw)
+
+
+def markdown():
+    """The whole checklist as a document (docs/board-tests.md is made from this:
+    python3 -m hardhub.review.catalog > docs/board-tests.md)."""
+    out = ['# The board tests', '',
+           'Every board HardHub builds goes through these tests before it is ordered: on every build, every hand',
+           'edit, and whenever the person or their AI runs them again (at other outside temperatures, say). Each',
+           'result says what it found, the number it measured against its limit, where on the board, and how to',
+           'fix it. A test that cannot run says why ("not run"); one that does not apply to the board says so.',
+           '', 'Made from `engine/hardhub/review/catalog.py`; do not edit by hand.', '']
+    fam = {k: v for k, v in FAMILIES.items()}
+    for group, label in AREAS:
+        rows = [c for c in CHECKS if c['group'] == group] + [v for v in fam.values() if v['group'] == group]
+        if not rows:
+            continue
+        out += ['## %s (%d)' % (label, len(rows)), '', '| Test | What it means | How it is tested | Tool |', '|---|---|---|---|']
+        for c in rows:
+            how = c['how'] + (' Rule: %s.' % c['source'] if c.get('source') else '')
+            out.append('| %s | %s Why: %s. | %s | %s |' % (c['name'], c['plain'], c['why'], how, c['tool']))
+        out.append('')
+    return '\n'.join(out)
+
+
+if __name__ == '__main__':
+    print(markdown())

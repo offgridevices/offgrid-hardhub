@@ -122,14 +122,21 @@ try {
   await shot("3d");
 
   await tab("checks");
+  // every test, whatever the filter showed first
+  if (await page.getByTestId("filter-all").count()) await page.getByTestId("filter-all").click();
   const rows = page.getByTestId("check-row");
   const n = await rows.count();
-  const texts = await rows.allTextContents();
-  const failed = texts.filter((t) => /\bfail/i.test(t));
-  n >= 5 ? ok("checks listed", `${n} checks`) : fail("checks listed", `${n}`);
-  failed.length === 0 ? ok("no check failed") : fail("no check failed", failed.join(" | ").slice(0, 400));
-  const drc = texts.find((t) => /DRC/i.test(t));
-  drc && /pass/i.test(drc) ? ok("DRC passes", drc.replace(/\s+/g, " ").slice(0, 100)) : fail("DRC passes", drc ?? "no DRC row");
+  const failed = await page.locator('[data-testid="check-row"][data-status="fail"]').allTextContents();
+  n >= 60 ? ok("the board tests are listed", `${n} tests`) : fail("the board tests are listed", `${n}`);
+  failed.length === 0 ? ok("no test failed") : fail("no test failed", failed.join(" | ").slice(0, 400));
+  const drc = page.locator('[data-testid="check-row"][data-check-id="drc-errors"]');
+  (await drc.getAttribute("data-status").catch(() => null)) === "pass"
+    ? ok("DRC passes", (await drc.textContent())?.replace(/\s+/g, " ").slice(0, 100))
+    : fail("DRC passes", (await drc.textContent().catch(() => null)) ?? "no DRC row");
+  await page.getByTestId("heat-map").waitFor({ timeout: 30000 }).then(
+    () => ok("the heat map is drawn"),
+    () => fail("the heat map is drawn", "no heat map in the Tests tab"),
+  );
   await shot("checks");
 
   await tab("board");
