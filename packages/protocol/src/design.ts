@@ -101,7 +101,8 @@ export type Component = z.infer<typeof Component>;
 export const Net = z.object({
   kind: z.enum(["signal", "power", "ground"]).default("signal"),
   voltage: z.number().optional(),
-  current: z.number().nonnegative().optional(), // continuous amps, sets track width
+  current: z.number().nonnegative().optional(), // the most it carries for more than a moment (amps): sets track widths and voltage drop
+  average: z.number().nonnegative().optional(), // typical current over time (a radio transmits in bursts): sets the heat; default current
   width: z.number().positive().optional(), // explicit track width, mm
   diff_pair: z.string().optional(), // the other half's net name
   source: z.string().regex(/^[A-Z]+\d+$/).optional(), // power nets: the part that supplies it (regulator, connector)

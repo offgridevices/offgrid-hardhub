@@ -30,6 +30,24 @@ ADD --checksum=sha256:a44aeb94849a299b22df10b9e622ec2f605c2183501bc40590705131de
 
 FROM downloads-${TARGETARCH} AS downloads
 
+# hardhub-sim, the Rust solver behind the board tests (sim/): built and
+# tested here, and only its binary goes into the engine image.  The official
+# Rust image, pinned by version and digest (the digest covers both
+# processors); Debian 12's glibc is older than Ubuntu 24.04's, so the binary
+# runs there unchanged.  Crates are fetched first, by the exact versions in
+# Cargo.lock, so editing the code reuses the download layer.
+FROM rust:1.98.1-slim-bookworm@sha256:ff521445a372125ed4f76e1453a1f8098f2d05332d1601d30db1c1f62757e730 AS sim
+WORKDIR /src/sim
+COPY sim/Cargo.toml sim/Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && touch src/lib.rs \
+ && cargo fetch --locked && rm -rf src
+COPY sim/src ./src
+COPY sim/tests ./tests
+RUN cargo test --release --locked --offline \
+ && cargo build --release --locked --offline --bin hardhub-sim \
+ && install -m 0755 target/release/hardhub-sim /hardhub-sim \
+ && /hardhub-sim version
+
 # Ubuntu 24.04 LTS, pinned by digest (the digest covers both processors)
 FROM ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
 
@@ -110,6 +128,10 @@ RUN cd /opt/gltf && PATH=/opt/node/bin:$PATH npm ci --ignore-scripts --no-audit 
 COPY requirements.txt requirements-test.txt /opt/hardhub/
 RUN pip3 install --break-system-packages --no-cache-dir -q -r /opt/hardhub/requirements.txt \
  && if [ "$WITH_TESTS" = "1" ]; then pip3 install --break-system-packages --no-cache-dir -q -r /opt/hardhub/requirements-test.txt; fi
+
+# The board-test solver from the stage above
+COPY --from=sim /hardhub-sim /usr/local/bin/hardhub-sim
+RUN hardhub-sim version
 
 COPY hardhub /opt/hardhub/hardhub
 COPY tests /opt/hardhub/tests

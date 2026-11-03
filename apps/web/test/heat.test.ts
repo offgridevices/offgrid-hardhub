@@ -48,11 +48,13 @@ describe("heat maps", () => {
     expect([...decodeU8(encodeU8(u))]).toEqual([0, 1, 254, 255]);
   });
 
-  it("turn bytes back into degrees, with one scale over every map", () => {
+  it("turn bytes back into degrees, each map with its own range", () => {
     const f = heatField(thermal);
     expect(f.temps[0]![2]).toBeCloseTo(20);
     expect(f.temps[0]![3]).toBeCloseTo(10 + (128 / 255) * 10);
     expect(Number.isNaN(f.temps[0]![0]!)).toBe(true);
+    expect(f.ranges[0]).toEqual({ lo: 10, hi: 20 });
+    expect(f.ranges[1]).toEqual({ lo: 60, hi: 70 });
     expect(f.lo).toBe(10);
     expect(f.hi).toBe(70);
   });

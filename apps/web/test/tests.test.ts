@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { CheckResult, TestReport } from "@hardhub/protocol";
-import { AREAS, areaOf, byArea, counts, defaultFilter, margin, matches, measureText, num, planRows, presetOf, rangeText, verdict, verdictTitle, withUnit } from "../src/lib/tests";
+import { CheckResult, ServerEvent, TestReport } from "@hardhub/protocol";
+import { sensorHistory } from "../src/fixtures/script";
+import { replay } from "../src/lib/project-state";
+import {
+  AREAS,
+  areaOf,
+  byArea,
+  counts,
+  defaultFilter,
+  margin,
+  matches,
+  measureText,
+  num,
+  planRows,
+  presetOf,
+  rangeText,
+  verdict,
+  verdictTitle,
+  withUnit,
+} from "../src/lib/tests";
 import { CATALOG } from "../src/fixtures/catalog";
 import { planOf, runLabel, sensorChecks, sensorReport } from "../src/fixtures/sensor-tests";
 
@@ -27,7 +45,21 @@ describe("the verdict", () => {
 
 describe("areas", () => {
   it("keeps the engine's order and moves old groups to their new areas", () => {
-    expect(AREAS.map((a) => a.id)).toEqual(["connections", "copper", "holes", "silkscreen", "mask", "placement", "power", "thermal", "stress", "signals", "firmware", "sourcing", "fab"]);
+    expect(AREAS.map((a) => a.id)).toEqual([
+      "connections",
+      "copper",
+      "holes",
+      "silkscreen",
+      "mask",
+      "placement",
+      "power",
+      "thermal",
+      "stress",
+      "signals",
+      "firmware",
+      "sourcing",
+      "fab",
+    ]);
     expect(areaOf("circuit")).toBe("connections");
     expect(areaOf("layout")).toBe("copper");
     const g = byArea([c("x", "pass", "fab"), c("y", "pass", "circuit"), c("z", "fail", "layout"), c("w", "pass", "connections")]);
@@ -36,7 +68,13 @@ describe("areas", () => {
   });
 
   it("pairs each planned check with its result once it lands", () => {
-    const rows = planRows([{ id: "a", group: "copper", name: "A" }, { id: "b", group: "copper", name: "B" }], { b: c("b", "pass") });
+    const rows = planRows(
+      [
+        { id: "a", group: "copper", name: "A" },
+        { id: "b", group: "copper", name: "B" },
+      ],
+      { b: c("b", "pass") },
+    );
     expect(rows.map((r) => !!r.result)).toEqual([false, true]);
   });
 });
@@ -118,5 +156,15 @@ describe("demo tests", () => {
     expect(r.summary.verdict).toBe("fix");
     const z = r.power.pdn[0]!.z as number[];
     expect(Math.max(...z)).toBeLessThan(r.power.pdn[0]!.target_ohm as number);
+  });
+
+  it("tell the sensor's story as valid events: built, tested, checks and report", () => {
+    const checks = sensorChecks({ min: 0, max: 50 });
+    const steps = sensorHistory({ plan: planOf(checks), checks, summary: "s", label: "l", reportUrl: "blob:x" });
+    const events = steps.map(({ delay: _d, ...e }, seq) => ServerEvent.parse({ ...e, seq, at: "2026-11-02T11:00:00Z" }));
+    const s = replay(events);
+    expect(s.testRun).toMatchObject({ phase: "done", settled: true });
+    expect(s.checks).toHaveLength(checks.length);
+    expect(s.artifacts.some((a) => a.kind === "report" && a.name.endsWith("-tests.json"))).toBe(true);
   });
 });

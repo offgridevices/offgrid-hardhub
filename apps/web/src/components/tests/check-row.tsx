@@ -28,7 +28,7 @@ import {
   ZapIcon,
   type LucideProps,
 } from "lucide-react";
-import { margin, measureText, STATUS_LABEL, withUnit, type Area, type Status } from "../../lib/tests";
+import { margin, measureText, STATUS_LABEL, withUnit, zeroCount, type Area, type Status } from "../../lib/tests";
 import { layerName } from "../../lib/layers";
 import { cn } from "@/lib/utils";
 
@@ -76,8 +76,11 @@ export function MeasurePill({ m, status, className }: { m: NonNullable<CheckResu
   const t = measureText(m);
   const g = margin(m);
   return (
-    <span className={cn("inline-flex h-6 w-fit max-w-full shrink-0 items-center gap-2 rounded-full bg-foreground/[0.06] px-2.5 text-xs", className)} title={m.label}>
-      <span className="num truncate">
+    <span
+      className={cn("inline-flex h-6 w-fit max-w-full shrink-0 items-center gap-2 rounded-full bg-foreground/[0.06] px-2.5 text-xs", className)}
+      title={m.label}
+    >
+      <span className="tabular-nums truncate">
         <span className="font-medium text-foreground">{t.value}</span>
         {t.need && <span className="text-muted-foreground"> · {t.need}</span>}
       </span>
@@ -105,7 +108,7 @@ export const CheckRow = memo(function CheckRow({ c, onShow, open: openInit = fal
         onClick={() => setOpen((o) => !o)}
       >
         <StatusIcon status={c.status} className="mt-px" />
-        <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-start sm:gap-4">
+        <span className="flex min-w-0 flex-1 flex-col gap-1 @xl:flex-row @xl:items-start @xl:gap-4">
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className={cn("font-medium", c.status === "na" ? "text-soft" : "text-foreground")}>
               {c.name}
@@ -113,12 +116,13 @@ export const CheckRow = memo(function CheckRow({ c, onShow, open: openInit = fal
             </span>
             {c.plain && <span className="text-sm text-muted-foreground">{c.plain}</span>}
           </span>
-          {c.measured && <MeasurePill m={c.measured} status={c.status} className="sm:mt-px" />}
+          {/* a passing "none found" says nothing the tick does not: no pill */}
+          {c.measured && !(zeroCount(c.measured) && c.status === "pass") && <MeasurePill m={c.measured} status={c.status} className="@xl:mt-px" />}
         </span>
         <ChevronDownIcon className={cn("mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} aria-hidden="true" />
       </button>
       {open && (
-        <div id={id} className={cn("mx-4 mb-4 grid gap-4 rounded-lg p-4 text-sm sm:ml-[2.875rem]", st.tint)}>
+        <div id={id} className={cn("mx-4 mb-4 grid gap-4 rounded-lg p-4 text-sm @xl:ml-[2.875rem]", st.tint)}>
           <Detail title="Why it matters">{sentence(c.why)}</Detail>
           {(c.how || c.tool || c.source) && (
             <Detail title="How we tested">
@@ -135,11 +139,12 @@ export const CheckRow = memo(function CheckRow({ c, onShow, open: openInit = fal
             <Detail title={c.status === "skip" ? "Why it did not run" : c.status === "na" ? "Why it doesn't apply" : "What we found"}>
               {c.measured && (
                 <p>
-                  {cap(c.measured.label)}: <span className="num font-medium text-foreground">{withUnit(c.measured.value, c.measured.unit)}</span>
+                  {cap(c.measured.label)}: <span className="tabular-nums font-medium text-foreground">{withUnit(c.measured.value, c.measured.unit)}</span>
                   {c.measured.limit !== undefined && (
                     <span className="text-muted-foreground">
                       {" "}
-                      (needs {c.measured.op === "<=" ? "at most" : "at least"} <span className="num">{withUnit(c.measured.limit, c.measured.unit)}</span>)
+                      (needs {c.measured.op === "<=" ? "at most" : "at least"}{" "}
+                      <span className="tabular-nums">{withUnit(c.measured.limit, c.measured.unit)}</span>)
                     </span>
                   )}
                 </p>

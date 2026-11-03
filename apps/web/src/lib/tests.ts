@@ -110,7 +110,11 @@ export function num(v: number): string {
   const a = Math.abs(v);
   if (a >= 1000) return Math.round(v).toLocaleString("en-US").replace(/^-/, "\u2212");
   const d = a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3;
-  return v.toFixed(d).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "").replace(/^-/, "−");
+  return v
+    .toFixed(d)
+    .replace(/(\.\d*?)0+$/, "$1")
+    .replace(/\.$/, "")
+    .replace(/^-/, "−");
 }
 
 const NBSP = " ";
@@ -124,10 +128,15 @@ export function withUnit(v: number, unit: string): string {
 
 /** "0.15 mm · needs ≥ 0.127" */
 export function measureText(m: CheckMeasure): { value: string; need: string | null } {
+  // "none allowed" counts read as words: "None found", "3 found · needs none"
+  if (zeroCount(m)) return m.value ? { value: `${num(m.value)} found`, need: "needs none" } : { value: "None found", need: null };
   const value = withUnit(m.value, m.unit);
   if (m.limit === undefined) return { value, need: null };
   return { value, need: `needs ${m.op === "<=" ? "≤" : "≥"}${NBSP}${num(m.limit)}` };
 }
+
+/** a count that must be zero (shorts, loose ends, DRC errors) */
+export const zeroCount = (m: CheckMeasure) => m.unit === "count" && m.limit === 0 && m.op === "<=";
 
 /**
  * How a measured value sits against its limit, for a small bar: the bar's
@@ -136,7 +145,7 @@ export function measureText(m: CheckMeasure): { value: string; need: string | nu
  * at its limit is visibly at the mark and not at the end of the bar.
  */
 export function margin(m: CheckMeasure): { fill: number; mark: number; ok: boolean } | null {
-  if (m.limit === undefined || !Number.isFinite(m.value) || !Number.isFinite(m.limit)) return null;
+  if (m.limit === undefined || zeroCount(m) || !Number.isFinite(m.value) || !Number.isFinite(m.limit)) return null;
   const lo = Math.min(0, m.value, m.limit);
   const hi = Math.max(m.value, m.limit) * 1.2 - lo * 0.2 || 1;
   const span = hi - lo || 1;

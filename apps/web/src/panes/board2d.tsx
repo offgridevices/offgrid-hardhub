@@ -234,7 +234,7 @@ export default function Board2D({
   fileUrl(url: string): string;
   save?: (req: BoardEditRequest) => Promise<BoardEditResult>;
   /** a spot to show (from a test's "Show on board"): design frame, mm from the board centre */
-  focus?: { x: number; y: number; net?: string; layer?: string } | null;
+  focus?: { x: number; y: number; ref?: string; net?: string; layer?: string } | null;
 }) {
   const images = useLayerImages(design, artifacts, fileUrl);
   const jsonArt = useMemo(() => artifacts.find((a) => a.kind === "board-json"), [artifacts]);
@@ -303,14 +303,14 @@ export default function Board2D({
   /** px on screen, in mm at the current zoom */
   const px = (n: number) => n / (BASE * scale);
 
-  // a spot from a test: zoom to about 14 mm around it, on its layer, marked
+  // a spot from a test: zoom to about 22 mm around it, on its layer, marked
   const [marked, setMarked] = useState(focus ?? null);
   useEffect(() => setMarked(focus ?? null), [focus]);
   const mark = marked ? { x: marked.x + W / 2, y: marked.y + H / 2 } : null;
   const { fitTo } = pz;
   useEffect(() => {
     if (!marked || !hasBoard) return;
-    const span = 14 * BASE;
+    const span = 22 * BASE;
     const f = requestAnimationFrame(() => fitTo((marked.x + W / 2) * BASE - span / 2, (marked.y + H / 2) * BASE - span / 2, span, span));
     return () => cancelAnimationFrame(f);
   }, [marked, W, H, hasBoard, fitTo]);
@@ -714,9 +714,10 @@ export default function Board2D({
           {plots("over")}
           {mark && (
             <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" viewBox={`0 0 ${W} ${H}`} aria-hidden="true" data-testid="board-focus">
-              <circle cx={mark.x} cy={mark.y} r={px(16)} fill="none" stroke="var(--ember)" strokeWidth={px(2)} className="hh-pulse" />
-              <circle cx={mark.x} cy={mark.y} r={px(9)} fill="rgba(255,106,0,.15)" stroke="#f1ece0" strokeWidth={px(2)} />
-              <circle cx={mark.x} cy={mark.y} r={px(2.5)} fill="#f1ece0" />
+              <circle cx={mark.x} cy={mark.y} r={px(26)} fill="none" stroke="var(--ember)" strokeWidth={px(3)} className="hh-pulse" />
+              <circle cx={mark.x} cy={mark.y} r={px(13)} fill="rgba(255,106,0,.18)" stroke="#1b1813" strokeWidth={px(5)} />
+              <circle cx={mark.x} cy={mark.y} r={px(13)} fill="none" stroke="#f1ece0" strokeWidth={px(2.5)} />
+              <circle cx={mark.x} cy={mark.y} r={px(3)} fill="#f1ece0" />
             </svg>
           )}
           {geo && (
@@ -855,15 +856,16 @@ export default function Board2D({
             </Badge>
           )}
           {!note && !route && marked && (
-            <Badge tone="ember" className="h-auto gap-2 py-1 pr-1" data-testid="focus-note">
-              {[marked.net, marked.layer && layerName(marked.layer)].filter(Boolean).join(" · ") || "The spot the test found"}
+            <Badge tone="outline" className="h-auto gap-2 border-ember/50 bg-card py-1 pr-1 text-foreground shadow-lg shadow-black/30" data-testid="focus-note">
+              <span className="size-2 rounded-full bg-ember" aria-hidden="true" />
+              {[marked.ref, marked.net, marked.layer && layerName(marked.layer)].filter(Boolean).join(" · ") || "What the test found"}
               <button type="button" className="grid size-5 place-items-center rounded-full hover:bg-ember/20" onClick={() => setMarked(null)} aria-label="Clear the mark">
                 <XIcon className="size-3" />
               </button>
             </Badge>
           )}
           {!note && route && <Badge tone="ember">Click to add a corner · double-click or Enter to finish · Shift for any angle</Badge>}
-          {!note && !route && !geo && (jsonArt ? failed : true) && images.length > 0 && (
+          {!note && !route && !marked && !geo && (jsonArt ? failed : true) && images.length > 0 && (
             <Badge>{design.board ? `${W.toFixed(0)} × ${H.toFixed(0)} mm` : ""} · hand editing arrives with the next board build</Badge>
           )}
           {!note && !route && geo && <span className="num hidden rounded-md bg-card/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur sm:inline">{W.toFixed(1)} × {H.toFixed(1)} mm · {geo.layers.length} layers</span>}

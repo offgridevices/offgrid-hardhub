@@ -38,7 +38,8 @@ for (const [sizeName, [w, h]] of Object.entries(sizes)) {
       if (overflow > 0) problems.push(`${sizeName}/${theme}/${name}: page scrolls sideways by ${overflow}px`);
       await page.screenshot({ path: `${out}/${sizeName}-${theme}-${name}.png` });
     };
-    const narrow = w < 900;
+    // below 700 px the workspace shows chat or design, switched at the bottom
+    const narrow = w < 700;
 
     await page.goto(base + "/");
     await page.getByTestId("prompt-input").waitFor();

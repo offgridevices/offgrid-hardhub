@@ -274,7 +274,7 @@ const ItemView = memo(function ItemView({
               {!item.done && <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin text-ember-text [animation-duration:1.4s]" aria-hidden="true" />}
               {item.done ? (item.ok === false ? "Tests done · some things to fix" : "Tests done") : "Testing the board"}
             </span>
-            <span className="num shrink-0 text-xs text-muted-foreground">{item.done ? `${item.total} tests` : `${done} of ${item.total}`}</span>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.done ? `${item.total} tests` : `${done} of ${item.total}`}</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10">
             <span

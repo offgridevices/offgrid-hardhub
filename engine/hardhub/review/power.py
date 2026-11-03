@@ -379,18 +379,26 @@ def power_model(d, env=None):
             e['capacity_assumed'] = 'current_max' in r['assumed']
             e['capacity_why'] = 'pass-through part rating'
 
-    # ---- heat
+    # ---- heat: from the average current where the design gives one (a radio
+    # transmits in bursts; tracks are sized for the peak, heat comes from the average)
+    def avg(n):
+        x = d['nets'].get(n) or {}
+        if x.get('average') is not None and x.get('current'):
+            return min(1.0, float(x['average']) / float(x['current']))
+        return 1.0
     diss = {}
     for g in regulators:
         if g['iout'] is None or g['vin'] is None or g['vout'] is None:
             continue
         if g['kind'] == 'ldo':
-            p = max(0.0, (g['vin'] - g['vout']) * g['iout'])
-            how = '(%.2f V in − %.2f V out) × %.0f mA' % (g['vin'], g['vout'], g['iout'] * 1e3)
+            iout = g['iout'] * avg(g['out_net'])
+            p = max(0.0, (g['vin'] - g['vout']) * iout)
+            how = '(%.2f V in − %.2f V out) × %.0f mA%s' % (g['vin'], g['vout'], iout * 1e3,
+                                                         ' average' if avg(g['out_net']) < 1 else '')
             assumed = nets[g['out_net']]['stated_current'] is None
         else:
             eff = g['efficiency'] or 0.85
-            pout = g['vout'] * g['iout']
+            pout = g['vout'] * g['iout'] * avg(g['out_net'])
             p = pout * (1 / eff - 1)
             how = '%.2f W out × (1 / %.0f %% − 1)' % (pout, eff * 100)
             assumed = 'efficiency' in g['assumed']
@@ -400,9 +408,10 @@ def power_model(d, env=None):
             if s['kind'] != 'chip' or s['current'] is None or e['voltage'] is None:
                 continue
             x = diss.setdefault(s['ref'], dict(power=0.0, how='', assumed=True))
-            x['power'] += e['voltage'] * s['current']
-            x['how'] = (x['how'] + ' + ' if x['how'] else '') + '%.2f V × %.0f mA (its share of %s)' % (
-                e['voltage'], s['current'] * 1e3, n)
+            i = s['current'] * avg(n)
+            x['power'] += e['voltage'] * i
+            x['how'] = (x['how'] + ' + ' if x['how'] else '') + '%.2f V × %.0f mA (its share of %s%s)' % (
+                e['voltage'], i * 1e3, n, "'s average" if avg(n) < 1 else '')
     for ref, c in b.comps.items():
         if c.get('power') is not None:
             diss[ref] = dict(power=float(c['power']), how='stated in the design', assumed=False)

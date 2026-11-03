@@ -18,7 +18,9 @@ that would make it invalid is refused with the reasons; fix and resend.
   `block`, and `pins`: footprint pad number -> net name, or null for a pin left
   open on purpose. Every copper pad of the footprint must appear.
 - `nets`: only for nets that need more than a name: `kind` (power, ground),
-  `voltage`, `current` (sets track width and the power tests), `width`,
+  `voltage`, `current` (the most it carries for more than a moment: sets track
+  widths and voltage drop), `average` (its typical current over time, from the
+  datasheet: sets the heat; a Wi-Fi chip averages far below its peak), `width`,
   `diff_pair`, `source` (the ref of the part that supplies a power net).
 - `components[].power`: watts the part turns into heat at full load, when the
   datasheet says (otherwise the tests estimate it).

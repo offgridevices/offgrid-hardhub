@@ -341,7 +341,7 @@ impl Clear {
         }
         let g = gap.max(0.0);
         let hit = Hit { gap: g, at, layer, na, nb };
-        if self.min.map_or(true, |m| g < m.gap) {
+        if self.min.is_none_or(|m| g < m.gap) {
             self.min = Some(hit);
         }
         let key = (oa.min(ob), oa.max(ob), layer);
@@ -524,7 +524,7 @@ impl Edges {
                 return;
             }
             let (g, p) = shape_gap(s, &self.segs[id as usize]);
-            if best.map_or(true, |b| g < b.0) {
+            if best.is_none_or(|b| g < b.0) {
                 best = Some((g, p));
             }
         });
@@ -636,11 +636,18 @@ fn clusters(cu: &Copper) -> Vec<Cluster> {
 }
 
 /// Where the inner copper edges of two tracks leaving a joint at angle θ
-/// meet: the root of the wedge an etchant would pool in.
-fn wedge_root(joint: P, u: P, v: P, half_w: f64, theta_deg: f64) -> P {
+/// meet: the root of the wedge an etchant would pool in.  u and v run from
+/// the joint to the far end of each arm; if the edges only part beyond the
+/// shorter arm (overlapping, nearly collinear segments) no wedge ever opens
+/// and there is no trap: None.
+fn wedge_root(joint: P, u: P, v: P, half_w: f64, theta_deg: f64) -> Option<P> {
+    let half = 0.5 * theta_deg.to_radians();
+    let s = half_w / half.sin().max(1e-9);
+    if s * half.cos() >= u.len().min(v.len()) {
+        return None;
+    }
     let bis = u.unit().add(v.unit()).unit();
-    let s = half_w / (0.5 * theta_deg.to_radians()).sin().max(1e-6);
-    joint.add(bis.mul(s.min(50.0)))
+    Some(joint.add(bis.mul(s)))
 }
 
 struct Joints {
@@ -658,10 +665,14 @@ fn joints(cu: &Copper) -> Joints {
     let mut j = Joints { corners: vec![], acute: vec![], dangling: vec![], n_corners: 0, n_acute: 0, n_dangling: 0 };
     let track_obj: HashMap<usize, u32> = cu.objs.iter().enumerate().filter(|(_, o)| o.kind == Kind::Track).map(|(i, o)| (o.idx, i as u32)).collect();
     let covered = |l: usize, net: u32, q: P| cu.on_pad_or_via(l, net, q, 0.0) || cu.in_zone_of(l, net, q);
-    let push_acute = |j: &mut Joints, angle: f64, q: P, l: usize, net: u32| {
-        j.n_acute += 1;
-        if j.acute.len() < MAX_GEOM_LIST {
-            j.acute.push(json!({"angle": r4(angle), "at": at(q), "layer": cu.layer_name(l), "net": cu.name(net)}));
+    // One report per joint, at its sharpest angle (a joint of n tracks has
+    // n(n-1)/2 pairs).
+    let mut acute: HashMap<(usize, i64, i64), (f64, P, u32)> = HashMap::new();
+    let push_acute = |acute: &mut HashMap<(usize, i64, i64), (f64, P, u32)>, angle: f64, q: P, l: usize, net: u32| {
+        let key = (l, (q.x / TOUCH).round() as i64, (q.y / TOUCH).round() as i64);
+        let e = acute.entry(key).or_insert((angle, q, net));
+        if angle < e.0 {
+            *e = (angle, q, net);
         }
     };
     for c in &cls {
@@ -690,9 +701,10 @@ fn joints(cu: &Copper) -> Joints {
                 let (u, v) = (f1.sub(c.pos), f2.sub(c.pos));
                 let th = angle_between(u, v);
                 if th < 89.5 {
-                    let root = wedge_root(c.pos, u, v, half_w(t1).max(half_w(t2)), th);
-                    if !covered(c.layer, c.net, root) {
-                        push_acute(&mut j, th, c.pos, c.layer, c.net);
+                    if let Some(root) = wedge_root(c.pos, u, v, half_w(t1).max(half_w(t2)), th) {
+                        if !covered(c.layer, c.net, root) {
+                            push_acute(&mut acute, th, c.pos, c.layer, c.net);
+                        }
                     }
                 }
             }
@@ -706,7 +718,10 @@ fn joints(cu: &Copper) -> Joints {
             let mut tjoins: Vec<(P, P, f64)> = Vec::new();
             // A point on a cell corner is in four cells: dedupe the hits.
             let mut ids = Vec::new();
-            lc.grid.query(BBox::of_points(&[pt]).grow(TOUCH), |id| ids.push(id));
+            // An end is connected when its copper (the end disc, radius w/2)
+            // overlaps same-net copper, as KiCad judges it.
+            let reach = half_w(t).max(TOUCH);
+            lc.grid.query(BBox::of_points(&[pt]).grow(reach), |id| ids.push(id));
             ids.sort_unstable();
             ids.dedup();
             for id in ids {
@@ -714,7 +729,7 @@ fn joints(cu: &Copper) -> Joints {
                 if it.obj == me || cu.net_of(it.obj) != c.net {
                     continue;
                 }
-                if it.shape.point_dist(pt) > TOUCH {
+                if it.shape.point_dist(pt) > reach {
                     continue;
                 }
                 touches = true;
@@ -741,46 +756,50 @@ fn joints(cu: &Copper) -> Joints {
                 let u = far.sub(pt);
                 let (d1, d2) = (b2.sub(a2), a2.sub(b2));
                 let (th1, th2) = (angle_between(u, d1), angle_between(u, d2));
-                let (th, v) = if th1 <= th2 { (th1, d1) } else { (th2, d2) };
+                // the arm of the main track on the sharp side, joint to its end
+                let (th, v) = if th1 <= th2 { (th1, b2.sub(pt)) } else { (th2, a2.sub(pt)) };
                 if th < 89.5 {
-                    let root = wedge_root(pt, u, v, half_w(t).max(hw2), th);
-                    if !covered(c.layer, c.net, root) {
-                        push_acute(&mut j, th, pt, c.layer, c.net);
+                    if let Some(root) = wedge_root(pt, u, v, half_w(t).max(hw2), th) {
+                        if !covered(c.layer, c.net, root) {
+                            push_acute(&mut acute, th, pt, c.layer, c.net);
+                        }
                     }
                 }
             }
         }
     }
-    // Vias: count the distinct same-net things each one joins.
+    let mut ac: Vec<(f64, P, usize, u32)> = acute.into_iter().map(|((l, _, _), (a, q, net))| (a, q, l, net)).collect();
+    ac.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.x.total_cmp(&y.1.x)).then(x.1.y.total_cmp(&y.1.y)));
+    j.n_acute = ac.len();
+    for (a, q, l, net) in ac.into_iter().take(MAX_GEOM_LIST) {
+        j.acute.push(json!({"angle": r4(a), "at": at(q), "layer": cu.layer_name(l), "net": cu.name(net)}));
+    }
+    // Vias: a via does its job only if it carries the net between at least
+    // two layers (KiCad's "connected on only one layer" rule).
     for (oi, o) in cu.objs.iter().enumerate().filter(|(_, o)| o.kind == Kind::Via) {
         let v = &b.vias[o.idx];
         let vs = v.shape();
-        let mut joined: Vec<u32> = Vec::new();
         let layers = b.via_layers(v);
+        let mut on_layers = 0;
         for &l in &layers {
             let lc = &cu.layers[l];
+            let mut hit = false;
             lc.grid.query(vs.bbox.grow(TOUCH), |id| {
                 let it = &lc.items[id as usize];
-                if it.obj as usize == oi || cu.net_of(it.obj) != o.net {
-                    return;
-                }
-                if shape_gap(&vs, &it.shape).0 <= TOUCH {
-                    joined.push(it.obj);
+                if !hit && it.obj as usize != oi && cu.net_of(it.obj) == o.net && shape_gap(&vs, &it.shape).0 <= TOUCH {
+                    hit = true;
                 }
             });
-            for z in &lc.zps {
-                if z.net == o.net && z.bbox.contains(vs.rep()) && z.pip.inside(vs.rep()) {
-                    joined.push(z.obj);
-                }
+            if !hit {
+                hit = lc.zps.iter().any(|z| z.net == o.net && z.bbox.contains(vs.rep()) && z.pip.inside(vs.rep()));
             }
+            on_layers += hit as usize;
         }
-        joined.sort_unstable();
-        joined.dedup();
-        if joined.len() < 2 {
+        if on_layers < 2 {
             j.n_dangling += 1;
             if j.dangling.len() < MAX_GEOM_LIST {
                 let l0 = layers.first().copied().unwrap_or(0);
-                j.dangling.push(json!({"at": at(v.c()), "layer": cu.layer_name(l0), "net": cu.name(o.net), "kind": "via", "joins": joined.len()}));
+                j.dangling.push(json!({"at": at(v.c()), "layer": cu.layer_name(l0), "net": cu.name(o.net), "kind": "via", "layers_connected": on_layers}));
             }
         }
     }
@@ -878,7 +897,7 @@ pub fn run(input: Value) -> Result<Value, String> {
                 return;
             }
             let (g, q) = shape_gap(s, &dshapes[jd as usize]);
-            if g <= 3.0 && hh.map_or(true, |h| g < h.0) {
+            if g <= 3.0 && hh.is_none_or(|h| g < h.0) {
                 hh = Some((g.max(0.0), q));
             }
         });
@@ -898,7 +917,7 @@ pub fn run(input: Value) -> Result<Value, String> {
                     return;
                 }
                 let (g, q) = shape_gap(s, &it.shape);
-                if best.map_or(true, |bb| g < bb.0) {
+                if best.is_none_or(|bb| g < bb.0) {
                     best = Some((g, q, cu.net_of(it.obj)));
                 }
             });
@@ -909,7 +928,7 @@ pub fn run(input: Value) -> Result<Value, String> {
                     return;
                 }
                 let (g, q) = shape_gap(s, es);
-                if best.map_or(true, |bb| g < bb.0) {
+                if best.is_none_or(|bb| g < bb.0) {
                     best = Some((g, q, znet));
                 }
             });
@@ -919,7 +938,7 @@ pub fn run(input: Value) -> Result<Value, String> {
                 }
             }
             if let Some((g, q, net)) = best {
-                if g <= R_NEAR && hc.as_ref().map_or(true, |h| g < h.0) {
+                if g <= R_NEAR && hc.as_ref().is_none_or(|h| g < h.0) {
                     hc = Some((g.max(0.0), q, l, cu.name(net).to_string()));
                 }
             }
@@ -936,7 +955,7 @@ pub fn run(input: Value) -> Result<Value, String> {
     let mut emin: Option<(f64, P, usize, u32)> = None;
     let consider = |g: Option<(f64, P)>, l: usize, net: u32, emin: &mut Option<(f64, P, usize, u32)>| {
         if let Some((g, q)) = g {
-            if emin.map_or(true, |e| g < e.0) {
+            if emin.is_none_or(|e| g < e.0) {
                 *emin = Some((g, q, l, net));
             }
         }
@@ -1015,10 +1034,10 @@ fn silk(b: &Board, out: &mut serde_json::Map<String, Value>) {
         };
         let Some(shape) = shape else { continue };
         let centre = P { x: 0.5 * (shape.bbox.x0 + shape.bbox.x1), y: 0.5 * (shape.bbox.y0 + shape.bbox.y1) };
-        if s.w > 0.0 && wmin.map_or(true, |w| s.w < w.0) {
+        if s.w > 0.0 && wmin.is_none_or(|w| s.w < w.0) {
             wmin = Some((s.w, centre, &s.layer));
         }
-        if s.kind == "text" && s.height > 0.0 && hmin.map_or(true, |h| s.height < h.0) {
+        if s.kind == "text" && s.height > 0.0 && hmin.is_none_or(|h| s.height < h.0) {
             hmin = Some((s.height, centre, &s.layer, &s.text));
         }
         shapes.push((i, shape));
@@ -1077,7 +1096,7 @@ fn mask_web(b: &Board, area: BBox) -> Value {
                 return;
             }
             let (g, q) = shape_gap(s, &open[k]);
-            if g <= 1.0 && best.map_or(true, |bb| g < bb.0) {
+            if g <= 1.0 && best.is_none_or(|bb| g < bb.0) {
                 best = Some((g.max(0.0), q, &mi.layer));
             }
         });
@@ -1114,12 +1133,14 @@ fn return_paths(cu: &Copper, inp: &Input, grid: &Raster) -> Value {
         }
     }
     let mut out = Vec::new();
+    let outer: Vec<usize> = if n > 1 { vec![0, n - 1] } else { vec![0] };
     for net in &inp.signal_nets {
+      for &ol in &outer {
         let (mut length, mut uncovered) = (0.0, 0.0);
         let mut worst: Option<(f64, P)> = None;
         for t in b.tracks.iter().filter(|t| &t.net == net) {
             let Some(l) = b.layer_index(&t.layer) else { continue };
-            if l != 0 && l != n - 1 {
+            if l != ol {
                 continue;
             }
             let (a, bb) = (P::from(t.a), P::from(t.b));
@@ -1130,14 +1151,14 @@ fn return_paths(cu: &Copper, inp: &Input, grid: &Raster) -> Value {
             let mut run = 0usize;
             let flush = |run: usize, end: usize, worst: &mut Option<(f64, P)>| {
                 let rl = run as f64 * step;
-                if run > 0 && worst.map_or(true, |w| rl > w.0) {
+                if run > 0 && worst.is_none_or(|w| rl > w.0) {
                     let mid = (end as f64 - run as f64 * 0.5) / k as f64;
                     *worst = Some((rl, a.add(bb.sub(a).mul(mid))));
                 }
             };
             for s in 0..k {
                 let q = a.add(bb.sub(a).mul((s as f64 + 0.5) / k as f64));
-                let ok = adj(l).and_then(|al| refr.get(&al)).map_or(false, |r| r.get(q) != 0);
+                let ok = adj(l).and_then(|al| refr.get(&al)).is_some_and(|r| r.get(q) != 0);
                 if ok {
                     flush(run, s, &mut worst);
                     run = 0;
@@ -1149,17 +1170,18 @@ fn return_paths(cu: &Copper, inp: &Input, grid: &Raster) -> Value {
             flush(run, k, &mut worst);
         }
         if length > 0.0 {
-            out.push(json!({"net": net, "layer": "outer", "length": r4(length), "uncovered": r4(uncovered),
+            out.push(json!({"net": net, "layer": b.layers[ol], "length": r4(length), "uncovered": r4(uncovered),
                             "worst_at": worst.map(|w| at(w.1)).unwrap_or(Value::Null),
                             "worst_run": worst.map(|w| r4(w.0)).unwrap_or(0.0)}));
         }
+      }
     }
     Value::Array(out)
 }
 
 fn courtyards(b: &Board, edges: &Edges) -> (Vec<Value>, Value, Vec<Value>) {
     let polys: Vec<Vec<P>> = b.parts.iter().map(|pt| pt.outline()).collect();
-    let boxes: Vec<BBox> = polys.iter().map(|p| BBox::of_points(p)).collect();
+    let boxes: Vec<BBox> = polys.iter().map(BBox::of_points).collect();
     let mut overlaps = Vec::new();
     for i in 0..polys.len() {
         for j in i + 1..polys.len() {
@@ -1185,7 +1207,7 @@ fn courtyards(b: &Board, edges: &Edges) -> (Vec<Value>, Value, Vec<Value>) {
         let mut best: Option<(f64, P)> = None;
         for (a, bb) in ring_edges(poly) {
             if let Some((g, q)) = edges.gap(&Shape::capsule(a, bb, 0.0), 50.0, &mut seen) {
-                if best.map_or(true, |x| g < x.0) {
+                if best.is_none_or(|x| g < x.0) {
                     best = Some((g, q));
                 }
             }
@@ -1230,11 +1252,4 @@ fn overlap(u: &[P], v: &[P], bu: BBox, bv: BBox) -> Option<P> {
     }
     // 0.01 mm² of shared area: well above rounding, well below a real clash.
     (n as f64 * d * d >= 0.01).then(|| sum.mul(1.0 / n as f64))
-}
-
-#[allow(dead_code)]
-fn centroid(v: &[P]) -> P {
-    let n = v.len().max(1) as f64;
-    let s = v.iter().fold(P::default(), |a, &b| a.add(b));
-    s.mul(1.0 / n)
 }

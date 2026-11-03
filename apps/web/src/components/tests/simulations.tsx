@@ -48,7 +48,7 @@ export default function Simulations({
         <Card title="Power" icon={<ZapIcon />} testId="power" sub="Which supply feeds what, how much it carries, and how steady it stays.">
           <PowerTree tree={report.power.tree} />
           {report.power.drop.length > 0 && <Drops drop={report.power.drop} />}
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 @3xl:grid-cols-2">
             {pdn.length > 0 && <PdnChart curves={pdn} />}
             {step.length > 0 && <StepChart curves={step} />}
           </div>
@@ -57,7 +57,11 @@ export default function Simulations({
       {report.stress.length > 0 && <Ratings stress={report.stress} design={design} />}
       <p className="px-1 text-xs text-muted-foreground">
         Made {new Date(report.made_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
-        {Object.keys(report.tools).length > 0 && ` with ${Object.entries(report.tools).map(([k, v]) => `${TOOL[k] ?? k} ${v}`).join(", ")}`}.
+        {Object.keys(report.tools).length > 0 &&
+          ` with ${Object.entries(report.tools)
+            .map(([k, v]) => `${TOOL[k] ?? k} ${v}`)
+            .join(", ")}`}
+        .
       </p>
     </div>
   );
@@ -65,9 +69,23 @@ export default function Simulations({
 
 const TOOL: Record<string, string> = { kicad: "KiCad", ngspice: "ngspice", sim: "HardHub solver" };
 
-function Card({ title, sub, icon, aside, children, testId }: { title: string; sub?: string; icon: React.ReactNode; aside?: React.ReactNode; children: React.ReactNode; testId?: string }) {
+function Card({
+  title,
+  sub,
+  icon,
+  aside,
+  children,
+  testId,
+}: {
+  title: string;
+  sub?: string;
+  icon: React.ReactNode;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+  testId?: string;
+}) {
   return (
-    <section className="flex min-w-0 flex-col gap-4 rounded-2xl border bg-card p-4 sm:p-5" aria-label={title} data-testid={testId}>
+    <section className="flex min-w-0 flex-col gap-4 rounded-2xl border bg-card p-4 @xl:p-5" aria-label={title} data-testid={testId}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-0.5">
           <h3 className="flex items-center gap-2 font-semibold [&_svg]:size-4 [&_svg]:text-muted-foreground">
@@ -98,17 +116,21 @@ function BoardCard({ board, onOpen3d }: { board: TestReport["board"]; onOpen3d()
   const copper = board.stackup.filter((l) => l.kind === "copper");
   const layers = board.layers || copper.length;
   return (
-    <section className="grid gap-5 rounded-2xl border bg-card p-4 sm:grid-cols-[minmax(0,13rem)_1fr] sm:p-5" aria-label="The board" data-testid="board-summary">
+    <section
+      className="grid gap-5 rounded-2xl border bg-card p-4 @xl:grid-cols-[minmax(0,13rem)_1fr] @xl:p-5"
+      aria-label="The board"
+      data-testid="board-summary"
+    >
       <div className="flex flex-col gap-3">
         <div className="flex items-baseline gap-2">
           <span className="text-5xl font-semibold tracking-tight">{layers}</span>
           <span className="text-lg font-medium">copper layers</span>
         </div>
         <p className="text-sm text-soft">
-          <span className="num">
+          <span className="tabular-nums">
             {num(board.width)} × {num(board.height)}&nbsp;mm
           </span>
-          , <span className="num">{num(board.thickness)}&nbsp;mm</span> thick
+          , <span className="tabular-nums">{num(board.thickness)}&nbsp;mm</span> thick
         </p>
         <p className="text-sm text-muted-foreground">
           {layers === 2
@@ -124,14 +146,27 @@ function BoardCard({ board, onOpen3d }: { board: TestReport["board"]; onOpen3d()
         <ol className="flex flex-col" aria-label="Layers, top to bottom">
           {board.stackup.map((l, i) => {
             const st = STACK_STYLE[l.kind] ?? STACK_STYLE.dielectric!;
-            const bg = l.kind === "copper" ? (l.name.startsWith("B.") ? "var(--layer-bottom)" : l.name.startsWith("F.") ? "var(--layer-top)" : "var(--layer-in1)") : st.bg;
+            const bg =
+              l.kind === "copper"
+                ? l.name.startsWith("B.")
+                  ? "var(--layer-bottom)"
+                  : l.name.startsWith("F.")
+                    ? "var(--layer-top)"
+                    : "var(--layer-in1)"
+                : st.bg;
             return (
-              <li key={i} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[8rem_minmax(0,1fr)]">
-                <span className="order-2 block rounded-[3px] sm:order-1" style={{ height: st.h, background: bg, marginBlock: 1 }} aria-hidden="true" />
-                <span className="order-1 flex min-w-0 items-baseline gap-2 py-0.5 text-sm sm:order-2">
-                  <span className={cn("truncate", l.kind === "copper" ? "font-medium" : "text-soft")}>{l.kind === "dielectric" ? `${l.material ?? "Board material"} core` : layerName(l.name)}</span>
-                  <span className="num shrink-0 text-xs text-muted-foreground">{thick(l.thickness)}</span>
-                  {l.role && l.kind === "copper" && <span className="hidden truncate text-xs text-muted-foreground sm:inline">{roleText(l.role)}</span>}
+              <li key={i} className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-3 @xl:grid-cols-[8rem_minmax(0,1fr)]">
+                <span
+                  className={cn("block rounded-[3px]", l.kind === "silk" && "shadow-[inset_0_0_0_1px_var(--input)]")}
+                  style={{ height: st.h, background: bg, marginBlock: 1 }}
+                  aria-hidden="true"
+                />
+                <span className="flex min-w-0 items-baseline gap-2 py-0.5 text-sm">
+                  <span className={cn("truncate", l.kind === "copper" ? "font-medium" : "text-soft")}>
+                    {l.kind === "dielectric" ? `${l.material ?? "Board material"} core` : layerName(l.name)}
+                  </span>
+                  <span className="tabular-nums shrink-0 text-xs text-muted-foreground">{thick(l.thickness)}</span>
+                  {l.role && l.kind === "copper" && <span className="hidden truncate text-xs text-muted-foreground @xl:inline">{roleText(l.role)}</span>}
                 </span>
               </li>
             );
@@ -142,7 +177,8 @@ function BoardCard({ board, onOpen3d }: { board: TestReport["board"]; onOpen3d()
   );
 }
 // "plane GND" -> "GND plane"
-const roleText = (r: string) => (r.startsWith("plane") ? `${r.slice(5).trim()} plane`.trim() : r === "signal" ? "tracks" : r === "mixed" ? "tracks and pours" : r);
+const roleText = (r: string) =>
+  r.startsWith("plane") ? `${r.slice(5).trim()} plane`.trim() : r === "signal" ? "tracks" : r === "mixed" ? "tracks and pours" : r;
 
 /* ---------- heat ---------- */
 
@@ -192,7 +228,7 @@ function HeatCard({ thermal, design, geo, board }: { thermal: Thermal; design: D
         thermal.maps.length > 1 && (
           <ToggleGroup type="single" value={String(ix)} onValueChange={(v) => v && setMapIx(Number(v))} aria-label="Outside temperature" className="h-8">
             {thermal.maps.map((m, i) => (
-              <ToggleGroupItem key={i} value={String(i)} className="num px-2.5 text-xs" data-testid={`heat-ambient-${m.ambient}`}>
+              <ToggleGroupItem key={i} value={String(i)} className="tabular-nums px-2.5 text-xs" data-testid={`heat-ambient-${m.ambient}`}>
                 {num(m.ambient)}&nbsp;°C
               </ToggleGroupItem>
             ))}
@@ -202,10 +238,10 @@ function HeatCard({ thermal, design, geo, board }: { thermal: Thermal; design: D
     >
       <HeatMap field={field} ix={ix} map={map} boxes={boxes} design={design} mode={mode} labelled={thermal.parts.map((p) => p.ref)} board={board} />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span className="num">{num(field.lo)}&nbsp;°C</span>
-        <span className="h-2 w-40 rounded-full sm:w-56" style={{ background: heatGradient(mode) }} aria-hidden="true" />
-        <span className="num">{num(field.hi)}&nbsp;°C</span>
-        <span>· one scale for every outside temperature, so switching shows the board warm up</span>
+        <span className="tabular-nums">{num(field.ranges[ix]!.lo)}&nbsp;°C</span>
+        <span className="h-2 w-40 rounded-full @xl:w-56" style={{ background: heatGradient(mode) }} aria-hidden="true" />
+        <span className="tabular-nums">{num(field.ranges[ix]!.hi)}&nbsp;°C</span>
+        <span>· coolest to hottest spot on the board at {num(map.ambient)}&nbsp;°C outside</span>
       </div>
       <HotParts parts={thermal.parts} ambient={map.ambient} design={design} />
     </Card>
@@ -248,6 +284,10 @@ const HeatMap = memo(function HeatMap({
     ctx.putImageData(new ImageData(paint(field, ix, heatLut(mode)) as Uint8ClampedArray<ArrayBuffer>, g.nx, g.ny), 0, 0);
   }, [field, ix, mode, g.nx, g.ny]);
   const show = new Set(labelled);
+  // the part at the hottest spot is named in that spot's own label
+  const hottest = map.max_at
+    ? boxes.find((b) => map.max_at![0] >= b.x0 && map.max_at![0] <= b.x1 && map.max_at![1] >= b.y0 && map.max_at![1] <= b.y1)
+    : undefined;
   const pxPerMm = w / gw || 1;
   const font = 10.5 / pxPerMm;
   const r = design.board?.corner_radius ?? 1;
@@ -262,7 +302,9 @@ const HeatMap = memo(function HeatMap({
     const t = k >= 0 ? field.temps[ix]![k]! : NaN;
     if (Number.isNaN(t)) return setHover(null);
     // the smallest part under the pointer: a capacitor beside a module, not the module
-    const under = boxes.filter((b) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1).sort((a, b) => (a.x1 - a.x0) * (a.y1 - a.y0) - (b.x1 - b.x0) * (b.y1 - b.y0))[0];
+    const under = boxes
+      .filter((b) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1)
+      .sort((a, b) => (a.x1 - a.x0) * (a.y1 - a.y0) - (b.x1 - b.x0) * (b.y1 - b.y0))[0];
     setHover({ px, py, t, part: under ?? null });
   };
 
@@ -277,9 +319,24 @@ const HeatMap = memo(function HeatMap({
         onPointerLeave={() => setHover(null)}
         data-testid="heat-map"
       >
-        <canvas ref={canvas} className="absolute inset-0 size-full" role="img" aria-label={`Heat map at ${num(map.ambient)} °C outside: ${num(map.min)} to ${num(map.max)} °C on the board`} />
+        <canvas
+          ref={canvas}
+          className="absolute inset-0 size-full"
+          role="img"
+          aria-label={`Heat map at ${num(map.ambient)} °C outside: ${num(map.min)} to ${num(map.max)} °C on the board`}
+        />
         <svg className="pointer-events-none absolute inset-0 size-full" viewBox={`${g.x0} ${g.y0} ${gw} ${gh}`} aria-hidden="true">
-          <rect x={-board.width / 2} y={-board.height / 2} width={board.width} height={board.height} rx={r} fill="none" stroke="var(--foreground)" strokeOpacity={0.5} strokeWidth={1.2 / pxPerMm} />
+          <rect
+            x={-board.width / 2}
+            y={-board.height / 2}
+            width={board.width}
+            height={board.height}
+            rx={r}
+            fill="none"
+            stroke="var(--foreground)"
+            strokeOpacity={0.5}
+            strokeWidth={1.2 / pxPerMm}
+          />
           {boxes.map((b) => (
             <rect
               key={b.ref}
@@ -294,38 +351,25 @@ const HeatMap = memo(function HeatMap({
               strokeWidth={(hover?.part?.ref === b.ref ? 1.6 : 1) / pxPerMm}
             />
           ))}
+          {(design.board?.holes ?? []).map((h, i) => (
+            <circle key={i} cx={h.x} cy={h.y} r={h.d / 2} fill="var(--card)" stroke="var(--foreground)" strokeOpacity={0.5} strokeWidth={1 / pxPerMm} />
+          ))}
           {w > 0 &&
             boxes
-              .filter((b) => show.has(b.ref) && (b.x1 - b.x0) * pxPerMm > 14)
-              .map((b) => (
-                <text
-                  key={b.ref}
-                  x={(b.x0 + b.x1) / 2}
-                  y={(b.y0 + b.y1) / 2}
-                  dy="0.35em"
-                  textAnchor="middle"
-                  fontSize={font}
-                  className="fill-foreground font-medium [paint-order:stroke]"
-                  stroke="var(--card)"
-                  strokeOpacity={0.85}
-                  strokeWidth={3 / pxPerMm}
-                >
-                  {b.ref}
-                </text>
-              ))}
+              .filter((b) => show.has(b.ref) && b.ref !== hottest?.ref && (b.x1 - b.x0) * pxPerMm > 10)
+              .map((b) => <Chip key={b.ref} x={(b.x0 + b.x1) / 2} y={(b.y0 + b.y1) / 2} text={b.ref} size={font} unit={1 / pxPerMm} />)}
           {map.max_at && w > 0 && (
             <g>
-              <circle cx={map.max_at[0]} cy={map.max_at[1]} r={5 / pxPerMm} fill="none" stroke="var(--foreground)" strokeWidth={2 / pxPerMm} />
-              <text
-                x={map.max_at[0] + 8 / pxPerMm}
-                y={map.max_at[1] - 8 / pxPerMm}
-                fontSize={font * 1.05}
-                className="num fill-foreground font-semibold [paint-order:stroke]"
-                stroke="var(--card)"
-                strokeWidth={3 / pxPerMm}
-              >
-                {num(map.max)} °C
-              </text>
+              <circle cx={map.max_at[0]} cy={map.max_at[1]} r={6 / pxPerMm} fill="none" stroke="var(--card)" strokeWidth={4 / pxPerMm} />
+              <circle cx={map.max_at[0]} cy={map.max_at[1]} r={6 / pxPerMm} fill="none" stroke="var(--foreground)" strokeWidth={1.5 / pxPerMm} />
+              <Chip
+                x={map.max_at[0]}
+                y={map.max_at[1] - 18 / pxPerMm}
+                text={`${hottest ? `${hottest.ref} · ` : ""}hottest ${num(map.max)} °C`}
+                size={font}
+                unit={1 / pxPerMm}
+                strong
+              />
             </g>
           )}
         </svg>
@@ -339,7 +383,7 @@ const HeatMap = memo(function HeatMap({
             style={{ left: hover.px, top: hover.py }}
             role="status"
           >
-            <div className="num font-semibold text-foreground">{num(hover.t)}&nbsp;°C</div>
+            <div className="tabular-nums font-semibold text-foreground">{num(hover.t)}&nbsp;°C</div>
             {hover.part && (
               <div className="text-muted-foreground">
                 {hover.part.ref}
@@ -352,6 +396,27 @@ const HeatMap = memo(function HeatMap({
     </div>
   );
 });
+
+/** a label on the map: text on a small plate of the card's colour, readable over any heat */
+function Chip({ x, y, text, size, unit, strong }: { x: number; y: number; text: string; size: number; unit: number; strong?: boolean }) {
+  const w = text.length * size * 0.58 + 8 * unit;
+  const h = size + 6 * unit;
+  return (
+    <g>
+      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={h / 2} fill="var(--card)" fillOpacity={0.88} />
+      <text
+        x={x}
+        y={y}
+        dy="0.36em"
+        textAnchor="middle"
+        fontSize={size}
+        className={cn("fill-foreground tabular-nums", strong ? "font-semibold" : "font-medium")}
+      >
+        {text}
+      </text>
+    </g>
+  );
+}
 
 function HotParts({ parts, ambient, design }: { parts: Thermal["parts"]; ambient: number; design: Design }) {
   const rows = parts
@@ -370,7 +435,10 @@ function HotParts({ parts, ambient, design }: { parts: Thermal["parts"]; ambient
           const board = t?.board ?? ambient;
           const tone = spare === null ? "sky" : spare < 0 ? "clay" : spare < 5 ? "gold" : "sky";
           return (
-            <li key={p.ref} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-3 py-2.5 text-sm sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]">
+            <li
+              key={p.ref}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-3 py-2.5 text-sm @xl:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]"
+            >
               <span className="flex min-w-0 items-baseline gap-2">
                 <span className="font-medium">{p.ref}</span>
                 <span className="truncate text-muted-foreground">{describe(design, p.ref)}</span>
@@ -380,14 +448,18 @@ function HotParts({ parts, ambient, design }: { parts: Thermal["parts"]; ambient
                   </Badge>
                 )}
               </span>
-              <span className="num text-right text-xs text-soft sm:order-3">
+              <span className="tabular-nums text-right text-xs text-soft @xl:order-3">
                 <span className="font-medium text-foreground">{num(board)}&nbsp;°C</span>
                 {p.temp_max !== undefined && <span className="text-muted-foreground"> of {num(p.temp_max)}</span>}
                 {t?.junction !== undefined && <span className="block text-muted-foreground">inside {num(t.junction)}&nbsp;°C</span>}
               </span>
-              <span className="col-span-2 flex items-center gap-3 sm:order-2 sm:col-span-1">
-                <Meter value={p.temp_max ? board / Math.max(p.temp_max * 1.15, board) : 0.5} limit={p.temp_max ? p.temp_max / Math.max(p.temp_max * 1.15, board) : undefined} tone={tone} />
-                <span className={cn("num w-24 shrink-0 text-xs", spare !== null && spare < 0 ? "text-clay-text" : "text-muted-foreground")}>
+              <span className="col-span-2 flex items-center gap-3 @xl:order-2 @xl:col-span-1">
+                <Meter
+                  value={p.temp_max ? board / Math.max(p.temp_max * 1.15, board) : 0.5}
+                  limit={p.temp_max ? p.temp_max / Math.max(p.temp_max * 1.15, board) : undefined}
+                  tone={tone}
+                />
+                <span className={cn("tabular-nums w-28 shrink-0 text-xs", spare !== null && spare < 0 ? "text-clay-text" : "text-muted-foreground")}>
                   {spare === null ? (p.power > 0 ? `${si(p.power, "W")}` : "") : spare < 0 ? `${num(-spare)} °C over` : `${num(spare)} °C to spare`}
                 </span>
               </span>
@@ -411,21 +483,28 @@ function PowerTree({ tree }: { tree: TestReport["power"]["tree"] }) {
     const tone = share === null ? "sky" : share > 1 ? "clay" : share > 0.8 ? "gold" : "sky";
     return (
       <li key={n.net} className="flex flex-col">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 py-2 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto]" style={{ paddingLeft: depth * 20 }}>
+        <div
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 py-2 @xl:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto]"
+          style={{ paddingLeft: depth * 20 }}
+        >
           <span className="flex min-w-0 items-baseline gap-2">
-            {depth > 0 && <span className="text-muted-foreground" aria-hidden="true">└</span>}
+            {depth > 0 && (
+              <span className="text-muted-foreground" aria-hidden="true">
+                └
+              </span>
+            )}
             <span className="font-medium">{n.net}</span>
-            {n.voltage !== undefined && <span className="num text-soft">{num(n.voltage)}&nbsp;V</span>}
+            {n.voltage !== undefined && <span className="tabular-nums text-soft">{num(n.voltage)}&nbsp;V</span>}
             {n.source && <span className="truncate text-xs text-muted-foreground">from {n.source}</span>}
           </span>
-          <span className="num text-right text-xs text-soft sm:order-3">
+          <span className="tabular-nums text-right text-xs text-soft @xl:order-3">
             {n.load !== undefined && <span className="font-medium text-foreground">{num(n.load)}&nbsp;A</span>}
             {n.capacity !== undefined && <span className="text-muted-foreground"> of {num(n.capacity)}</span>}
           </span>
           {share !== null && (
-            <span className="col-span-2 flex items-center gap-3 sm:order-2 sm:col-span-1">
+            <span className="col-span-2 flex items-center gap-3 @xl:order-2 @xl:col-span-1">
               <Meter value={share} tone={tone} />
-              <span className="num w-10 shrink-0 text-right text-xs text-muted-foreground">{Math.round(share * 100)}&nbsp;%</span>
+              <span className="tabular-nums w-10 shrink-0 text-right text-xs text-muted-foreground">{Math.round(share * 100)}&nbsp;%</span>
             </span>
           )}
         </div>
@@ -446,36 +525,30 @@ function Drops({ drop }: { drop: TestReport["power"]["drop"] }) {
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-sm font-semibold">Voltage lost in the copper</h4>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[22rem] text-sm">
-          <thead className="text-left text-xs text-muted-foreground">
-            <tr className="border-b">
-              <th className="py-1.5 pr-3 font-medium">Supply</th>
-              <th className="py-1.5 pr-3 font-medium">Furthest load</th>
-              <th className="py-1.5 pr-3 text-right font-medium">Lost</th>
-              <th className="py-1.5 text-right font-medium">Copper</th>
-            </tr>
-          </thead>
-          <tbody className="num">
-            {drop.map((d) => {
-              const worst = [...d.sinks].sort((a, b) => b.drop_mv - a.drop_mv)[0];
-              return (
-                <tr key={d.net} className="border-b last:border-0">
-                  <td className="py-2 pr-3 font-sans font-medium">
-                    {d.net}
-                    {d.source && <span className="font-normal text-muted-foreground"> from {d.source}</span>}
-                  </td>
-                  <td className="py-2 pr-3 font-sans">{worst?.ref ?? "–"}</td>
-                  <td className="py-2 pr-3 text-right">
-                    {num(d.worst_mv)}&nbsp;mV <span className="text-muted-foreground">({num(d.pct)}&nbsp;%)</span>
-                  </td>
-                  <td className="py-2 text-right text-muted-foreground">{d.resistance_mohm !== undefined ? `${num(d.resistance_mohm)} mΩ` : "–"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <p className="text-xs text-muted-foreground">From each supply to the load furthest from it, at full current on the hottest day.</p>
+      <ul className="divide-y border-y">
+        {drop.map((d) => {
+          const worst = [...d.sinks].sort((a, b) => b.drop_mv - a.drop_mv)[0];
+          return (
+            <li key={d.net} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-2 text-sm">
+              <span className="min-w-0">
+                <span className="font-medium">{d.net}</span>
+                <span className="text-muted-foreground">
+                  {d.source && ` from ${d.source}`}
+                  {worst && ` to ${worst.ref}`}
+                </span>
+              </span>
+              <span className="tabular-nums">
+                <span className="font-medium">{num(d.worst_mv)}&nbsp;mV</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {num(d.pct)}&nbsp;%{d.resistance_mohm !== undefined && ` · ${num(d.resistance_mohm)}\u00a0mΩ of copper`}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -532,7 +605,8 @@ function PdnChart({ curves }: { curves: Pdn[] }) {
         <NetPicker nets={curves.map((x) => x.net)} value={i} onChange={setI} label="Supply" />
       </div>
       <p className="text-xs text-muted-foreground">
-        Impedance from 1&nbsp;kHz to 100&nbsp;MHz: lower is steadier. It should stay under the target line{c.caps.length ? `; capacitors ${c.caps.join(", ")}` : ""}.
+        Impedance from 1&nbsp;kHz to 100&nbsp;MHz: lower is steadier. It should stay under the target line
+        {c.caps.length ? `; capacitors ${c.caps.join(", ")}` : ""}.
       </p>
       <LineChart
         xs={c.f}
@@ -595,7 +669,12 @@ function Ratings({ stress, design }: { stress: TestReport["stress"]; design: Des
   // one scale for every bar: 0 to a little past the largest share or limit
   const top = Math.max(100, ...rows.map((r) => Math.max(r.pct, r.limit_pct ?? 0))) * 1.05;
   return (
-    <Card title="Part ratings" icon={<GaugeIcon />} sub="How hard each part works, as a share of what its datasheet allows. The mark is the most we allow, with room to spare." testId="ratings">
+    <Card
+      title="Part ratings"
+      icon={<GaugeIcon />}
+      sub="How hard each part works, as a share of what its datasheet allows. The mark is the most we allow, with room to spare."
+      testId="ratings"
+    >
       <ul className="divide-y rounded-xl border">
         {rows.map((r, i) => {
           const w = WHAT[r.what] ?? { label: r.what, unit: "" };
@@ -603,7 +682,10 @@ function Ratings({ stress, design }: { stress: TestReport["stress"]; design: Des
           const tone = r.pct > 100 ? "clay" : r.pct > limit ? "gold" : "sky";
           const fmt = (v: number) => (w.unit === "W" || (w.unit === "A" && v < 0.1) ? si(v, w.unit) : withUnit(v, w.unit));
           return (
-            <li key={`${r.ref}-${r.what}-${i}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-3 py-2.5 text-sm sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto]">
+            <li
+              key={`${r.ref}-${r.what}-${i}`}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-3 py-2.5 text-sm @xl:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto]"
+            >
               <span className="flex min-w-0 flex-col">
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="font-medium">{r.ref}</span>
@@ -613,13 +695,15 @@ function Ratings({ stress, design }: { stress: TestReport["stress"]; design: Des
                 </span>
                 {r.note && <span className="text-xs text-muted-foreground">{r.note}</span>}
               </span>
-              <span className="num text-right text-xs sm:order-3">
+              <span className="tabular-nums text-right text-xs @xl:order-3">
                 <span className="font-medium text-foreground">{fmt(r.value)}</span>
                 <span className="text-muted-foreground"> of {fmt(r.rating)}</span>
               </span>
-              <span className="col-span-2 flex items-center gap-3 sm:order-2 sm:col-span-1">
+              <span className="col-span-2 flex items-center gap-3 @xl:order-2 @xl:col-span-1">
                 <Meter value={r.pct / top} limit={limit / top} tone={tone} />
-                <span className={cn("num w-10 shrink-0 text-right text-xs", r.pct > limit ? "text-gold-text" : "text-muted-foreground")}>{num(r.pct)}&nbsp;%</span>
+                <span className={cn("tabular-nums w-10 shrink-0 text-right text-xs", r.pct > limit ? "text-gold-text" : "text-muted-foreground")}>
+                  {num(r.pct)}&nbsp;%
+                </span>
               </span>
             </li>
           );

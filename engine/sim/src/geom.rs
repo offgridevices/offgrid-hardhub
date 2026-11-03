@@ -127,10 +127,6 @@ pub fn seg_point_dist(a: P, b: P, q: P) -> f64 {
     seg_closest(a, b, q).0.dist(q)
 }
 
-fn orient(a: P, b: P, c: P) -> f64 {
-    b.sub(a).cross(c.sub(a))
-}
-
 /// Where segments ab and cd cross, if they do (touching counts).
 pub fn seg_intersection(a: P, b: P, c: P, d: P) -> Option<P> {
     let r = b.sub(a);
@@ -162,19 +158,6 @@ pub fn seg_seg(a: P, b: P, c: P, d: P) -> (f64, P, P) {
         }
     }
     best
-}
-
-/// Do segments ab and cd properly cross (each strictly separates the other's
-/// ends)?  Touching or collinear contact does not count: used where shared
-/// edges must not read as overlap (courtyards drawn edge to edge).
-pub fn seg_cross_strict(a: P, b: P, c: P, d: P, tol: f64) -> bool {
-    let la = b.sub(a).len().max(1e-12);
-    let lc = d.sub(c).len().max(1e-12);
-    let o1 = orient(a, b, c) / la;
-    let o2 = orient(a, b, d) / la;
-    let o3 = orient(c, d, a) / lc;
-    let o4 = orient(c, d, b) / lc;
-    ((o1 > tol && o2 < -tol) || (o1 < -tol && o2 > tol)) && ((o3 > tol && o4 < -tol) || (o3 < -tol && o4 > tol))
 }
 
 /// Even-odd point-in-ring test (ring closed implicitly).

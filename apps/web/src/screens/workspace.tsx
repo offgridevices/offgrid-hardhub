@@ -59,7 +59,7 @@ type Tab = (typeof TABS)[number]["id"];
 
 // what a link into a view can carry besides the tab: a spot on the board
 // (?tab=board&focus=x,y&net=SCL, design frame) or the 3D arrangement (?view=layers)
-const EXTRA = ["focus", "net", "layer", "view"] as const;
+const EXTRA = ["focus", "ref", "net", "layer", "view"] as const;
 type Extra = Partial<Record<(typeof EXTRA)[number], string>>;
 const readExtra = (): Extra => {
   const q = new URLSearchParams(location.search);
@@ -68,7 +68,7 @@ const readExtra = (): Extra => {
 function parseFocus(e: Extra) {
   const [x, y] = (e.focus ?? "").split(",").map(Number);
   if (!Number.isFinite(x) || !Number.isFinite(y) || !e.focus) return null;
-  return { x: x!, y: y!, net: e.net, layer: e.layer };
+  return { x: x!, y: y!, ref: e.ref, net: e.net, layer: e.layer };
 }
 
 // the tab that shows what a stage produced
@@ -213,7 +213,8 @@ export default function Workspace({ id }: { id: string }) {
   const saveEdits = useCallback((req: BoardEditRequest) => backend.editBoard(id, req), [backend, id]);
   const runTests = useCallback((r: { min: number; max: number }) => backend.runTests(id, { ambient_min: r.min, ambient_max: r.max }), [backend, id]);
   const showOnBoard = useCallback(
-    (w: { x: number; y: number; net?: string; layer?: string }) => setTab("board", { focus: `${+w.x.toFixed(3)},${+w.y.toFixed(3)}`, net: w.net, layer: w.layer }),
+    (w: { x: number; y: number; refs?: string[]; net?: string; layer?: string }) =>
+      setTab("board", { focus: `${+w.x.toFixed(3)},${+w.y.toFixed(3)}`, ref: w.refs?.[0], net: w.net, layer: w.layer }),
     [setTab],
   );
   const openLayers3d = useCallback(() => setTab("3d", { view: "layers" }), [setTab]);

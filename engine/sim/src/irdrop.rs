@@ -374,7 +374,7 @@ pub fn run(input: Value) -> Result<Value, String> {
 
     // Terminals.
     let pads_of = |t: &Terminal| -> Vec<usize> {
-        pads.iter().copied().filter(|&k| b.pads[k].reference == t.reference && t.num.as_ref().map_or(true, |nm| &b.pads[k].num == nm)).collect()
+        pads.iter().copied().filter(|&k| b.pads[k].reference == t.reference && t.num.as_ref().is_none_or(|nm| &b.pads[k].num == nm)).collect()
     };
     let vref = inp.sources.iter().map(|s| s.voltage).fold(f64::NEG_INFINITY, f64::max);
     let mut fixed: Vec<Option<f64>> = vec![None; n];
@@ -504,7 +504,7 @@ pub fn run(input: Value) -> Result<Value, String> {
             }
         }
         sink_out.push(json!({"ref": s.t.reference, "num": num, "current": s.t.current, "drop_mv": r4(d * 1e3)}));
-        if worst.as_ref().map_or(true, |w| d > w.0) {
+        if worst.as_ref().is_none_or(|w| d > w.0) {
             worst = Some((d, si, num));
         }
     }
@@ -560,10 +560,10 @@ pub fn run(input: Value) -> Result<Value, String> {
                 let (p0, p1) = (a0.add(a1.sub(a0).mul(s0)), a0.add(a1.sub(a0).mul(s1)));
                 let dens = i.abs() / (tr.w * b.copper_t(l));
                 let mid = p0.mid(p1);
-                if max_density.map_or(true, |m| dens > m.0) {
+                if max_density.is_none_or(|m| dens > m.0) {
                     max_density = Some((dens, mid, l));
                 }
-                if track_max.map_or(true, |m| dens > m.0) {
+                if track_max.is_none_or(|m| dens > m.0) {
                     track_max = Some((dens, i.abs(), tr.w, mid, l));
                 }
                 let k = (p0.dist(p1) / bin).ceil().max(1.0) as usize;
@@ -578,7 +578,7 @@ pub fn run(input: Value) -> Result<Value, String> {
             }
             Elem::Zone { layer, at } => {
                 let dens = i.abs() / (cell * b.copper_t(layer));
-                if max_density.map_or(true, |m| dens > m.0) {
+                if max_density.is_none_or(|m| dens > m.0) {
                     max_density = Some((dens, at, layer));
                 }
                 add_heat(at, w);

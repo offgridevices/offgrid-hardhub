@@ -235,6 +235,9 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
             over.append((r, tb))
         elif margin < 10:
             close.append((r, tb))
+    srcs = sorted(((r, x) for r, x in diss.items() if x.get('power', 0) >= 0.01), key=lambda kv: -kv[1]['power'])
+    heat_note = ' Heat from: %s.' % '; '.join('%s %.2f W%s' % (r, x['power'], ' (estimated)' if x.get('assumed') else '')
+                                               for r, x in srcs[:5]) if srcs else ''
     if worst is None:
         out.append(C.skip('heat-parts-hot', 'no part has a temperature rating'))
     else:
@@ -242,15 +245,15 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
         meas = M('least margin to a rating', margin, '°C', 0, '>=')
         wh = lambda lst: [dict(x=parts[x['ref']]['x'], y=parts[x['ref']]['y'], refs=[x['ref']], note='%.0f °C, rated %g °C' % (t_, x['temp_max'])) for x, t_ in lst]
         if over:
-            out.append(R('heat-parts-hot', 'fail', detail='on a %g °C day: %s' % (tmax, ', '.join('%s %.0f °C (rated %g)' % (x['ref'], t_, x['temp_max']) for x, t_ in over[:6])),
+            out.append(R('heat-parts-hot', 'fail', detail='on a %g °C day: %s.%s' % (tmax, ', '.join('%s %.0f °C (rated %g)' % (x['ref'], t_, x['temp_max']) for x, t_ in over[:6]), heat_note),
                          measured=meas, where=wh(over),
-                         fix='Spread the heat: more copper (a pour) under and around %s, thermal vias to the other side, a part rated hotter, or less power in it.' % over[0][0]['ref']))
+                         fix='Spread the heat: more copper (a pour) under and around %s, thermal vias to the other side, a part rated hotter, or less power in it. If a supply\'s current is a short peak (a radio transmitting), give its net an average current: heat comes from the average.' % over[0][0]['ref']))
         elif close:
-            out.append(R('heat-parts-hot', 'warn', detail='within 10 °C of the rating on a %g °C day: %s' % (tmax, ', '.join('%s %.0f °C (rated %g)' % (x['ref'], t_, x['temp_max']) for x, t_ in close[:6])),
+            out.append(R('heat-parts-hot', 'warn', detail='within 10 °C of the rating on a %g °C day: %s.%s' % (tmax, ', '.join('%s %.0f °C (rated %g)' % (x['ref'], t_, x['temp_max']) for x, t_ in close[:6]), heat_note),
                          measured=meas, where=wh(close),
                          fix='Give %s more copper to spread its heat, or choose a part rated for a higher temperature.' % close[0][0]['ref']))
         else:
-            out.append(R('heat-parts-hot', 'pass', detail='hottest against its rating: %s %.0f °C of %g °C on a %g °C day' % (r['ref'], tb, r['temp_max'], tmax),
+            out.append(R('heat-parts-hot', 'pass', detail='hottest against its rating: %s %.0f °C of %g °C on a %g °C day.%s' % (r['ref'], tb, r['temp_max'], tmax, heat_note),
                          measured=meas))
 
     # junctions of the chips that make heat

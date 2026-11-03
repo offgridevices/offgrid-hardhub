@@ -96,7 +96,9 @@ export interface HeatField {
   inside: Uint8Array;
   /** per map: the temperature of each cell, °C (NaN off the board) */
   temps: Float32Array[];
-  /** the coolest and hottest cell over every map: one scale for all, so switching maps shows the board warm up */
+  /** each map's coolest and hottest cell: each map is drawn on its own scale, so its hot spots show */
+  ranges: { lo: number; hi: number }[];
+  /** the coolest and hottest cell over every map */
   lo: number;
   hi: number;
 }
@@ -104,11 +106,12 @@ export interface HeatField {
 export function heatField(t: Thermal): HeatField {
   const n = t.grid.nx * t.grid.ny;
   const inside = decodeU8(t.mask);
-  let lo = Infinity;
-  let hi = -Infinity;
+  const ranges: { lo: number; hi: number }[] = [];
   const temps = t.maps.map((m) => {
     const u = decodeU8(m.u8);
     const out = new Float32Array(n);
+    let lo = Infinity;
+    let hi = -Infinity;
     for (let i = 0; i < n; i++) {
       if (!inside[i]) {
         out[i] = NaN;
@@ -119,10 +122,12 @@ export function heatField(t: Thermal): HeatField {
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     }
+    ranges.push(Number.isFinite(lo) ? { lo, hi } : { lo: m.min, hi: m.max });
     return out;
   });
-  if (!Number.isFinite(lo)) (lo = 0), (hi = 1);
-  return { grid: t.grid, inside, temps, lo, hi };
+  const lo = Math.min(...ranges.map((r) => r.lo));
+  const hi = Math.max(...ranges.map((r) => r.hi));
+  return { grid: t.grid, inside, temps, ranges, lo: Number.isFinite(lo) ? lo : 0, hi: Number.isFinite(hi) ? hi : 1 };
 }
 
 /** the cell under a point (design frame, mm), or -1 off the grid */
@@ -133,15 +138,16 @@ export function cellAt(g: Thermal["grid"], x: number, y: number): number {
   return j * g.nx + i;
 }
 
-/** paint one map into RGBA pixels, one per cell; off the board is transparent */
+/** paint one map into RGBA pixels, one per cell, on its own scale; off the board is transparent */
 export function paint(f: HeatField, map: number, lut: Uint8ClampedArray): Uint8ClampedArray {
   const t = f.temps[map]!;
   const out = new Uint8ClampedArray(t.length * 4);
-  const span = f.hi - f.lo || 1;
+  const { lo, hi } = f.ranges[map]!;
+  const span = hi - lo || 1;
   for (let i = 0; i < t.length; i++) {
     const v = t[i]!;
     if (Number.isNaN(v)) continue;
-    const k = Math.round(((v - f.lo) / span) * 255) * 4;
+    const k = Math.min(255, Math.max(0, Math.round(((v - lo) / span) * 255))) * 4;
     out[i * 4] = lut[k]!;
     out[i * 4 + 1] = lut[k + 1]!;
     out[i * 4 + 2] = lut[k + 2]!;
