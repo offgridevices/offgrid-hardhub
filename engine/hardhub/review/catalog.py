@@ -380,11 +380,11 @@ CHECKS = [
        'Lists parts whose ratings were filled in from typical values.'),
 
     # ------------------------------------------------------------ manufacturing
-    _c('drc-errors', 'fab', "Design rules with the fab's own limits: 0 errors",
+    _c('drc-errors', 'fab', "KiCad's design rules, with the fab's limits: no errors",
        "KiCad's own full design-rule check, set to the factory's limits, finds nothing wrong.",
        'the fab rejects or mis-builds what breaks its rules', "Runs KiCad's DRC with JLCPCB's limits as the rules.",
        tool=KICAD, source=JLC),
-    _c('drc-warnings', 'fab', 'Design rules: 0 warnings',
+    _c('drc-warnings', 'fab', "KiCad's design rules: no warnings",
        'No rule is even bent.', 'a warning is a rule bent; HardHub ships boards with none', "Runs KiCad's DRC.", tool=KICAD),
     _c('board-size', 'fab', 'Board size within what the fab makes',
        'The board is not too small or too big for the factory and its assembly line.',
@@ -518,7 +518,8 @@ def markdown():
            'edit, and whenever the person or their AI runs them again (at other outside temperatures, say). Each',
            'result says what it found, the number it measured against its limit, where on the board, and how to',
            'fix it. A test that cannot run says why ("not run"); one that does not apply to the board says so.',
-           '', 'Made from `engine/hardhub/review/catalog.py`; do not edit by hand.', '']
+           '', 'Made from `engine/hardhub/review/catalog.py`, not by hand:',
+           '`cd engine && python3 -m hardhub.review.catalog > ../docs/board-tests.md`.', '']
     fam = {k: v for k, v in FAMILIES.items()}
     for group, label in AREAS:
         rows = [c for c in CHECKS if c['group'] == group] + [v for v in fam.values() if v['group'] == group]
@@ -532,5 +533,28 @@ def markdown():
     return '\n'.join(out)
 
 
+def typescript():
+    """The checklist for the web app's demo mode (apps/web/src/fixtures/catalog.ts)."""
+    import json
+    keys = ('id', 'group', 'name', 'plain', 'why', 'how', 'tool', 'source')
+    rows = ['  ' + json.dumps({k: c[k] for k in keys if k in c}, ensure_ascii=False, separators=(',', ':')) + ','
+            for c in CHECKS + list(FAMILIES.values())]
+    return '\n'.join([
+        "// The board tests' checklist, as the engine's catalogue writes it",
+        "// (engine/hardhub/review/catalog.py), for demo mode: ids, areas, names and",
+        "// the plain words. Made from that file, not by hand:",
+        "//   cd engine && python3 -m hardhub.review.catalog ts > ../apps/web/src/fixtures/catalog.ts",
+        'import type { CheckResult } from "@hardhub/protocol";',
+        '',
+        'export type CatalogEntry = Pick<CheckResult, "id" | "group" | "name" | "plain" | "why" | "how" | "tool" | "source">;',
+        '',
+        'export const CATALOG: CatalogEntry[] = [',
+    ] + rows + ['];', ''])
+
+
 if __name__ == '__main__':
-    print(markdown())
+    import sys
+    if sys.argv[1:] == ['ts']:
+        sys.stdout.write(typescript())
+    else:
+        print(markdown())

@@ -218,10 +218,10 @@ class Job:
         self.check(dict(id='routed', group='layout', name='Every connection is routed',
                         why='an unrouted connection is a wire that is not there',
                         status='pass' if not u else 'fail', **({'detail': '%d left' % len(u)} if u else {})))
-        self.check(dict(id='drc-errors', group='fab', name="DRC with the fab's own limits: 0 errors",
+        self.check(dict(id='drc-errors', group='fab', name="KiCad's design rules, with the fab's limits: no errors",
                         why='the fab rejects or mis-builds what breaks its rules',
                         status='pass' if not e else 'fail', **({'detail': desc(e)} if e else {})))
-        self.check(dict(id='drc-warnings', group='fab', name='DRC: 0 warnings',
+        self.check(dict(id='drc-warnings', group='fab', name="KiCad's design rules: no warnings",
                         why='a warning is a rule bent; HardHub ships boards with none',
                         status='pass' if not w else 'warn', **({'detail': desc(w)} if w else {})))
 

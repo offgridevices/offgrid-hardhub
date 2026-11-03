@@ -5,7 +5,8 @@ edit, and whenever the person or their AI runs them again (at other outside temp
 result says what it found, the number it measured against its limit, where on the board, and how to
 fix it. A test that cannot run says why ("not run"); one that does not apply to the board says so.
 
-Made from `engine/hardhub/review/catalog.py`; do not edit by hand.
+Made from `engine/hardhub/review/catalog.py`, not by hand:
+`cd engine && python3 -m hardhub.review.catalog > ../docs/board-tests.md`.
 
 ## Connections (11)
 
@@ -155,8 +156,8 @@ Made from `engine/hardhub/review/catalog.py`; do not edit by hand.
 
 | Test | What it means | How it is tested | Tool |
 |---|---|---|---|
-| Design rules with the fab's own limits: 0 errors | KiCad's own full design-rule check, set to the factory's limits, finds nothing wrong. Why: the fab rejects or mis-builds what breaks its rules. | Runs KiCad's DRC with JLCPCB's limits as the rules. Rule: JLCPCB capabilities (2026). | KiCad 10 DRC |
-| Design rules: 0 warnings | No rule is even bent. Why: a warning is a rule bent; HardHub ships boards with none. | Runs KiCad's DRC. | KiCad 10 DRC |
+| KiCad's design rules, with the fab's limits: no errors | KiCad's own full design-rule check, set to the factory's limits, finds nothing wrong. Why: the fab rejects or mis-builds what breaks its rules. | Runs KiCad's DRC with JLCPCB's limits as the rules. Rule: JLCPCB capabilities (2026). | KiCad 10 DRC |
+| KiCad's design rules: no warnings | No rule is even bent. Why: a warning is a rule bent; HardHub ships boards with none. | Runs KiCad's DRC. | KiCad 10 DRC |
 | Board size within what the fab makes | The board is not too small or too big for the factory and its assembly line. Why: a board under the minimum needs a panel; over the maximum it cannot be made. | Compares the board size with the fab's limits. Rule: JLCPCB capabilities (2026). | HardHub rules |
 | A standard layer stack | The number of copper layers and the board thickness are a build the factory offers as standard. Why: a non-standard stack costs more and takes longer. | Compares the layer count, thickness and copper weights with the fab's standard builds. Rule: JLCPCB capabilities (2026). | HardHub rules |
 | Board outline is one closed shape | The board's edge is a single closed line. Why: an open or doubled outline cannot be cut. | KiCad's DRC checks the outline. | KiCad 10 DRC |
