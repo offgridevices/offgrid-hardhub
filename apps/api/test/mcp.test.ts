@@ -17,16 +17,17 @@ import { FakeEngine } from "./support/room";
 const BASE = "http://hardhub.test";
 const CALLBACK = "http://127.0.0.1:33418/callback";
 
-/** a fake engine whose builds also make a BOM, so read_file has text to read */
+/** a fake engine whose builds also make a BOM and a test report, so read_file has text to read */
 class BomEngine extends FakeEngine {
   override async *build(design: Design, job: string): AsyncIterable<JobLine> {
     for await (const line of super.build(design, job)) {
-      if ("done" in line) yield { ...line, artifacts: [...line.artifacts, { kind: "bom", name: "bom.csv", url: `/jobs/${job}/files/bom.csv` }] };
+      if ("done" in line) yield { ...line, artifacts: [...line.artifacts, { kind: "bom", name: "bom.csv", url: `/jobs/${job}/files/bom.csv` }, { kind: "report", name: "tests.md", url: `/jobs/${job}/files/tests.md` }] };
       else yield line;
     }
   }
   override async file(job: string, name: string) {
     if (name.endsWith(".csv")) return new Response("Comment,Designator,Footprint,LCSC\n10k,R1,R_0603,C25804\n", { headers: { "content-type": "text/csv" } });
+    if (name.endsWith(".md")) return new Response("# Board tests\n\n## Passed\n", { headers: { "content-type": "text/markdown" } });
     return super.file(job, name);
   }
 }
@@ -404,6 +405,8 @@ describe("designing over MCP", () => {
     const files = textOf(await client.callTool({ name: "get_files", arguments: { project: id } }));
     expect(files).toContain("b1-bom.csv");
     expect(textOf(await client.callTool({ name: "read_file", arguments: { project: id, name: "b1-bom.csv" } }))).toContain("C25804");
+    // the test report is for AIs to read: an AI without test_report reads it here
+    expect(textOf(await client.callTool({ name: "read_file", arguments: { project: id, name: "b1-tests.md" } }))).toContain("# Board tests");
     expect((await client.callTool({ name: "read_file", arguments: { project: id, name: "b1-board.glb" } })).isError).toBe(true);
 
     await client.callTool({ name: "note", arguments: { project: id, text: "Two 10k resistors make a divider for the probe." } });
