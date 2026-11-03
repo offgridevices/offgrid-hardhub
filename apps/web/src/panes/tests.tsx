@@ -458,7 +458,7 @@ function RunControl({
             From
             <Input
               className="tabular-nums h-8 w-16"
-              inputMode="numeric"
+              inputMode="text"
               value={custom.min}
               onChange={(e) => setCustom({ ...custom, min: e.target.value })}
               aria-label="Coldest, °C"
@@ -469,7 +469,7 @@ function RunControl({
             to
             <Input
               className="tabular-nums h-8 w-16"
-              inputMode="numeric"
+              inputMode="text"
               value={custom.max}
               onChange={(e) => setCustom({ ...custom, max: e.target.value })}
               aria-label="Hottest, °C"

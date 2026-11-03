@@ -82,7 +82,7 @@ Made from `engine/hardhub/review/catalog.py`, not by hand:
 | Nothing under or in front of the antenna | The radio module's antenna has no copper or parts under it and faces off the board. Why: copper near the antenna detunes it: Wi-Fi range drops a lot. | KiCad's DRC checks the module's keep-out area; HardHub checks the antenna sits at the board edge. | KiCad 10 DRC |
 | Parts on one side only | All assembled parts are on the top. Why: parts on both sides cost a second assembly pass. | Counts assembled parts on each side. | HardHub rules |
 
-## Power (12)
+## Power (11)
 
 | Test | What it means | How it is tested | Tool |
 |---|---|---|---|
@@ -97,9 +97,8 @@ Made from `engine/hardhub/review/catalog.py`, not by hand:
 | Supplies hold up when the load jumps | When the board suddenly draws more current (a radio transmitting), the supply stays within 5 %. Why: a supply that dips too far resets the chip or corrupts a reading. | Simulates a load step from 10 % to 100 % of each rail's current in ngspice and measures the lowest voltage. | ngspice |
 | Power input is protected | The power coming in from outside passes a fuse or protection part first. Why: a short or a wrong adapter otherwise goes straight into the board. | Looks for a fuse, polyfuse, TVS or diode on each power input. | HardHub rules |
 | USB-C power input has its CC resistors | A USB-C socket used for power has a 5.1 kΩ resistor from each CC pin to ground. Why: without them, USB-C chargers and laptops give the board no power at all. | Follows the CC1 and CC2 pins of each USB-C socket to their resistors. Rule: USB Type-C spec, Rd = 5.1 kΩ. | HardHub rules |
-| Supply transients and regulator stability simulated | Supply behaviour under load has been simulated. Why: a supply that rings or sags resets the board under load. | Runs the supply simulations. | ngspice |
 
-## Heat (5)
+## Heat (4)
 
 | Test | What it means | How it is tested | Tool |
 |---|---|---|---|
@@ -107,7 +106,6 @@ Made from `engine/hardhub/review/catalog.py`, not by hand:
 | Chips' insides stay in range | The silicon inside each hot chip stays below its maximum. Why: the inside of a chip is hotter than its case; past about 125 °C it shuts down or fails. | Adds each chip's junction-to-board rise (its power times θJB from the datasheet) to the board temperature under it. | HardHub solver (Rust) |
 | The board itself stays below 105 °C | No spot of the board gets hotter than the board material is happy with. Why: FR4 softens around 130 °C; staying under 105 °C keeps it stiff and long-lived. | Finds the hottest spot of the heat map at the hottest outside temperature. | HardHub solver (Rust) |
 | Every part is rated for the coldest day | Each part works at the coldest outside temperature you set. Why: below their rating, some parts (LCDs, batteries, cheap chips) stop working. | Compares each part's lowest rated temperature with the coldest outside temperature. | HardHub rules |
-| Heat simulated on the routed board at worst-case load | The board's heat has been simulated. Why: the routed board runs hotter than the same design before routing. | Runs the heat solver. | HardHub solver (Rust) |
 
 ## Part ratings (7)
 

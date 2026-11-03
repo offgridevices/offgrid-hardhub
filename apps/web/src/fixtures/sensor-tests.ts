@@ -261,7 +261,6 @@ export function sensorChecks(r: Range): CheckResult[] {
       where: [at("J1", "the power input", { net: "VBUS" })],
     },
     "usb-c-cc": { status: "pass", detail: "R1 and R2, 5.1 kΩ, from CC1 and CC2 to ground." },
-    "sim-power": { status: "pass", detail: "ngspice: supply impedance and load step on +3V3." },
     // heat
     "heat-parts-hot": {
       status: over.length ? "fail" : close.length ? "warn" : "pass",
@@ -289,7 +288,6 @@ export function sensorChecks(r: Range): CheckResult[] {
       ...(coldOut.length ? { fix: "Pick an industrial-grade USB-C socket rated to −40 °C (for example TYPE-C-31-M-17), or keep the board indoors." } : {}),
       where: coldOut.map((p) => at(p.ref)),
     },
-    "sim-thermal": { status: "pass", detail: "8,000 cells, 3 outside temperatures, 0.4 s." },
     // part ratings
     "stress-cap-voltage": { status: "pass", measured: m("highest share of a capacitor's rated voltage", 53, "%", 80, "<="), detail: "C1: 5.25 V on a 10 V capacitor." },
     "stress-cap-dcbias": {
@@ -380,7 +378,7 @@ export function runLabel(c: Pick<CheckResult, "id" | "group">, r: Range): string
     case "placement":
       return "Checking where each part sits";
     case "power":
-      return c.id === "voltage-drop" ? "Solving voltage drop in the copper" : ["pdn", "load-step", "sim-power"].includes(c.id) ? "Simulating the supplies in ngspice" : "Adding up the power budget";
+      return c.id === "voltage-drop" ? "Solving voltage drop in the copper" : ["pdn", "load-step"].includes(c.id) ? "Simulating the supplies in ngspice" : "Adding up the power budget";
     case "thermal":
       return c.id === "heat-parts-cold" ? `Checking every part for ${num(r.min)} °C` : `Simulating heat at ${num(r.max)} °C`;
     case "stress":

@@ -270,9 +270,6 @@ CHECKS = [
        'A USB-C socket used for power has a 5.1 kΩ resistor from each CC pin to ground.',
        'without them, USB-C chargers and laptops give the board no power at all',
        'Follows the CC1 and CC2 pins of each USB-C socket to their resistors.', source='USB Type-C spec, Rd = 5.1 kΩ'),
-    _c('sim-power', 'power', 'Supply transients and regulator stability simulated',
-       'Supply behaviour under load has been simulated.', 'a supply that rings or sags resets the board under load',
-       'Runs the supply simulations.', tool=SPICE),
 
     # ------------------------------------------------------------ heat
     _c('heat-parts-hot', 'thermal', 'Every part stays inside its temperature rating on the hottest day',
@@ -293,9 +290,6 @@ CHECKS = [
        'Each part works at the coldest outside temperature you set.',
        'below their rating, some parts (LCDs, batteries, cheap chips) stop working',
        'Compares each part\'s lowest rated temperature with the coldest outside temperature.'),
-    _c('sim-thermal', 'thermal', 'Heat simulated on the routed board at worst-case load',
-       'The board\'s heat has been simulated.', 'the routed board runs hotter than the same design before routing',
-       'Runs the heat solver.', tool=SIM),
 
     # ------------------------------------------------------------ part ratings
     _c('stress-cap-voltage', 'stress', 'Capacitors rated well above their voltage',
@@ -402,7 +396,19 @@ CHECKS = [
        'Compares the BOM and placement file with the board.'),
 ]
 
-BY_ID = {c['id']: c for c in CHECKS}
+# results from before the board tests (stored in older projects): kept here
+# so they still read with a name and an area, but no stage makes them, and
+# the checklist (docs, demo) leaves them out
+LEGACY = [
+    _c('sim-power', 'power', 'Supply transients and regulator stability simulated',
+       'Supply behaviour under load has been simulated.', 'a supply that rings or sags resets the board under load',
+       'Runs the supply simulations.', tool=SPICE),
+    _c('sim-thermal', 'thermal', 'Heat simulated on the routed board at worst-case load',
+       'The board\'s heat has been simulated.', 'the routed board runs hotter than the same design before routing',
+       'Runs the heat solver.', tool=SIM),
+]
+
+BY_ID = {c['id']: c for c in CHECKS + LEGACY}
 # checks made per part (esp32-strapping-U1): their family's entry
 FAMILIES = {
     'esp32-strapping': _c('esp32-strapping', 'firmware', 'Strapping pins checked',
