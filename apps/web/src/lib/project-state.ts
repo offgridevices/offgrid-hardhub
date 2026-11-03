@@ -96,6 +96,9 @@ export function reduce(s: ProjectState, e: ServerEvent): ProjectState {
   }
   if (e.seq <= s.lastSeq) return s; // duplicate after a reconnect
   const n: ProjectState = { ...s, lastSeq: e.seq };
+  // a finished run's results come as the very next stored event; anything
+  // else first (a run that ended in an error) settles it with nothing replaced
+  if (s.testRun?.phase === "done" && !s.testRun.settled && e.type !== "checks" && e.type !== "test_run") n.testRun = { ...s.testRun, settled: true };
   switch (e.type) {
     case "user_message":
       n.items = [...s.items, { kind: "user", id: e.id, text: e.text, answers: e.answers }];

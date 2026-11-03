@@ -57,7 +57,11 @@ function useReport(artifacts: Artifact[], fileUrl: (u: string) => string) {
     fetch(fileUrl(art.url), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => live && setState({ url: art.url, report: TestReport.parse(j), failed: false }))
-      .catch(() => live && setState({ url: art.url, report: null, failed: true }));
+      .catch((e: unknown) => {
+        // say why, for whoever opens the console: the page itself offers a new run
+        console.warn("The test report could not be read:", e instanceof Error ? e.message.slice(0, 500) : e);
+        if (live) setState({ url: art.url, report: null, failed: true });
+      });
     return () => {
       live = false;
     };

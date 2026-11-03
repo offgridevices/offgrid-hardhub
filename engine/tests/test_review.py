@@ -168,3 +168,20 @@ def test_a_hot_day_and_a_heavy_load_overheat_the_regulator(built, tmp_path):
     assert rep['ambient']['max'] == 70 and rep['ambient']['points'] == [-10, 25, 70]
     # nothing was rebuilt: the test run's own steps only
     assert {x['step'] for x in lines if 'step' in x} <= {'validate', 'verify', 'test'}
+
+
+def test_supplies_with_no_stated_current_still_get_heat_and_drop_tests(built, tmp_path):
+    """A design that names no currents: the heat tests still run (from what can
+    be worked out), never turned into 'not run' by a crash."""
+    from hardhub import pipeline
+    files, final, _ = built
+    d = copy.deepcopy(fixture('esp32c3-sensor.json'))
+    for n in ('+3V3', 'VBUS'):
+        d['nets'][n].pop('current', None)
+        d['nets'][n].pop('average', None)
+    zp = (files / art(final, '-kicad.zip')['name']).read_bytes()
+    res = pipeline.test(d, io.BytesIO(zp), str(tmp_path / 'work'), str(tmp_path / 'files'), lambda x: None, job='n')
+    c = by_id(res)
+    for i in ('voltage-drop', 'track-heating', 'via-current', 'heat-parts-hot', 'heat-junction', 'heat-board'):
+        assert 'could not run' not in (c[i].get('detail') or ''), (i, c[i])
+    assert c['heat-board']['status'] in ('pass', 'warn')

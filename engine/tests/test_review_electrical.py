@@ -172,6 +172,35 @@ def test_switcher_input_current_and_pass_through():
     assert pm['dissipation']['U1']['power'] == pytest.approx(3.3 * (1 / 0.9 - 1))
 
 
+def test_a_ferrite_wired_either_way_round_passes_power_downstream(c3):
+    """Pin order means nothing for a ferrite: power flows from the side with a
+    source (the USB socket) to the other, however its pads were numbered."""
+    c3['parts']['FB'] = P('FB', '600R', 'Ferrite bead 600R@100MHz 1A', 'Inductor_SMD:L_0603_1608Metric')
+    c3['nets']['VIN'] = dict(kind='power', voltage=5, current=0.5)
+    for comp in c3['components']:
+        if comp['ref'] == 'U2':
+            comp['pins']['3'] = 'VIN'                    # the LDO now takes its input after the ferrite
+    for pins in ({'1': 'VIN', '2': 'VBUS'}, {'1': 'VBUS', '2': 'VIN'}):
+        d = copy.deepcopy(c3)
+        d['components'].append(dict(ref='FB1', part='FB', block=d['components'][0]['block'], pins=dict(pins)))
+        pm = power.power_model(d)
+        v, b = pm['nets']['VIN'], pm['nets']['VBUS']
+        assert (v['source'], v['from_net']) == ('FB1', 'VBUS'), pins
+        assert b['source'] == 'J1', pins
+        res, _, _ = run_checks(d)
+        assert res['input-protection']['status'] != 'na', pins
+
+
+def test_supplies_with_no_stated_current_do_not_break_the_power_model(c3):
+    for n in ('+3V3', 'VBUS'):
+        c3['nets'][n].pop('current', None)
+        c3['nets'][n].pop('average', None)
+    pm = power.power_model(c3)
+    assert all((s.get('current') or 0) >= 0 for n in pm['nets'].values() for s in n['sinks'])
+    res, _, _ = run_checks(c3)
+    assert res['power-budget']['status'] in ('pass', 'warn', 'skip', 'na')
+
+
 # ------------------------------------------------------------------ the fixture, design-level
 
 EXPECTED = {

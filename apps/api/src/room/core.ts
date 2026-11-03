@@ -2,7 +2,7 @@
 // AI conversation, and the turn that is running. Storage is SQLite (the
 // Durable Object's own database in production, sql.js in tests), so this
 // class has no Cloudflare dependency and is tested directly.
-import { type BoardEditRequest, type CheckResult, Design, type EventPage, type ServerEvent, type TestOptions, emptyDesign } from "@hardhub/protocol";
+import { type Artifact, type BoardEditRequest, type CheckResult, Design, type EventPage, type ServerEvent, type TestOptions, emptyDesign } from "@hardhub/protocol";
 import type { Engine } from "../engine";
 import { type Llm, LlmError, type StreamSink, type ToolImage } from "../agent/llm/types";
 import type { BridgeEvent } from "../bridge";
@@ -76,7 +76,7 @@ export type BoardEditOutcome =
 const NOTES = 20;
 
 /** agent tools that change the design: not while an agent's build runs from it */
-const CHANGES_DESIGN = new Set(["update_design", "set_stage", "write_firmware"]);
+const CHANGES_DESIGN = new Set(["update_design", "set_stage", "write_firmware", "run_tests"]);
 
 let counter = 0;
 const shortId = (p: string) => `${p}_${Date.now().toString(36)}${(counter++ % 1296).toString(36)}`;
@@ -103,6 +103,13 @@ export class RoomCore {
     this.setMeta("chat_turn", null);
     this.setMeta("editing", null);
     this.setMeta("chat_asked", null);
+    // a test run cut off the same way: say it ended, or every client waits on it
+    const lastRun = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"test_run"%' ORDER BY seq DESC LIMIT 1`).toArray()[0];
+    if (lastRun) {
+      const ev = JSON.parse(lastRun.json as string) as ServerEvent;
+      if (ev.type === "test_run" && ev.phase === "start")
+        this.emit({ type: "test_run", run: ev.run, phase: "done", ok: false, progress: 1, summary: "interrupted by a server restart: run the tests again" });
+    }
     // the same for an agent's build: queued ones still run from the alarm
     const b = this.agentBuild();
     if (b?.state === "running") {
@@ -400,7 +407,7 @@ export class RoomCore {
       },
       renders: () => JSON.parse(this.meta("renders") ?? "[]") as string[],
       setRenders: (names) => this.setMeta("renders", JSON.stringify(names)),
-      lastBuild: () => JSON.parse(this.meta("last_build") ?? "null") as { job: string; kicad: string } | null,
+      lastBuild: () => JSON.parse(this.meta("last_build") ?? "null") as { job: string; kicad: string; version?: number } | null,
       setLastBuild: (b) => {
         this.setMeta("last_build", JSON.stringify(b));
         // a new build placed and routed the board again: the hand edits are gone from it
@@ -634,27 +641,28 @@ export class RoomCore {
     const ctx = this.toolContext(false);
     const last = ctx.lastBuild();
     if (!last) return conflict("There is no routed board yet: build it first.");
-    const { design } = this.design();
+    const { design, version: editedFrom } = this.design();
     if (!design.board) return conflict("The design has no board yet.");
     this.setMeta("editing", "1");
     const job = ctx.nextJob();
     // the chat's card for this job says "checking your edits", not "building"
     const card = `edit-${job}`;
+    const tests = new TestRelay(ctx, job);
     try {
       const zip = await ctx.getFile(last.kicad);
       if (!zip) return conflict("The last build's board file is missing: build the board again.");
-      const tests = new TestRelay(ctx, job);
       for await (const line of ctx.engine.edit(design, job, zip, req.edits)) {
         if (!("done" in line)) {
           if (line.step === "test") tests.line(line);
           else this.emit({ type: "job", job: card, step: line.step, progress: line.progress, done: false });
           continue;
         }
-        tests.done(line.checks, line.rejected ? (line.error ?? "edits refused") : undefined);
         const made = !line.rejected && line.artifacts.length > 0;
         this.emit({ type: "job", job: card, step: "done", progress: 1, done: true, ok: made && line.ok });
         if (line.rejected) return { status: 422, body: { error: line.error ?? "The edits could not be applied." } };
         if (!made) return { status: 502, body: { error: `The engine could not check the edited board${line.error ? `: ${line.error}` : "."}` } };
+        // the run's end, then its results as the very next event (clients replace their list with them)
+        tests.done(line.checks);
         if (line.checks.length) this.emit({ type: "checks", results: line.checks });
         const stored = await storeArtifacts(ctx, job, line.artifacts);
         if (stored.length) this.emit({ type: "artifacts", artifacts: stored });
@@ -663,7 +671,7 @@ export class RoomCore {
         if (renders.length) ctx.setRenders(renders);
         const kicad = stored.find((a) => a.kind === "kicad");
         // the edited board is now the last build (and keeps its hand edits)
-        if (kicad) this.setMeta("last_build", JSON.stringify({ job, kicad: kicad.name }));
+        const prev = ctx.lastBuild();
         const what = describeEdits(line.stats, req.edits.length);
         const summary = `You ${what} by hand · checks: ${problems(line.checks)}`;
         const moved = Object.entries(line.placement);
@@ -673,6 +681,12 @@ export class RoomCore {
           // locked: a later build keeps them where the person put them
           for (const [ref, p] of moved) placement[ref] = { ...p, locked: true };
           this.saveDesign({ ...cur, placement }, `Moved ${moved.map(([r]) => r).join(", ")} by hand`);
+        }
+        // the edited board is now the last build, of the design as it now stands
+        // (parts moved by hand were just saved into it), unless that was already stale
+        if (kicad) {
+          const upToDate = prev?.version === undefined || prev.version === editedFrom;
+          this.setMeta("last_build", JSON.stringify({ job, kicad: kicad.name, ...(upToDate ? { version: this.design().version } : prev?.version !== undefined ? { version: prev.version } : {}) }));
         }
         this.emit({ type: "board_edit", id: shortId("e"), summary, edits: req.edits.length, ok: line.ok });
         // the AI hears of it on its next turn (and a connected agent on its next call)
@@ -688,6 +702,7 @@ export class RoomCore {
       this.emit({ type: "job", job: card, step: "done", progress: 1, done: true, ok: false });
       return { status: 502, body: { error: `The engine could not apply the edits: ${e instanceof Error ? e.message : String(e)}` } };
     } finally {
+      tests.done([], "the edit stopped before the tests finished");
       this.setMeta("editing", null);
     }
   }
@@ -716,12 +731,20 @@ export class RoomCore {
     }
   }
 
-  /** The files of the last build that made any. */
+  /** The files of the last build that made any, with the newest of each name:
+   * a test run after it adds its report and keeps the build's order files. */
   latestArtifacts(): { kind: string; name: string; url: string; bytes?: number }[] {
-    const row = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"artifacts"%' ORDER BY seq DESC LIMIT 1`).toArray()[0];
-    if (!row) return [];
-    const ev = JSON.parse(row.json as string) as ServerEvent;
-    return ev.type === "artifacts" ? ev.artifacts : [];
+    const rows = this.d.sql.exec(`SELECT json FROM events WHERE json LIKE '%"type":"artifacts"%' ORDER BY seq DESC LIMIT 20`).toArray();
+    const key = (n: string) => n.replace(/^b\d+-/, "");
+    const out = new Map<string, Artifact>();
+    for (const r of rows) {
+      const ev = JSON.parse(r.json as string) as ServerEvent;
+      if (ev.type !== "artifacts") continue;
+      for (const a of ev.artifacts) if (!out.has(key(a.name))) out.set(key(a.name), a);
+      // older than the last full build (one with order files): nothing more to take
+      if (ev.artifacts.some((a) => a.kind === "gerbers")) break;
+    }
+    return [...out.values()];
   }
 
   /** The latest circuit or board checks. */

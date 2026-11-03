@@ -161,7 +161,11 @@ def power_budget(b, env, pm, op, report):
                              '(USB-C 1.5 A or 3 A): fine on most USB-C chargers, not on a computer\'s USB 2.0 port'
                              % (n, _ma(load)))
         if cap is None or load is None:
-            if load:
+            if load and e.get('source_kind') == 'link':
+                # a ferrite, fuse or 0 Ω link passing another supply through: the
+                # supply upstream is what this test checks; the part's own rating is listed
+                lines.append('%s passes %s through to %s (%s; give its current rating to check it too)' % (src, e.get('from_net'), n, _ma(load)))
+            elif load:
                 warns.append("%s's supply %s has no known current rating" % (n, src))
             continue
         pct = 100 * load / cap

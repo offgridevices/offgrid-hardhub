@@ -96,6 +96,9 @@ describe("run_tests and test_report (the AI's tools)", () => {
     expect(rep.content).not.toMatch(/## Passed/);
     const heat = await room.agentTool("test_report", { only: "thermal" });
     expect(heat.content).toMatch(/heat-board/);
+    // the build's files are still there for get_files, with the report beside them
+    const { artifacts } = await room.agentResults();
+    expect(artifacts.map((a) => a.kind).sort()).toEqual(["board-png", "glb", "kicad", "report", "report"]);
   });
 
   it("a build relays its test step as a live test run", async () => {
@@ -146,5 +149,32 @@ describe("what the AI reads", () => {
     expect(filterReport(md, "thermal")).not.toMatch(/Shorts/);
     expect(filterReport(md, "problems")).not.toMatch(/Passed/);
     expect(filterReport(md, "nope")).toMatch(/No area/);
+  });
+});
+
+describe("a test run always ends", () => {
+  it("when the build stops half way, the run is closed for every client", async () => {
+    const token = await signIn();
+    const { id, core } = await project(token, false);
+    engine.build = async function* () {
+      yield { step: "test", progress: 0.7, message: "Planning 1 test", plan: [{ id: "shorts", group: "connections", name: "No shorts" }] };
+      throw new Error("engine went away");
+    };
+    await env.ROOMS.get(id).agentTool("build_board", {});
+    const runs = core.events(-1, 1000).events.filter((e) => e.type === "test_run");
+    expect(runs.map((e) => e.type === "test_run" && e.phase)).toEqual(["start", "done"]);
+    expect(runs[1]!.type === "test_run" && runs[1]!.ok).toBe(false);
+  });
+
+  it("a connected agent cannot test the old board while its new build runs", async () => {
+    const token = await signIn();
+    const { id, core } = await project(token);
+    // a build queued for the alarm, not yet run
+    expect((await core.agentTool("build_board", {})).isError).toBeFalsy();
+    const r = await core.agentTool("run_tests", {});
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/wait_for_build/);
+    expect(engine.tests).toHaveLength(0);
+    void id;
   });
 });

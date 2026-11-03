@@ -174,6 +174,11 @@ def run(board_path, d, work, out, slug, emit=lambda message, frac, **kw: None, o
         report['stress'] += rep.get('stress', [])
         if rep.get('ngspice'):
             state['ngspice'] = rep['ngspice']
+        # LEDs and transistors on a supply draw what the simulation says they do
+        for n in pm.get('nets', {}).values():
+            for sk in n.get('sinks', []):
+                if sk.get('current') is None and (op or {}).get(sk['ref'], {}).get('current') is not None:
+                    sk['current'] = abs(float(op[sk['ref']]['current']))
         # resistors and LEDs heat the board too: their simulated power
         diss = pm.setdefault('dissipation', {})
         for ref, x in (op or {}).items():
@@ -268,7 +273,8 @@ def write_report(results, report, d, env, model, out, slug, timings, state):
         tools['ngspice'] = state['ngspice']
     try:
         from . import sim
-        tools['hardhub-sim'] = sim.version()
+        v = sim.version()
+        tools['hardhub-sim'] = str(v.get('version', v)) if isinstance(v, dict) else str(v)
     except Exception:                                         # noqa: BLE001
         pass
     bd = d['board']
@@ -280,11 +286,22 @@ def write_report(results, report, d, env, model, out, slug, timings, state):
                stress=report.get('stress', []), timings=timings)
     js = os.path.join(out, slug + '-tests.json')
     with open(js, 'w') as f:
-        json.dump(rep, f, separators=(',', ':'))
+        json.dump(_no_nulls(rep), f, separators=(',', ':'))
     md = os.path.join(out, slug + '-tests.md')
     with open(md, 'w') as f:
         f.write(markdown(results, rep, d))
     return [js, md]
+
+
+def _no_nulls(x):
+    """A field with no value is left out, not written as null (the report's
+    schema, packages/protocol/src/review.ts, has optional fields, not nullable
+    ones); thermal stays null when the heat solver did not run."""
+    if isinstance(x, dict):
+        return {k: _no_nulls(v) for k, v in x.items() if v is not None or k == 'thermal'}
+    if isinstance(x, list):
+        return [_no_nulls(v) for v in x]
+    return x
 
 
 def markdown(results, rep, d):

@@ -198,8 +198,12 @@ def checks(d, model, m, drc, report=None):
                 fix='Use a hole of at least %.3g mm.' % L['drill']))
     add(minimum('annular-ring', m, 'ring_min', 'thinnest ring', L['ring'], drc=drc, none_ok='no plated holes',
                 fix='Make the via or pad copper bigger, or the hole smaller, so the ring is at least %.3g mm.' % L['ring']))
-    add(minimum('hole-to-hole', m, 'hole_to_hole_min', 'closest holes', L['hole_hole'], drc=drc, none_ok='fewer than two holes',
-                fix='Move the holes at least %.3g mm apart (edge to edge).' % L['hole_hole']))
+    nholes = len(model['vias']) + len(model['holes']) + sum(1 for p in model['pads'] if p.get('drill'))
+    if m is not None and m.get('hole_to_hole_min') is None and not from_drc(drc, 'hole-to-hole') and nholes >= 2:
+        add(R('hole-to-hole', 'pass', detail='no two holes within 3 mm of each other'))
+    else:
+        add(minimum('hole-to-hole', m, 'hole_to_hole_min', 'closest holes', L['hole_hole'], drc=drc, none_ok='fewer than two holes',
+                    fix='Move the holes at least %.3g mm apart (edge to edge).' % L['hole_hole']))
     add(drc_only('hole-clearance', drc, 'every hole clear of other copper',
                  fix='Move the track away from the hole, or move the via.'))
     dmin = (m or {}).get('drill_min')

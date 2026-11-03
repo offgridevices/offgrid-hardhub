@@ -76,7 +76,7 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
             continue
         src_pads = [p for p in n.get('source_pads') or [] if (n['source'], p) in have_pads]
         sinks = [dict(ref=s['ref'], num=p, current=s['current'] / max(1, len(s['pads'])))
-                 for s in n['sinks'] for p in s['pads'] if (s['ref'], p) in have_pads and s['current'] > 0]
+                 for s in n['sinks'] for p in s['pads'] if (s['ref'], p) in have_pads and (s.get('current') or 0) > 0]
         if not src_pads or not sinks:
             continue
         emit('Solving voltage drop on %s' % name)
@@ -170,8 +170,16 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
         if x.get('power', 0) <= 0 or ref not in parts:
             continue
         rt = rate(ref) or {}
+        tjb = rt.get('theta_jb')
+        kind = (d['parts'].get(comp[ref]['part'], {}) if ref in comp else {}).get('kind')
+        if not tjb and kind in ('U', 'MOD', 'Q'):
+            # a chip with no θJB in its datasheet entry or our table: a typical small
+            # package's 30 °C/W, so its inside is never taken to be as cool as the board
+            tjb = 30.0
+            x['how'] = ((x.get('how') or '') + '; θJB assumed 30 °C/W').lstrip('; ')
+            x['assumed'] = True
         sources.append(dict(ref=ref, power=float(x['power']), rect=parts[ref]['bbox'], side=parts[ref]['side'],
-                            theta_jb=float(rt.get('theta_jb') or 0)))
+                            theta_jb=float(tjb or 0)))
     pts = ambients(env)
     emit('Simulating heat at %s °C' % ', '.join('%g' % a for a in pts))
     t0 = time.time()
@@ -216,6 +224,7 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
         rows.append(dict(ref=ref, power=round(float(diss.get(ref, {}).get('power', 0)), 4), temps=temps,
                          temp_max=rt.get('temp_max'), temp_min=rt.get('temp_min'),
                          assumed=bool(set(rt.get('assumed') or []) & {'temp_max', 'temp_min'}) or bool(diss.get(ref, {}).get('assumed')),
+                         rating_assumed='temp_max' in (rt.get('assumed') or []),
                          how=diss.get(ref, {}).get('how')))
     report['thermal'] = dict(grid=grid, mask=th['mask_b64'],
                              maps=[dict(ambient=m['ambient'], min=round(m['min'], 2), max=round(m['max'], 2), u8=m['u8_b64'],
@@ -236,7 +245,7 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
         elif margin < 10:
             close.append((r, tb))
     srcs = sorted(((r, x) for r, x in diss.items() if x.get('power', 0) >= 0.01), key=lambda kv: -kv[1]['power'])
-    heat_note = ' Heat from: %s.' % '; '.join('%s %.2f W%s' % (r, x['power'], ' (estimated)' if x.get('assumed') else '')
+    heat_note = ' Heat from: %s' % '; '.join('%s %.2f W%s' % (r, x['power'], ' (estimated)' if x.get('assumed') else '')
                                                for r, x in srcs[:5]) if srcs else ''
     if worst is None:
         out.append(C.skip('heat-parts-hot', 'no part has a temperature rating'))
@@ -244,7 +253,15 @@ def run(d, env, model, pm, rate, emit=lambda label: None):
         margin, r, tb = worst
         meas = M('least margin to a rating', margin, '°C', 0, '>=')
         wh = lambda lst: [dict(x=parts[x['ref']]['x'], y=parts[x['ref']]['y'], refs=[x['ref']], note='%.0f °C, rated %g °C' % (t_, x['temp_max'])) for x, t_ in lst]
-        if over:
+        # a part over a typical rating may be fine: its datasheet decides
+        sure = [x for x in over if not x[0].get('rating_assumed')]
+        if over and not sure:
+            out.append(R('heat-parts-hot', 'warn', detail='on a %g °C day: %s, over a typical rating (not read from a datasheet: check it).%s' % (
+                tmax, ', '.join('%s %.0f °C (typical rating %g)' % (x['ref'], t_, x['temp_max']) for x, t_ in over[:6]), heat_note),
+                measured=meas, where=wh(over),
+                fix='Read %s\'s highest operating temperature from its datasheet and put it in the part\'s ratings (temp_max); if it really is %g °C, give it more room from the heat or choose a part rated hotter.' % (over[0][0]['ref'], over[0][0]['temp_max'])))
+        elif over:
+            over = sure
             out.append(R('heat-parts-hot', 'fail', detail='on a %g °C day: %s.%s' % (tmax, ', '.join('%s %.0f °C (rated %g)' % (x['ref'], t_, x['temp_max']) for x, t_ in over[:6]), heat_note),
                          measured=meas, where=wh(over),
                          fix='Spread the heat: more copper (a pour) under and around %s, thermal vias to the other side, a part rated hotter, or less power in it. If a supply\'s current is a short peak (a radio transmitting), give its net an average current: heat comes from the average.' % over[0][0]['ref']))

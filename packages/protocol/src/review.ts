@@ -33,20 +33,20 @@ export const PartHeat = z.object({
   ref: z.string(),
   power: z.number(), // W
   temps: z.array(z.object({ ambient: z.number(), board: z.number(), junction: z.number().optional() })),
-  temp_max: z.number().optional(),
-  temp_min: z.number().optional(),
-  assumed: z.boolean().optional(), // the rating or the power was a typical value, not from the datasheet
-  how: z.string().optional(), // how its heat was worked out ("LDO: (5 V - 3.3 V) x 0.5 A")
+  temp_max: z.number().nullish(),
+  temp_min: z.number().nullish(),
+  assumed: z.boolean().nullish(), // the rating or the power was a typical value, not from the datasheet
+  how: z.string().nullish(), // how its heat was worked out ("LDO: (5 V - 3.3 V) x 0.5 A")
 });
 export type PartHeat = z.infer<typeof PartHeat>;
 
 export const PowerNode = z.object({
   net: z.string(),
-  voltage: z.number().optional(),
-  source: z.string().optional(), // the ref feeding it
-  from: z.string().optional(), // the net that source takes power from
-  load: z.number().optional(), // A drawn
-  capacity: z.number().optional(), // A the source can give
+  voltage: z.number().nullish(),
+  source: z.string().nullish(), // the ref feeding it
+  from: z.string().nullish(), // the net that source takes power from
+  load: z.number().nullish(), // A drawn
+  capacity: z.number().nullish(), // A the source can give
 });
 
 export const PowerDrop = z.object({
@@ -75,7 +75,7 @@ export type Stress = z.infer<typeof Stress>;
 export const TestReport = z.object({
   version: z.literal(1),
   made_at: z.string(),
-  tools: z.record(z.string(), z.string()).default({}),
+  tools: z.record(z.string(), z.unknown()).default({}), // tool -> version
   ambient: z.object({ min: z.number(), max: z.number(), points: z.array(z.number()) }),
   board: z.object({
     width: z.number(),

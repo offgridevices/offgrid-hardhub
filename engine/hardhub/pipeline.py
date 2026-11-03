@@ -114,6 +114,13 @@ class Job:
         if not ok:
             raise Stop('circuit checks failed')
 
+    def circuit_checks(self):
+        """The circuit's own checks (pins, parts, sourcing, firmware), so a run
+        that does not build still lists every check the board has."""
+        from . import checks
+        for r in checks.circuit(self.d):
+            self.check(r)
+
     def s_place(self):
         import pcbnew
         from . import board, design as D, fanout
@@ -390,6 +397,7 @@ class EditJob(Job):
             p = os.path.splitext(src)[0] + ext
             if os.path.exists(p):
                 shutil.copy(p, os.path.splitext(self.routed)[0] + ext)
+        self.circuit_checks()
         counts, self.placement = edits.apply(self.routed, self.edits, self.d)
         self.stats.update({'edits_' + k: v for k, v in counts.items()})
         self.emit('validate', 'applied %d edits' % sum(counts.values()), 0.9)
@@ -424,6 +432,7 @@ class TestJob(EditJob):
             p = os.path.splitext(src)[0] + ext
             if os.path.exists(p):
                 shutil.copy(p, os.path.splitext(self.routed)[0] + ext)
+        self.circuit_checks()
 
 
 def test(d, kicad_zip, work, out, emit, job='local', options=None):

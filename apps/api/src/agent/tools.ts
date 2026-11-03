@@ -40,8 +40,8 @@ export interface ToolContext {
   renders(): string[];
   setRenders(names: string[]): void;
   /** the last build that made files: its engine job and its KiCad zip in the file store */
-  lastBuild(): { job: string; kicad: string } | null;
-  setLastBuild(b: { job: string; kicad: string }): void;
+  lastBuild(): { job: string; kicad: string; version?: number } | null;
+  setLastBuild(b: { job: string; kicad: string; version?: number }): void;
   /** the file names of the latest board test report (json for clients, md for reading) */
   lastTests(): { json?: string; md?: string } | null;
   setLastTests(t: { json?: string; md?: string }): void;
@@ -224,7 +224,7 @@ export const TOOLS = {
     }),
     label: (i) => (i.stop_after ? `Building the board (up to ${i.stop_after})` : "Building the board"),
     async run(i, ctx, _call, signal) {
-      const { design } = ctx.design();
+      const { design, version } = ctx.design();
       if (!design.board) return { content: "The design has no board yet: set /board (size, layers) first.", isError: true };
       // a build that stops before the fab files leaves the last board as it is
       const replaces = !i.stop_after || BUILD_STEPS.indexOf(i.stop_after) >= BUILD_STEPS.indexOf("fab");
@@ -232,6 +232,8 @@ export const TOOLS = {
       if (refused) return { content: refused, isError: true };
       const job = ctx.nextJob();
       const tests = new TestRelay(ctx, job);
+      // a run that started always ends, however the build does (stopped, an engine error)
+      try {
       for await (const line of ctx.engine.build(design, job, signal, i.stop_after)) {
         if (!("done" in line)) {
           if (line.step === "test") tests.line(line);
@@ -247,7 +249,7 @@ export const TOOLS = {
         const renders = stored.filter((a) => a.kind === "board-png").map((a) => a.name);
         if (renders.length) ctx.setRenders(renders);
         const kicad = stored.find((a) => a.kind === "kicad");
-        if (kicad) ctx.setLastBuild({ job, kicad: kicad.name });
+        if (kicad) ctx.setLastBuild({ job, kicad: kicad.name, version });
         // keep the engine's placement for parts the design left unplaced
         const added = Object.entries(line.placement).filter(([ref]) => !(ref in design.placement));
         if (added.length) {
@@ -270,6 +272,9 @@ export const TOOLS = {
             .join("\n"),
           isError: !line.ok,
         };
+      }
+      } finally {
+        tests.done([], "the build stopped before the tests finished");
       }
       return { content: "The engine stopped without a result.", isError: true };
     },
@@ -639,7 +644,11 @@ export async function runTests(
   if (!last) return fail("No built board yet: run build_board first.");
   const zip = await ctx.getFile(last.kicad);
   if (!zip) return fail("The last build's board file is missing: run build_board again.");
-  const { design } = ctx.design();
+  const { design, version } = ctx.design();
+  // the tests read the design's numbers (currents, ratings) on the board as last built
+  const stale = last.version !== undefined && last.version !== version
+    ? `Note: the design changed after this board was built (version ${last.version}, now ${version}): these tests use the new design's numbers on the old copper. build_board brings the board up to date.`
+    : "";
   const job = ctx.nextJob();
   const relay = new TestRelay(ctx, job);
   try {
@@ -659,7 +668,7 @@ export async function runTests(
         ok: line.ok,
         error: false,
         checks: line.checks,
-        content: [`Board tests${at}: ${testCounts(line.checks)}.`, summarizeChecks(line.checks), "test_report gives the full report."].join("\n"),
+        content: [`Board tests${at}: ${testCounts(line.checks)}.`, stale, summarizeChecks(line.checks), "test_report gives the full report."].filter(Boolean).join("\n"),
       };
     }
   } catch (e) {

@@ -198,6 +198,13 @@ def power_model(d, env=None):
 
     # ---- links: a two-sided part between two power nets passes one through to the other
     links = []                          # (ref, upstream, downstream)
+    # nets that have a source of their own (named, a regulator's output, a
+    # connector or battery): a link carries power away from them. Pin order
+    # means nothing for a ferrite, fuse or resistor, so it cannot say.
+    rooted = {n for n in b.power if (b.nets[n].get('source') in b.comps)
+              or any(o == n for _, o in reg_nets.values())
+              or any(b.is_connector_source(r) for r in b.refs_on(n))}
+    undirected = []
     for ref in b.comps:
         if ref in regs or b.kind(ref) not in LINK_KINDS:
             continue
@@ -212,7 +219,28 @@ def power_model(d, env=None):
             pins = b.comps[ref]['pins']
             anode = pins.get('A') or pins.get('2')
             a, c = (anode, c if anode == a else a)
-        links.append((ref, a, c))
+            links.append((ref, a, c))
+        else:
+            undirected.append((ref, a, c))
+    # orient the others away from the side that has power, chain by chain
+    # (a ferrite after a fuse after the connector)
+    for r, a, c in links:
+        rooted.add(c)
+    while undirected:
+        done = []
+        for item in undirected:
+            ref, a, c = item
+            if a in rooted and c not in rooted:
+                links.append((ref, a, c)); rooted.add(c); done.append(item)
+            elif c in rooted and a not in rooted:
+                links.append((ref, c, a)); rooted.add(a); done.append(item)
+        if not done:
+            # neither side (or both) has a source: keep the higher voltage upstream
+            for ref, a, c in undirected:
+                va, vc = b.voltage(a) or 0, b.voltage(c) or 0
+                links.append((ref, a, c) if va >= vc else (ref, c, a))
+            break
+        undirected = [u for u in undirected if u not in done]
 
     # ---- the source of every power net
     nets = {}

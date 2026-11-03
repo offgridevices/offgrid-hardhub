@@ -168,3 +168,30 @@ describe("demo tests", () => {
     expect(s.artifacts.some((a) => a.kind === "report" && a.name.endsWith("-tests.json"))).toBe(true);
   });
 });
+
+describe("a finished run's results", () => {
+  const at = "2026-11-03T00:00:00Z";
+  const ev = (seq: number, e: Record<string, unknown>) => ServerEvent.parse({ seq, at, ...e });
+  const old = [c("lcsc", "warn", "sourcing"), c("shorts", "pass", "connections")];
+
+  it("replace the list when they come straight after the run", () => {
+    const s = replay([
+      ev(0, { type: "checks", results: old }),
+      ev(1, { type: "test_run", run: "b2", phase: "start", plan: [{ id: "shorts", group: "connections", name: "x" }] }),
+      ev(2, { type: "test_run", run: "b2", phase: "done", ok: true }),
+      ev(3, { type: "checks", results: [c("shorts", "fail", "connections")] }),
+    ]);
+    expect(s.checks.map((x) => `${x.id}:${x.status}`)).toEqual(["shorts:fail"]);
+  });
+
+  it("a run that ended in an error replaces nothing, and later checks merge as before", () => {
+    const s = replay([
+      ev(0, { type: "checks", results: old }),
+      ev(1, { type: "test_run", run: "b2", phase: "start", plan: [] }),
+      ev(2, { type: "test_run", run: "b2", phase: "done", ok: false, summary: "the engine stopped" }),
+      ev(3, { type: "error", message: "the engine stopped", retryable: true }),
+      ev(4, { type: "checks", results: [c("pins-pads", "pass", "connections")] }),
+    ]);
+    expect(s.checks.map((x) => x.id).sort()).toEqual(["lcsc", "pins-pads", "shorts"]);
+  });
+});

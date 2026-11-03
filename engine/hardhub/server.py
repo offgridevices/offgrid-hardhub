@@ -399,7 +399,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if testing:
                     opts = req.get('options') if isinstance(req.get('options'), dict) else {}
-                    opts = {k: float(v) for k, v in opts.items() if k in ('ambient_min', 'ambient_max') and isinstance(v, (int, float))}
+                    import math
+                    # the API checks these too; the engine takes nothing it cannot simulate
+                    opts = {k: min(150.0, max(-60.0, float(v))) for k, v in opts.items()
+                            if k in ('ambient_min', 'ambient_max') and isinstance(v, (int, float)) and not isinstance(v, bool)
+                            and math.isfinite(v)}
                     run_child(_test, (req['design'], job, req.get('kicad_zip_b64') or None, opts), BUILD_TIMEOUT, on_line)
                 elif editing:
                     run_child(_edit, (req['design'], job, req['kicad_zip_b64'], req['edits'], outputs), BUILD_TIMEOUT, on_line)
