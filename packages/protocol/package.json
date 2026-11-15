@@ -12,6 +12,6 @@
     "test": "vitest run --passWithNoTests",
     "schema": "tsx scripts/json-schema.ts"
   },
-  "dependencies": { "zod": "4.3.3" },
+  "dependencies": { "zod": "4.6.7" },
   "devDependencies": { "typescript": "5.9.3", "vitest": "4.1.12", "tsx": "4.23.15" }
 }
