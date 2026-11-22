@@ -94,7 +94,7 @@ jobs:
       # Docker builds keep their layers on a Blacksmith disk that outlives the
       # runner, so the KiCad engine image is rebuilt only from the first layer
       # a change touches. One key for every job that builds the engine.
-      - uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+      - uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
         with:
           cache-key: offgrid-hardhub/engine
 
@@ -156,7 +156,7 @@ jobs:
 
       # wrangler builds the engine image with `docker build --load`; the same
       # layer cache as the e2e job, so this is mostly cache hits.
-      - uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+      - uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
         with:
           cache-key: offgrid-hardhub/engine
 
